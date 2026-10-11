@@ -111,6 +111,7 @@ impl Scene for Breakout {
             if other == self.paddle {
                 if v.y > 0.0 {
                     v.y = -v.y.abs();
+                    ctx.audio.play("assets/hit.wav");
                     v.x = ((b.0.x + b.0.w / 2.0) - (paddle.x + paddle.w / 2.0)) / (paddle.w / 2.0) * 250.0;
                 }
             } else if broken.is_none() {
@@ -124,6 +125,7 @@ impl Scene for Breakout {
         }
 
         if let Some(e) = broken {
+            ctx.audio.play("assets/brick.wav");
             self.world.despawn(e).unwrap();
             self.score += 10;
             if bricks_left == 1 {
@@ -132,6 +134,7 @@ impl Scene for Breakout {
         }
         if lost {
             self.lives -= 1;
+            ctx.audio.play("assets/score.wav");
             if self.lives == 0 {
                 return Trans::Replace(Box::new(Over("GAME OVER")));
             }

@@ -79,6 +79,7 @@ impl Tilemap {
                         Rect { x: ((id - 1) * self.size) as f32, y: 0.0, w: self.size as f32, h: self.size as f32 },
                         tx * s - cx,
                         ty * s - cy,
+                        false,
                     );
                 }
             }

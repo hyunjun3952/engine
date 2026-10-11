@@ -1,4 +1,4 @@
-use crate::{Assets, Gfx, Input, Key, Rect};
+use crate::{Assets, Audio, Gfx, Input, Key, Rect};
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
 
@@ -18,6 +18,7 @@ impl Default for Config {
 pub struct Ctx {
     pub input: Input,
     pub assets: Assets,
+    pub audio: Audio,
     pub dt: f32,
     pub w: usize,
     pub h: usize,
@@ -50,7 +51,8 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut win = Window::new(cfg.title, cfg.w, cfg.h, WindowOptions::default()).expect("window");
     let mut gfx = Gfx::new(cfg.w, cfg.h);
     let dt = 1.0 / cfg.tick_hz;
-    let mut ctx = Ctx { input: Input::default(), assets: Assets::default(), dt, w: cfg.w, h: cfg.h };
+    let mut ctx =
+        Ctx { input: Input::default(), assets: Assets::default(), audio: Audio::new(), dt, w: cfg.w, h: cfg.h };
     let mut stack = vec![first(&mut ctx)];
     let (mut last, mut acc) = (Instant::now(), 0.0f32);
     let (mut stats, mut since, mut f3) = (Stats::default(), Instant::now(), false);

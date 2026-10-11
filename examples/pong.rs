@@ -93,10 +93,12 @@ impl Scene for Pong {
             v.y = -v.y;
         }
         if hit {
+            ctx.audio.play("assets/hit.wav");
             v.x = -v.x * 1.05;
         }
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
             self.score[(b.0.x > 0.0) as usize] += 1;
+            ctx.audio.play("assets/score.wav");
             self.serve();
         }
         Trans::None

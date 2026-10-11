@@ -60,10 +60,10 @@ impl Gfx {
     }
 
     pub fn blit(&mut self, s: &Sprite, x: i32, y: i32) {
-        self.blit_region(s, Rect { x: 0.0, y: 0.0, w: s.w as f32, h: s.h as f32 }, x, y);
+        self.blit_region(s, Rect { x: 0.0, y: 0.0, w: s.w as f32, h: s.h as f32 }, x, y, false);
     }
 
-    pub fn blit_region(&mut self, s: &Sprite, src: Rect, x: i32, y: i32) {
+    pub fn blit_region(&mut self, s: &Sprite, src: Rect, x: i32, y: i32, flip: bool) {
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
         for sy in 0..h {
             let dy = y + sy as i32;
@@ -75,7 +75,7 @@ impl Gfx {
                 if dx < 0 || dx >= self.w as i32 {
                     continue;
                 }
-                let p = s.px[(sy0 + sy) * s.w + sx0 + sx];
+                let p = s.px[(sy0 + sy) * s.w + sx0 + if flip { w - 1 - sx } else { sx }];
                 let (a, d) = (p >> 24, &mut self.buf[dy as usize * self.w + dx as usize]);
                 if a == 255 {
                     *d = p;

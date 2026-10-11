@@ -1,4 +1,4 @@
-use engine::{Body, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Tilemap, Trans, Vel, World, render};
+use engine::{Anim, Body, Config, Ctx, Entity, Gfx, Key, Rect, Scene, Tilemap, Trans, Vel, World, animate, render};
 
 const LEVEL: [&str; 23] = [
     "#..........................................................#",
@@ -39,7 +39,12 @@ struct Platformer {
 impl Platformer {
     fn new(ctx: &mut Ctx) -> Self {
         let mut world = World::new();
-        let player = world.spawn((Body(START), Vel { x: 0.0, y: 0.0 }, Look::Color(0xffd23f)));
+        let player = world.spawn((
+            Body(START),
+            Vel { x: 0.0, y: 0.0 },
+            Anim::new(ctx.assets.sprite("assets/player.png"), 12, 24),
+        ));
+        ctx.audio.music("assets/music.wav");
         let map = Tilemap::from_ascii(&LEVEL, TILE, ctx.assets.sprite("assets/tiles.png"));
         Platformer { world, player, map, grounded: false }
     }
@@ -51,11 +56,12 @@ impl Scene for Platformer {
             return Trans::Quit;
         }
 
-        let (b, v) = self.world.query_one_mut::<(&mut Body, &mut Vel)>(self.player).unwrap();
+        let (b, v, anim) = self.world.query_one_mut::<(&mut Body, &mut Vel, &mut Anim)>(self.player).unwrap();
         v.x = ctx.input.axis(Key::Left, Key::Right) * 160.0;
         v.y = (v.y + 900.0 * ctx.dt).min(600.0);
         if self.grounded && (ctx.input.pressed(Key::Space) || ctx.input.pressed(Key::Up)) {
             v.y = -330.0;
+            ctx.audio.play("assets/jump.wav");
         }
 
         let (r, _, hit_y) = self.map.slide(&b.0, v.x * ctx.dt, v.y * ctx.dt);
@@ -64,10 +70,21 @@ impl Scene for Platformer {
         if hit_y {
             v.y = 0.0;
         }
+        if v.x != 0.0 {
+            anim.flip = v.x < 0.0;
+        }
+        if !self.grounded {
+            anim.play(2, 1, 1.0);
+        } else if v.x != 0.0 {
+            anim.play(1, 4, 10.0);
+        } else {
+            anim.play(0, 2, 2.0);
+        }
         if b.0.y > self.map.pixel_size().1 {
             b.0 = START;
             v.y = 0.0;
         }
+        animate(&mut self.world, ctx.dt);
         Trans::None
     }
 

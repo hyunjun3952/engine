@@ -8,6 +8,35 @@ pub struct Vel {
     pub y: f32,
 }
 pub struct Collider;
+
+pub struct Anim {
+    sheet: Arc<Sprite>,
+    size: (usize, usize),
+    row: usize,
+    frames: usize,
+    fps: f32,
+    t: f32,
+    pub flip: bool,
+}
+
+impl Anim {
+    pub fn new(sheet: Arc<Sprite>, frame_w: usize, frame_h: usize) -> Self {
+        Anim { sheet, size: (frame_w, frame_h), row: 0, frames: 1, fps: 1.0, t: 0.0, flip: false }
+    }
+
+    pub fn play(&mut self, row: usize, frames: usize, fps: f32) {
+        assert!(frames > 0 && fps > 0.0, "animation needs frames and fps");
+        if self.row != row {
+            self.t = 0.0;
+        }
+        (self.row, self.frames, self.fps) = (row, frames, fps);
+    }
+
+    fn frame(&self) -> usize {
+        (self.t * self.fps) as usize % self.frames
+    }
+}
+
 pub enum Look {
     Color(u32),
     Sprite(Arc<Sprite>),
@@ -20,6 +49,12 @@ pub fn movement(world: &mut World, dt: f32) {
     }
 }
 
+pub fn animate(world: &mut World, dt: f32) {
+    for a in world.query_mut::<&mut Anim>() {
+        a.t = (a.t + dt) % (a.frames as f32 / a.fps);
+    }
+}
+
 pub fn render(world: &World, gfx: &mut Gfx) {
     let (cx, cy) = gfx.cam;
     let view = |r: &Rect| Rect { x: r.x - cx, y: r.y - cy, ..*r };
@@ -29,6 +64,12 @@ pub fn render(world: &World, gfx: &mut Gfx) {
             Look::Color(c) => gfx.fill(&r, *c),
             Look::Sprite(s) => gfx.blit(s, r.x as i32, r.y as i32),
         }
+    }
+    for (b, a) in world.query::<(&Body, &Anim)>().iter() {
+        let r = view(&b.0);
+        let (fw, fh) = a.size;
+        let src = Rect { x: (a.frame() * fw) as f32, y: (a.row * fh) as f32, w: fw as f32, h: fh as f32 };
+        gfx.blit_region(&a.sheet, src, r.x as i32, r.y as i32, a.flip);
     }
     if gfx.debug {
         for (b, _) in world.query::<(&Body, &Collider)>().iter() {
@@ -81,6 +122,20 @@ pub fn collisions(world: &World) -> Vec<Contact> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animation_advances_loops_and_resets_on_clip_change() {
+        let mut w = World::new();
+        let mut a = Anim::new(Arc::new(Sprite::load("assets/player.png")), 12, 24);
+        a.play(1, 4, 10.0);
+        let e = w.spawn((a,));
+        animate(&mut w, 0.25);
+        assert_eq!(w.get::<&Anim>(e).unwrap().frame(), 2);
+        animate(&mut w, 0.2);
+        assert_eq!(w.get::<&Anim>(e).unwrap().frame(), 0);
+        w.query_one_mut::<&mut Anim>(e).unwrap().play(0, 2, 2.0);
+        assert_eq!(w.get::<&Anim>(e).unwrap().frame(), 0);
+    }
 
     fn boxed(w: &mut World, x: f32, collide: bool) -> Entity {
         let e = w.spawn((Body(Rect { x, y: 0.0, w: 10.0, h: 10.0 }),));

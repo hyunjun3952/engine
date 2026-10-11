@@ -1,5 +1,6 @@
 mod app;
 mod assets;
+mod audio;
 #[cfg(test)]
 mod bench;
 mod ecs;
@@ -9,7 +10,8 @@ mod tilemap;
 
 pub use app::{Config, Ctx, Scene, Trans, run};
 pub use assets::Assets;
-pub use ecs::{Body, Collider, Contact, Entity, Look, Vel, World, collisions, movement, render};
+pub use audio::Audio;
+pub use ecs::{Anim, Body, Collider, Contact, Entity, Look, Vel, World, animate, collisions, movement, render};
 pub use gfx::{Gfx, Rect, Sprite};
 pub use input::{Input, Key};
 pub use tilemap::Tilemap;
