@@ -30,7 +30,7 @@ impl Soft {
             match &c.paint {
                 Paint::Clear(col) => self.buf.fill(*col),
                 Paint::Color(col) => self.fill_with(r, |_| *col),
-                Paint::Alpha(col, a) => self.fill_with(r, |d| blend(*col, d, *a as u32)),
+                Paint::Alpha(col, a) => self.fill_alpha(r, *col, *a as u32),
                 Paint::Sprite(s) => {
                     let (w, h) = s.size();
                     self.blit_region(s, Rect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 }, r, false)
@@ -49,13 +49,25 @@ impl Soft {
         }
     }
 
-    fn fill_with(&mut self, r: &Rect, f: impl Fn(u32) -> u32) {
+    fn clip(&self, r: &Rect) -> (usize, usize, usize, usize) {
         let (x0, y0) = (r.x.max(0.0) as usize, r.y.max(0.0) as usize);
         let (x1, y1) = (((r.x + r.w) as usize).min(self.w), ((r.y + r.h) as usize).min(self.h));
+        (x0, y0, x1.max(x0), y1)
+    }
+
+    fn fill_with(&mut self, r: &Rect, f: impl Fn(u32) -> u32) {
+        let (x0, y0, x1, y1) = self.clip(r);
         for y in y0..y1 {
-            for px in &mut self.buf[y * self.w + x0..y * self.w + x1.max(x0)] {
+            for px in &mut self.buf[y * self.w + x0..y * self.w + x1] {
                 *px = f(*px);
             }
+        }
+    }
+
+    fn fill_alpha(&mut self, r: &Rect, color: u32, a: u32) {
+        let (x0, y0, x1, y1) = self.clip(r);
+        for y in y0..y1 {
+            blend_row(&mut self.buf[y * self.w + x0..y * self.w + x1], color, a);
         }
     }
 
@@ -110,6 +122,28 @@ impl Soft {
     }
 }
 
+#[inline(always)]
+fn blend_row_plain(row: &mut [u32], src: u32, a: u32) {
+    for px in row {
+        *px = blend(src, *px, a);
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+fn blend_row_avx2(row: &mut [u32], src: u32, a: u32) {
+    blend_row_plain(row, src, a);
+}
+
+fn blend_row(row: &mut [u32], src: u32, a: u32) {
+    #[cfg(target_arch = "x86_64")]
+    if std::is_x86_feature_detected!("avx2") {
+        // SAFETY: the CPU just reported AVX2 support.
+        return unsafe { blend_row_avx2(row, src, a) };
+    }
+    blend_row_plain(row, src, a);
+}
+
 fn upscale(src: &[u32], w: usize, scale: usize, dst: &mut [u32]) {
     let out_w = w * scale;
     for (y, row) in src.chunks_exact(w).enumerate() {
@@ -123,9 +157,13 @@ fn upscale(src: &[u32], w: usize, scale: usize, dst: &mut [u32]) {
     }
 }
 
+#[inline(always)]
 fn blend(src: u32, dst: u32, a: u32) -> u32 {
-    let mix = |sh: u32| ((((src >> sh) & 255) * a + ((dst >> sh) & 255) * (255 - a)) / 255) << sh;
-    mix(16) | mix(8) | mix(0)
+    let a = a + (a >> 7);
+    let inv = 256 - a;
+    let rb = ((src & 0x00ff_00ff) * a + (dst & 0x00ff_00ff) * inv) >> 8 & 0x00ff_00ff;
+    let g = ((src & 0x0000_ff00) * a + (dst & 0x0000_ff00) * inv) >> 8 & 0x0000_ff00;
+    rb | g
 }
 
 #[cfg(test)]
@@ -162,6 +200,43 @@ mod tests {
         assert_eq!(s.buf.iter().filter(|&&p| p == 7).count() as u32, lit * 4);
         let s = run(8, 8, |g| g.text("A", -4, -4, 1, 7));
         assert!(s.buf.contains(&7));
+    }
+
+    #[test]
+    fn blend_stays_within_one_of_the_exact_division_and_is_exact_at_the_ends() {
+        let colors = [0x000000, 0xffffff, 0x102030, 0xff0080, 0x80ff00, 0x0080ff, 0xdeadbe];
+        for &src in &colors {
+            for &dst in &colors {
+                assert_eq!((blend(src, dst, 0), blend(src, dst, 255)), (dst, src));
+                for a in 0..=255u32 {
+                    let got = blend(src, dst, a);
+                    for sh in [16, 8, 0] {
+                        let (s, d) = ((src >> sh & 255) as i32, (dst >> sh & 255) as i32);
+                        let exact = (s * a as i32 + d * (255 - a as i32)) / 255;
+                        assert!(((got >> sh & 255) as i32 - exact).abs() <= 1, "src {src:x} dst {dst:x} a {a}");
+                    }
+                    assert_eq!(got >> 24, 0, "the alpha byte stays clear");
+                }
+            }
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_avx2_path_gives_exactly_the_same_pixels_as_the_plain_one() {
+        if !std::is_x86_feature_detected!("avx2") {
+            eprintln!("no AVX2, skipping");
+            return;
+        }
+        let base: Vec<u32> = (0..4099u32).map(|i| i.wrapping_mul(2654435761) & 0x00ff_ffff).collect();
+        for (src, a) in
+            [(0x336699, 150), (0xffffff, 1), (0x000000, 254), (0xdeadbe, 128), (0x123456, 0), (0x123456, 255)]
+        {
+            let (mut plain, mut fast) = (base.clone(), base.clone());
+            blend_row_plain(&mut plain, src, a);
+            unsafe { blend_row_avx2(&mut fast, src, a) };
+            assert!(plain == fast, "src {src:x} a {a}");
+        }
     }
 
     #[test]
