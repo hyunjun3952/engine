@@ -142,6 +142,7 @@ impl Gpu {
     pub(crate) fn for_window<W: wgpu::rwh::HasWindowHandle + wgpu::rwh::HasDisplayHandle>(
         win: &W,
         size: (u32, u32),
+        scale: u32,
         allow_cpu: bool,
     ) -> Result<Gpu, String> {
         let raw = win.display_handle().map_err(|e| e.to_string())?.as_raw();
@@ -168,8 +169,8 @@ impl Gpu {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.0,
-            height: size.1,
+            width: size.0 * scale,
+            height: size.1 * scale,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
@@ -564,7 +565,7 @@ mod tests {
             return;
         };
         let g = scene();
-        let mut soft = Soft::new(640, 360);
+        let mut soft = Soft::new(640, 360, 1);
         soft.render(g.cmds());
         let gpu_px = gpu.render_to_pixels(g.cmds());
         if let Ok(dir) = std::env::var("ENGINE_DUMP") {
@@ -600,7 +601,7 @@ mod tests {
         let draw = |gpu: &mut Gpu| {
             let mut g = Gfx::new(64, 64);
             g.blit(&sprite, 4, 4);
-            let mut soft = Soft::new(64, 64);
+            let mut soft = Soft::new(64, 64, 1);
             soft.render(g.cmds());
             let rgb: Vec<u32> = soft.buf.iter().map(|p| p & 0x00ff_ffff).collect();
             (rgb, gpu.render_to_pixels(g.cmds()))

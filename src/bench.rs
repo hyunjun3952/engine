@@ -37,7 +37,7 @@ fn bench() {
     time("collisions 3000", 10, || n = collisions(&world).len());
     println!("  contacts: {n}");
 
-    let mut soft = Soft::new(640, 360);
+    let mut soft = Soft::new(640, 360, 1);
     let full = Rect { x: 0.0, y: 0.0, w: 640.0, h: 360.0 };
     let sprite = Arc::new(Sprite::load("assets/ball.png"));
     let sprites: Vec<DrawCmd> = (0..5000)
@@ -91,4 +91,11 @@ fn bench() {
     let spec = Burst { count: 500, color: 0xffffff, speed: 100.0, life: 100.0, size: 3.0, gravity: 0.0 };
     burst(&mut pw, &mut Rng::new(3), (320.0, 180.0), &spec);
     time("particles update 500", 200, || particles(black_box(&mut pw), 1.0 / 60.0));
+
+    for scale in [2, 3, 4] {
+        let mut up = Soft::new(640, 360, scale);
+        time(&format!("soft: upscale x{scale}"), 100, || {
+            black_box(up.present());
+        });
+    }
 }

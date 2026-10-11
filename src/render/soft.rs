@@ -4,12 +4,23 @@ use crate::{Rect, Sprite};
 pub(crate) struct Soft {
     w: usize,
     h: usize,
+    scale: usize,
     pub(crate) buf: Vec<u32>,
+    scaled: Vec<u32>,
 }
 
 impl Soft {
-    pub(crate) fn new(w: usize, h: usize) -> Self {
-        Soft { w, h, buf: vec![0; w * h] }
+    pub(crate) fn new(w: usize, h: usize, scale: usize) -> Self {
+        let scaled = if scale > 1 { vec![0; w * h * scale * scale] } else { Vec::new() };
+        Soft { w, h, scale, buf: vec![0; w * h], scaled }
+    }
+
+    pub(crate) fn present(&mut self) -> &[u32] {
+        if self.scale == 1 {
+            return &self.buf;
+        }
+        upscale(&self.buf, self.w, self.scale, &mut self.scaled);
+        &self.scaled
     }
 
     pub(crate) fn render(&mut self, cmds: &[DrawCmd]) {
@@ -99,6 +110,19 @@ impl Soft {
     }
 }
 
+fn upscale(src: &[u32], w: usize, scale: usize, dst: &mut [u32]) {
+    let out_w = w * scale;
+    for (y, row) in src.chunks_exact(w).enumerate() {
+        let first = y * scale * out_w;
+        for (px, run) in row.iter().zip(dst[first..first + out_w].chunks_exact_mut(scale)) {
+            run.fill(*px);
+        }
+        for k in 1..scale {
+            dst.copy_within(first..first + out_w, first + k * out_w);
+        }
+    }
+}
+
 fn blend(src: u32, dst: u32, a: u32) -> u32 {
     let mix = |sh: u32| ((((src >> sh) & 255) * a + ((dst >> sh) & 255) * (255 - a)) / 255) << sh;
     mix(16) | mix(8) | mix(0)
@@ -111,7 +135,7 @@ mod tests {
     use std::sync::Arc;
 
     fn run(w: usize, h: usize, f: impl FnOnce(&mut Gfx)) -> Soft {
-        let (mut g, mut s) = (Gfx::new(w, h), Soft::new(w, h));
+        let (mut g, mut s) = (Gfx::new(w, h), Soft::new(w, h, 1));
         f(&mut g);
         s.render(g.cmds());
         s
@@ -138,6 +162,23 @@ mod tests {
         assert_eq!(s.buf.iter().filter(|&&p| p == 7).count() as u32, lit * 4);
         let s = run(8, 8, |g| g.text("A", -4, -4, 1, 7));
         assert!(s.buf.contains(&7));
+    }
+
+    #[test]
+    fn upscaling_repeats_every_pixel_scale_times_in_both_directions() {
+        let mut s = Soft::new(3, 2, 3);
+        s.buf = vec![1, 2, 3, 4, 5, 6];
+        let out = s.present().to_vec();
+        assert_eq!(out.len(), 9 * 6);
+        let row = |y: usize| &out[y * 9..y * 9 + 9];
+        assert_eq!(row(0), [1, 1, 1, 2, 2, 2, 3, 3, 3]);
+        assert_eq!(row(0), row(1));
+        assert_eq!(row(1), row(2));
+        assert_eq!(row(3), [4, 4, 4, 5, 5, 5, 6, 6, 6]);
+        assert_eq!(row(5), row(3));
+        let mut one = Soft::new(3, 2, 1);
+        one.buf = vec![1, 2, 3, 4, 5, 6];
+        assert_eq!(one.present(), [1, 2, 3, 4, 5, 6]);
     }
 
     #[test]

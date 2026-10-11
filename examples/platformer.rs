@@ -115,7 +115,7 @@ impl Scene for Platformer {
 
 fn main() {
     let level = std::env::args().nth(1).unwrap_or_else(|| "assets/level1.txt".into());
-    engine::run(Config { title: "platformer", ..Config::default() }, |ctx| {
+    engine::run(Config { title: "platformer", scale: 2, ..Config::default() }, |ctx| {
         ctx.bind("left", &[Key::Left, Key::A]);
         ctx.bind("right", &[Key::Right, Key::D]);
         ctx.bind("jump", &[Key::Space, Key::Up, Key::W]);

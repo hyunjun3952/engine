@@ -134,7 +134,7 @@ impl Scene for Pong {
 }
 
 fn main() {
-    engine::run(Config::default(), |ctx| {
+    engine::run(Config { scale: 2, ..Config::default() }, |ctx| {
         for (action, keys) in [
             ("confirm", &[Key::Enter][..]),
             ("back", &[Key::Escape]),

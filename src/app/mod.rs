@@ -27,6 +27,7 @@ pub struct Config {
     pub tick_hz: f32,
     pub renderer: RenderMode,
     pub hot_reload: bool,
+    pub scale: usize,
 }
 
 impl Default for Config {
@@ -38,6 +39,7 @@ impl Default for Config {
             tick_hz: 60.0,
             renderer: RenderMode::Auto,
             hot_reload: cfg!(debug_assertions),
+            scale: 1,
         }
     }
 }
@@ -206,12 +208,12 @@ enum Backend {
 }
 
 #[cfg(feature = "gpu")]
-fn try_gpu(mode: RenderMode, win: &Window, (w, h): (usize, usize)) -> Option<Backend> {
+fn try_gpu(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: usize) -> Option<Backend> {
     // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
     if std::env::var_os("GALLIUM_DRIVER").is_none() && std::path::Path::new("/dev/dxg").exists() {
         unsafe { std::env::set_var("GALLIUM_DRIVER", "d3d12") };
     }
-    match Gpu::for_window(win, (w as u32, h as u32), mode == RenderMode::Gpu) {
+    match Gpu::for_window(win, (w as u32, h as u32), scale as u32, mode == RenderMode::Gpu) {
         Ok(gpu) => {
             eprintln!("renderer: gpu, {}", gpu.adapter);
             Some(Backend::Gpu(Box::new(gpu)))
@@ -224,29 +226,30 @@ fn try_gpu(mode: RenderMode, win: &Window, (w, h): (usize, usize)) -> Option<Bac
 }
 
 #[cfg(not(feature = "gpu"))]
-fn try_gpu(mode: RenderMode, _win: &Window, _size: (usize, usize)) -> Option<Backend> {
+fn try_gpu(mode: RenderMode, _win: &Window, _size: (usize, usize), _scale: usize) -> Option<Backend> {
     if mode == RenderMode::Gpu {
         eprintln!("renderer: software (built without the gpu feature)");
     }
     None
 }
 
-fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize)) -> Backend {
+fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: usize) -> Backend {
     let mode = match std::env::var("ENGINE_RENDERER").as_deref() {
         Ok("gpu") => RenderMode::Gpu,
         Ok("soft") => RenderMode::Software,
         Ok("auto") => RenderMode::Auto,
         _ => mode,
     };
-    let gpu = if mode == RenderMode::Software { None } else { try_gpu(mode, win, (w, h)) };
-    gpu.unwrap_or_else(|| Backend::Soft(Soft::new(w, h)))
+    let gpu = if mode == RenderMode::Software { None } else { try_gpu(mode, win, (w, h), scale) };
+    gpu.unwrap_or_else(|| Backend::Soft(Soft::new(w, h, scale)))
 }
 
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
-    let mut win = Window::new(cfg.title, cfg.w, cfg.h, WindowOptions::default()).expect("window");
+    let scale = std::env::var("ENGINE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(cfg.scale).max(1);
+    let mut win = Window::new(cfg.title, cfg.w * scale, cfg.h * scale, WindowOptions::default()).expect("window");
     let mut gfx = Gfx::new(cfg.w, cfg.h);
     let log_stats = std::env::var_os("ENGINE_STATS").is_some();
-    let mut backend = pick_backend(cfg.renderer, &win, (cfg.w, cfg.h));
+    let mut backend = pick_backend(cfg.renderer, &win, (cfg.w, cfg.h), scale);
     let dt = 1.0 / cfg.tick_hz;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
     let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
@@ -313,7 +316,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         match &mut backend {
             Backend::Soft(soft) => {
                 soft.render(gfx.cmds());
-                win.update_with_buffer(&soft.buf, cfg.w, cfg.h).expect("present");
+                win.update_with_buffer(soft.present(), cfg.w * scale, cfg.h * scale).expect("present");
             }
             #[cfg(feature = "gpu")]
             Backend::Gpu(gpu) => {

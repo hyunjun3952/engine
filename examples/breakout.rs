@@ -166,7 +166,7 @@ impl Scene for Breakout {
 }
 
 fn main() {
-    engine::run(Config { title: "breakout", ..Config::default() }, |ctx| {
+    engine::run(Config { title: "breakout", scale: 2, ..Config::default() }, |ctx| {
         ctx.bind("left", &[Key::Left, Key::A]);
         ctx.bind("right", &[Key::Right, Key::D]);
         ctx.bind("confirm", &[Key::Enter]);
