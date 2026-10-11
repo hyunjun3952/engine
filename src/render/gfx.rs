@@ -90,22 +90,20 @@ impl Gfx {
 
     pub fn blit_region(&mut self, s: &Sprite, src: Rect, x: i32, y: i32, flip: bool) {
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
-        for sy in 0..h {
-            let dy = y + sy as i32;
-            if dy < 0 || dy >= self.h as i32 {
-                continue;
-            }
-            for sx in 0..w {
-                let dx = x + sx as i32;
-                if dx < 0 || dx >= self.w as i32 {
-                    continue;
-                }
-                let p = s.px[(sy0 + sy) * s.w + sx0 + if flip { w - 1 - sx } else { sx }];
-                let (a, d) = (p >> 24, &mut self.buf[dy as usize * self.w + dx as usize]);
-                if a == 255 {
-                    *d = p;
-                } else if a > 0 {
-                    *d = blend(p, *d, a);
+        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
+        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
+        for sy in rows {
+            let from = (sy0 + sy) * s.w + sx0;
+            let src_row = &s.px[from..from + w];
+            let dst_from = (y + sy as i32) as usize * self.w;
+            let dst_row = &mut self.buf[dst_from..dst_from + self.w];
+            for sx in cols.clone() {
+                let p = src_row[if flip { w - 1 - sx } else { sx }];
+                let d = &mut dst_row[(x + sx as i32) as usize];
+                match p >> 24 {
+                    255 => *d = p,
+                    0 => {}
+                    a => *d = blend(p, *d, a),
                 }
             }
         }
@@ -168,6 +166,20 @@ mod tests {
         g.debug = true;
         g.draw(&[cmd(true)]);
         assert_eq!(g.buf[2], 7);
+    }
+
+    #[test]
+    fn blit_clips_at_every_edge_and_flip_mirrors_columns() {
+        let s = Sprite::load("assets/ball.png");
+        let mut g = Gfx::new(16, 16);
+        g.blit(&s, -8, -8);
+        assert_eq!((g.buf[0], g.buf[8 * 16 + 8]), (s.px[8 * 16 + 8], 0));
+        g.buf.fill(0);
+        g.blit_region(&s, Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }, 0, 0, true);
+        assert_eq!(g.buf[8 * 16 + 3], s.px[8 * 16 + 12]);
+        for (x, y) in [(-100, 5), (100, 100), (5, -100), (15, 15), (-15, -15)] {
+            g.blit(&s, x, y);
+        }
     }
 
     #[test]
