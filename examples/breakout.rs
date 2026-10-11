@@ -135,6 +135,7 @@ impl Scene for Breakout {
         if lost {
             self.lives -= 1;
             ctx.audio.play("assets/score.wav");
+            ctx.cam.shake(5.0, 0.25);
             if self.lives == 0 {
                 return Trans::Replace(Box::new(Over("GAME OVER")));
             }

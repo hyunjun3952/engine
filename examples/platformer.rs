@@ -43,6 +43,9 @@ impl Scene for Platformer {
         let (r, _, hit_y) = self.map.slide(&b.0, v.x * ctx.dt, v.y * ctx.dt);
         b.0 = r;
         self.grounded = hit_y && v.y > 0.0;
+        if self.grounded && v.y > 450.0 {
+            ctx.cam.shake(3.0, 0.2);
+        }
         if hit_y {
             v.y = 0.0;
         }
@@ -59,14 +62,15 @@ impl Scene for Platformer {
         if b.0.y > self.map.pixel_size().1 {
             b.0 = self.start;
             v.y = 0.0;
+            ctx.cam.cut();
+            ctx.cam.shake(6.0, 0.3);
         }
+        ctx.cam.follow(&b.0, self.map.pixel_size(), ctx.dt);
         animate(&mut self.world, ctx.dt);
         Trans::None
     }
 
     fn draw(&self, g: &mut Gfx) {
-        let player = self.world.get::<&Body>(self.player).unwrap().0;
-        g.follow(&player, self.map.pixel_size());
         g.clear(0x6fa8e0);
         self.map.draw(g);
         render(&self.world, g);

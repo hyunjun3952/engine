@@ -52,13 +52,6 @@ impl Gfx {
         self.fill(&Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, c);
     }
 
-    pub fn follow(&mut self, target: &Rect, world: (f32, f32)) {
-        self.cam = (
-            (target.x + target.w / 2.0 - self.w as f32 / 2.0).clamp(0.0, (world.0 - self.w as f32).max(0.0)).floor(),
-            (target.y + target.h / 2.0 - self.h as f32 / 2.0).clamp(0.0, (world.1 - self.h as f32).max(0.0)).floor(),
-        );
-    }
-
     pub fn blit(&mut self, s: &Sprite, x: i32, y: i32) {
         self.blit_region(s, Rect { x: 0.0, y: 0.0, w: s.w as f32, h: s.h as f32 }, x, y, false);
     }

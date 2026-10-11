@@ -99,6 +99,7 @@ impl Scene for Pong {
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
             self.score[(b.0.x > 0.0) as usize] += 1;
             ctx.audio.play("assets/score.wav");
+            ctx.cam.shake(4.0, 0.2);
             self.serve();
         }
         Trans::None
