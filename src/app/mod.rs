@@ -6,7 +6,9 @@ pub use input::{Input, Key};
 pub use rng::Rng;
 pub use time::{Ease, Timer, Tween};
 
-use crate::render::{Gpu, Soft};
+#[cfg(feature = "gpu")]
+use crate::render::Gpu;
+use crate::render::Soft;
 use crate::{Assets, Audio, Camera, Gfx, Rect};
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
@@ -149,7 +151,34 @@ struct Stats {
 
 enum Backend {
     Soft(Soft),
+    #[cfg(feature = "gpu")]
     Gpu(Box<Gpu>),
+}
+
+#[cfg(feature = "gpu")]
+fn try_gpu(mode: RenderMode, win: &Window, (w, h): (usize, usize)) -> Option<Backend> {
+    // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
+    if std::env::var_os("GALLIUM_DRIVER").is_none() && std::path::Path::new("/dev/dxg").exists() {
+        unsafe { std::env::set_var("GALLIUM_DRIVER", "d3d12") };
+    }
+    match Gpu::for_window(win, (w as u32, h as u32), mode == RenderMode::Gpu) {
+        Ok(gpu) => {
+            eprintln!("renderer: gpu, {}", gpu.adapter);
+            Some(Backend::Gpu(Box::new(gpu)))
+        }
+        Err(e) => {
+            eprintln!("renderer: software ({e})");
+            None
+        }
+    }
+}
+
+#[cfg(not(feature = "gpu"))]
+fn try_gpu(mode: RenderMode, _win: &Window, _size: (usize, usize)) -> Option<Backend> {
+    if mode == RenderMode::Gpu {
+        eprintln!("renderer: software (built without the gpu feature)");
+    }
+    None
 }
 
 fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize)) -> Backend {
@@ -159,20 +188,8 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize)) -> Backe
         Ok("auto") => RenderMode::Auto,
         _ => mode,
     };
-    if mode != RenderMode::Software {
-        // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
-        if std::env::var_os("GALLIUM_DRIVER").is_none() && std::path::Path::new("/dev/dxg").exists() {
-            unsafe { std::env::set_var("GALLIUM_DRIVER", "d3d12") };
-        }
-        match Gpu::for_window(win, (w as u32, h as u32), mode == RenderMode::Gpu) {
-            Ok(gpu) => {
-                eprintln!("renderer: gpu, {}", gpu.adapter);
-                return Backend::Gpu(Box::new(gpu));
-            }
-            Err(e) => eprintln!("renderer: software ({e})"),
-        }
-    }
-    Backend::Soft(Soft::new(w, h))
+    let gpu = if mode == RenderMode::Software { None } else { try_gpu(mode, win, (w, h)) };
+    gpu.unwrap_or_else(|| Backend::Soft(Soft::new(w, h)))
 }
 
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
@@ -243,6 +260,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
                 soft.render(gfx.cmds());
                 win.update_with_buffer(&soft.buf, cfg.w, cfg.h).expect("present");
             }
+            #[cfg(feature = "gpu")]
             Backend::Gpu(gpu) => {
                 gpu.render(gfx.cmds());
                 win.update();
