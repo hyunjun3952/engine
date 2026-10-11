@@ -84,19 +84,21 @@ impl Tilemap {
         let (tx0, ty0) = ((view.x / s).floor().max(0.0) as usize, (view.y / s).floor().max(0.0) as usize);
         let tx1 = (((view.x + view.w) / s).ceil().max(0.0) as usize).min(self.w);
         let ty1 = (((view.y + view.h) / s).ceil().max(0.0) as usize).min(self.h);
-        let mut cmds = Vec::new();
+        let mut tiles = Vec::new();
         for ty in ty0..ty1 {
             for tx in tx0..tx1 {
-                let id = self.tiles[ty * self.w + tx] as usize;
+                let id = self.tiles[ty * self.w + tx];
                 if id > 0 {
-                    let src = Rect { x: ((id - 1) * self.size) as f32, y: 0.0, w: s, h: s };
-                    let paint = Paint::Region { sheet: self.sheet.clone(), src, flip: false };
-                    let rect = Rect { x: tx as f32 * s, y: ty as f32 * s, w: s, h: s };
-                    cmds.push(DrawCmd { layer: i32::MIN, rect, paint, debug_only: false });
+                    tiles.push(((tx - tx0) as u32, (ty - ty0) as u32, id));
                 }
             }
         }
-        cmds
+        if tiles.is_empty() {
+            return Vec::new();
+        }
+        let rect = Rect { x: tx0 as f32 * s, y: ty0 as f32 * s, w: (tx1 - tx0) as f32 * s, h: (ty1 - ty0) as f32 * s };
+        let paint = Paint::Tiles { sheet: self.sheet.clone(), size: self.size as u32, tiles };
+        vec![DrawCmd { layer: i32::MIN, rect, paint, debug_only: false }]
     }
 }
 
@@ -121,10 +123,23 @@ mod tests {
     #[test]
     fn draw_list_covers_only_the_visible_solid_tiles_in_world_space() {
         let map = Tilemap::from_ascii(&["#.#", "...", "..."], 16, Arc::new(Sprite::load("assets/tiles.png")));
-        let at = |view| map.draw_list(view).iter().map(|c| (c.rect.x, c.rect.y)).collect::<Vec<_>>();
+        let at = |view| {
+            map.draw_list(view)
+                .iter()
+                .flat_map(|c| match &c.paint {
+                    Paint::Tiles { size, tiles, .. } => tiles
+                        .iter()
+                        .map(|&(gx, gy, _)| (c.rect.x + (gx * size) as f32, c.rect.y + (gy * size) as f32))
+                        .collect(),
+                    _ => Vec::new(),
+                })
+                .collect::<Vec<_>>()
+        };
         assert_eq!(at(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }), [(0.0, 0.0), (32.0, 0.0)]);
         assert_eq!(at(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }), [(0.0, 0.0)]);
         assert_eq!(at(Rect { x: 20.0, y: 0.0, w: 40.0, h: 16.0 }), [(32.0, 0.0)]);
+        assert!(map.draw_list(Rect { x: 0.0, y: 32.0, w: 48.0, h: 16.0 }).is_empty());
+        assert_eq!(map.draw_list(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }).len(), 1);
     }
 
     #[test]

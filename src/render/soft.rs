@@ -26,6 +26,13 @@ impl Soft {
                 Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r, *flip),
                 Paint::Outline(col) => self.outline(r, *col),
                 Paint::Glyph { ch, color, scale } => self.glyph(r, *ch, *color, *scale),
+                Paint::Tiles { sheet, size, tiles } => {
+                    for &(gx, gy, id) in tiles {
+                        let at = Rect { x: r.x + (gx * size) as f32, y: r.y + (gy * size) as f32, ..*r };
+                        let src = Rect { x: ((id as u32 - 1) * size) as f32, y: 0.0, w: *size as f32, h: *size as f32 };
+                        self.blit_region(sheet, src, &at, false);
+                    }
+                }
             }
         }
     }

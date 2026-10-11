@@ -72,7 +72,7 @@ fn bench() {
     let map = Tilemap::load("assets/level1.txt", 16, Arc::new(Sprite::load("assets/tiles.png")));
     let mut tiles = 0;
     time("tilemap draw_list (visible)", 200, || tiles = map.draw_list(full).len());
-    println!("  visible tile cmds: {tiles}");
+    println!("  tile cmds: {tiles}");
     let tile_cmds = map.draw_list(full);
     time("soft: tiles", 200, || soft.render(black_box(&tile_cmds)));
 

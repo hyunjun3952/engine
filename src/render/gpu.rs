@@ -384,6 +384,15 @@ impl Gpu {
                     let (u0, u1) = (*ch as f32 / font::GLYPHS as f32, (*ch as f32 + 1.0) / font::GLYPHS as f32);
                     self.quad(Tex::Font, (x, y, x + size, y + size), (u0, 0.0, u1, 1.0), rgba(*color, 1.0));
                 }
+                Paint::Tiles { sheet, size, tiles } => {
+                    let (tex, (sw, _)) = self.texture(sheet);
+                    let sz = *size as f32;
+                    for &(gx, gy, id) in tiles {
+                        let (x, y) = (r.x.trunc() + (gx * size) as f32, r.y.trunc() + (gy * size) as f32);
+                        let u0 = (id as f32 - 1.0) * sz / sw;
+                        self.quad(tex, (x, y, x + sz, y + sz), (u0, 0.0, u0 + sz / sw, 1.0), [1.0; 4]);
+                    }
+                }
                 Paint::Sprite(s) => {
                     let (tex, (w, h)) = self.texture(s);
                     let (x, y) = (r.x.trunc(), r.y.trunc());
