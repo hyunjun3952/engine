@@ -89,6 +89,21 @@ impl Tilemap {
         (r, hit_x, hit_y)
     }
 
+    pub fn solid_in(&self, area: Rect) -> Vec<Rect> {
+        let s = self.size as f32;
+        let (x0, x1) = ((area.x / s).floor() as i32, ((area.x + area.w) / s).ceil() as i32);
+        let (y0, y1) = ((area.y / s).floor() as i32, ((area.y + area.h) / s).ceil() as i32);
+        let mut out = Vec::new();
+        for ty in y0..y1 {
+            for tx in x0..x1 {
+                if self.solid(tx, ty) {
+                    out.push(Rect { x: tx as f32 * s, y: ty as f32 * s, w: s, h: s });
+                }
+            }
+        }
+        out
+    }
+
     pub fn draw_list(&self, view: Rect) -> Vec<DrawCmd> {
         let s = self.size as f32;
         let (tx0, ty0) = ((view.x / s).floor().max(0.0) as usize, (view.y / s).floor().max(0.0) as usize);

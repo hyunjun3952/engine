@@ -1,0 +1,67 @@
+use engine::{
+    Body, Config, Ctx, Entity, Gfx, Key, Look, Physics, Rect, RigidBody, Scene, Trans, Vel, World, draw_list,
+};
+
+const W: f32 = 640.0;
+const H: f32 = 360.0;
+
+struct Sandbox {
+    world: World,
+    physics: Physics,
+}
+
+impl Sandbox {
+    fn new(ctx: &mut Ctx) -> Self {
+        let mut world = World::new();
+        let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), Look::Color(0x4a4a5a), RigidBody::fixed());
+        world.spawn(wall(0.0, H - 20.0, W, 20.0));
+        world.spawn(wall(0.0, 0.0, 10.0, H));
+        world.spawn(wall(W - 10.0, 0.0, 10.0, H));
+        let mut sandbox = Sandbox { world, physics: Physics::default() };
+        for i in 0..36 {
+            sandbox.drop_box(ctx, -20.0 * i as f32);
+        }
+        sandbox
+    }
+
+    fn drop_box(&mut self, ctx: &mut Ctx, y: f32) -> Entity {
+        let rng = ctx.rng();
+        let size = rng.range(14.0, 34.0);
+        let bounce = rng.range(0.0, 0.7);
+        let shade = (80.0 + bounce * 250.0) as u32;
+        let color = (shade + 40) << 16 | (200 - shade / 2) << 8 | 120;
+        let rect = Rect { x: rng.range(20.0, W - 20.0 - size), y, w: size, h: size };
+        let body = RigidBody::dynamic(size * size / 100.0).with_bounce(bounce).with_friction(0.5);
+        self.world.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, Look::Color(color), body))
+    }
+}
+
+impl Scene for Sandbox {
+    fn update(&mut self, ctx: &mut Ctx) -> Trans {
+        if ctx.input().pressed("back") {
+            return Trans::Quit;
+        }
+        if ctx.input().pressed("drop") {
+            self.drop_box(ctx, 0.0);
+        }
+        self.physics.step(&mut self.world, None, ctx.dt());
+        Trans::None
+    }
+
+    fn draw(&self, g: &mut Gfx) {
+        g.clear(0x101018);
+        g.draw(draw_list(&self.world));
+        g.text("SPACE: drop a box   brighter boxes bounce more", 16, 16, 1, 0xaaaaaa);
+    }
+}
+
+fn main() {
+    engine::run(Config { title: "physics", scale: 2, ..Config::default() }, |ctx| {
+        ctx.bind("drop", &[Key::Space]);
+        ctx.bind("back", &[Key::Escape]);
+        if let Err(e) = ctx.load_bindings("input.txt") {
+            eprintln!("{e}");
+        }
+        Box::new(Sandbox::new(ctx))
+    });
+}

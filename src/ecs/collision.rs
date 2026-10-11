@@ -23,22 +23,27 @@ impl Contact {
     }
 }
 
-pub fn collisions(world: &World) -> Vec<Contact> {
-    let mut boxes: Vec<(Entity, Rect)> =
-        world.query::<(Entity, &Body, &Collider)>().iter().map(|(e, b, _)| (e, b.0)).collect();
-    boxes.sort_unstable_by(|a, b| a.1.x.total_cmp(&b.1.x));
+pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)> {
+    let mut order: Vec<usize> = (0..rects.len()).collect();
+    order.sort_unstable_by(|&a, &b| rects[a].x.total_cmp(&rects[b].x));
     let mut out = Vec::new();
-    for (i, (a, ra)) in boxes.iter().enumerate() {
-        for (b, rb) in &boxes[i + 1..] {
-            if rb.x >= ra.x + ra.w {
+    for (k, &a) in order.iter().enumerate() {
+        for &b in &order[k + 1..] {
+            if rects[b].x >= rects[a].x + rects[a].w {
                 break;
             }
-            if let Some((ox, oy)) = ra.penetration(rb) {
-                out.push(Contact { a: *a, b: *b, ox, oy });
+            if let Some((ox, oy)) = rects[a].penetration(&rects[b]) {
+                out.push((a, b, ox, oy));
             }
         }
     }
     out
+}
+
+pub fn collisions(world: &World) -> Vec<Contact> {
+    let (ents, rects): (Vec<Entity>, Vec<Rect>) =
+        world.query::<(Entity, &Body, &Collider)>().iter().map(|(e, b, _)| (e, b.0)).unzip();
+    overlapping_pairs(&rects).into_iter().map(|(a, b, ox, oy)| Contact { a: ents[a], b: ents[b], ox, oy }).collect()
 }
 
 #[cfg(test)]

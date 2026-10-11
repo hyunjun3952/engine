@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
     pub x: f32,
     pub y: f32,
