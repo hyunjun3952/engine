@@ -1,4 +1,4 @@
-use crate::Rect;
+use crate::{Rect, Rng};
 
 const FOLLOW_SPEED: f32 = 10.0;
 
@@ -10,7 +10,7 @@ pub struct Camera {
     shake_left: f32,
     shake_total: f32,
     jitter: (f32, f32),
-    seed: u32,
+    rng: Rng,
 }
 
 impl Camera {
@@ -23,7 +23,7 @@ impl Camera {
             shake_left: 0.0,
             shake_total: 1.0,
             jitter: (0.0, 0.0),
-            seed: 1,
+            rng: Rng::new(1),
         }
     }
 
@@ -55,16 +55,11 @@ impl Camera {
         }
         self.shake_left = (self.shake_left - dt).max(0.0);
         let strength = self.shake_amp * self.shake_left / self.shake_total;
-        self.jitter = ((self.rand() - 0.5) * 2.0 * strength, (self.rand() - 0.5) * 2.0 * strength);
+        self.jitter = (self.rng.range(-strength, strength), self.rng.range(-strength, strength));
     }
 
     pub(crate) fn offset(&self) -> (f32, f32) {
         ((self.pos.0 + self.jitter.0).floor(), (self.pos.1 + self.jitter.1).floor())
-    }
-
-    fn rand(&mut self) -> f32 {
-        self.seed = self.seed.wrapping_mul(1664525).wrapping_add(1013904223);
-        (self.seed >> 8) as f32 / (1u32 << 24) as f32
     }
 }
 

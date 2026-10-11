@@ -1,6 +1,10 @@
-use engine::{Anim, Body, Config, Ctx, Entity, Gfx, Key, Rect, Scene, Tilemap, Trans, Vel, World, animate, render};
+use engine::{
+    Anim, Body, Burst, Config, Ctx, Entity, Gfx, Key, Rect, Scene, Tilemap, Trans, Vel, World, animate, burst,
+    particles, render,
+};
 
 const TILE: usize = 16;
+const DUST: Burst = Burst { count: 6, color: 0xdddddd, speed: 50.0, life: 0.3, size: 3.0, gravity: 0.0 };
 
 struct Platformer {
     world: World,
@@ -33,16 +37,19 @@ impl Scene for Platformer {
         }
 
         let (b, v, anim) = self.world.query_one_mut::<(&mut Body, &mut Vel, &mut Anim)>(self.player).unwrap();
+        let (was_grounded, mut dust) = (self.grounded, false);
         v.x = ctx.input.axis(Key::Left, Key::Right) * 160.0;
         v.y = (v.y + 900.0 * ctx.dt).min(600.0);
         if self.grounded && (ctx.input.pressed(Key::Space) || ctx.input.pressed(Key::Up)) {
             v.y = -330.0;
             ctx.audio.play("assets/jump.wav");
+            dust = true;
         }
 
         let (r, _, hit_y) = self.map.slide(&b.0, v.x * ctx.dt, v.y * ctx.dt);
         b.0 = r;
         self.grounded = hit_y && v.y > 0.0;
+        dust |= self.grounded && !was_grounded;
         if self.grounded && v.y > 450.0 {
             ctx.cam.shake(3.0, 0.2);
         }
@@ -66,7 +73,12 @@ impl Scene for Platformer {
             ctx.cam.shake(6.0, 0.3);
         }
         ctx.cam.follow(&b.0, self.map.pixel_size(), ctx.dt);
+        let feet = (b.0.x + b.0.w / 2.0, b.0.y + b.0.h);
+        if dust {
+            burst(&mut self.world, &mut ctx.rng, feet, &DUST);
+        }
         animate(&mut self.world, ctx.dt);
+        particles(&mut self.world, ctx.dt);
         Trans::None
     }
 

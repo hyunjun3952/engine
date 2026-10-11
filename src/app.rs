@@ -1,4 +1,4 @@
-use crate::{Assets, Audio, Camera, Gfx, Input, Key, Rect};
+use crate::{Assets, Audio, Camera, Gfx, Input, Key, Rect, Rng};
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
 
@@ -20,6 +20,7 @@ pub struct Ctx {
     pub assets: Assets,
     pub audio: Audio,
     pub cam: Camera,
+    pub rng: Rng,
     pub dt: f32,
     pub w: usize,
     pub h: usize,
@@ -52,11 +53,13 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut win = Window::new(cfg.title, cfg.w, cfg.h, WindowOptions::default()).expect("window");
     let mut gfx = Gfx::new(cfg.w, cfg.h);
     let dt = 1.0 / cfg.tick_hz;
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
     let mut ctx = Ctx {
         input: Input::default(),
         assets: Assets::default(),
         audio: Audio::new(),
         cam: Camera::new(cfg.w as f32, cfg.h as f32),
+        rng: Rng::new(seed),
         dt,
         w: cfg.w,
         h: cfg.h,

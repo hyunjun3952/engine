@@ -1,7 +1,9 @@
 use engine::{
-    Body, Collider, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Trans, Vel, World, collisions, movement, render,
+    Body, Burst, Collider, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Trans, Vel, World, burst, collisions,
+    movement, particles, render,
 };
 
+const SPARK: Burst = Burst { count: 6, color: 0xffffff, speed: 120.0, life: 0.3, size: 3.0, gravity: 0.0 };
 const W: f32 = 640.0;
 const H: f32 = 360.0;
 
@@ -86,7 +88,9 @@ impl Scene for Pong {
             b.0.y = (b.0.y + dy).clamp(0.0, H - b.0.h);
         }
         movement(&mut self.world, ctx.dt);
+        particles(&mut self.world, ctx.dt);
 
+        let mut spark = None;
         let hit = collisions(&self.world).iter().any(|c| c.other(self.ball).is_some());
         let (b, v) = self.world.query_one_mut::<(&mut Body, &mut Vel)>(self.ball).unwrap();
         if b.0.y < 0.0 || b.0.y + b.0.h > H {
@@ -95,12 +99,16 @@ impl Scene for Pong {
         if hit {
             ctx.audio.play("assets/hit.wav");
             v.x = -v.x * 1.05;
+            spark = Some((b.0.x + b.0.w / 2.0, b.0.y + b.0.h / 2.0));
         }
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
             self.score[(b.0.x > 0.0) as usize] += 1;
             ctx.audio.play("assets/score.wav");
             ctx.cam.shake(4.0, 0.2);
             self.serve();
+        }
+        if let Some(at) = spark {
+            burst(&mut self.world, &mut ctx.rng, at, &SPARK);
         }
         Trans::None
     }

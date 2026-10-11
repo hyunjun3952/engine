@@ -1,5 +1,6 @@
 use engine::{
-    Body, Collider, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Trans, Vel, World, collisions, movement, render,
+    Body, Burst, Collider, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Trans, Vel, World, burst, collisions,
+    movement, particles, render,
 };
 
 const W: f32 = 640.0;
@@ -85,6 +86,7 @@ impl Scene for Breakout {
             b.0.x = (b.0.x + dx).clamp(0.0, W - b.0.w);
         }
         movement(&mut self.world, ctx.dt);
+        particles(&mut self.world, ctx.dt);
 
         let contacts: Vec<_> = collisions(&self.world).into_iter().filter(|c| c.other(self.ball).is_some()).collect();
         let paddle = self.world.get::<&Body>(self.paddle).unwrap().0;
@@ -126,6 +128,13 @@ impl Scene for Breakout {
 
         if let Some(e) = broken {
             ctx.audio.play("assets/brick.wav");
+            let rect = self.world.get::<&Body>(e).unwrap().0;
+            let color = match *self.world.get::<&Look>(e).unwrap() {
+                Look::Color(c) => c,
+                _ => 0xffffff,
+            };
+            let spec = Burst { count: 10, color, speed: 140.0, life: 0.5, size: 4.0, gravity: 300.0 };
+            burst(&mut self.world, &mut ctx.rng, (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0), &spec);
             self.world.despawn(e).unwrap();
             self.score += 10;
             if bricks_left == 1 {
