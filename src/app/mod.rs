@@ -1,8 +1,10 @@
 mod input;
 mod rng;
+mod time;
 
 pub use input::{Input, Key};
 pub use rng::Rng;
+pub use time::{Ease, Timer, Tween};
 
 use crate::render::{Gpu, Soft};
 use crate::{Assets, Audio, Camera, Gfx, Rect};

@@ -1,6 +1,6 @@
 use engine::{
-    Body, Burst, Collider, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Trans, Vel, World, burst, collisions,
-    draw_list, movement, particles,
+    Body, Burst, Collider, Config, Ctx, Ease, Entity, Gfx, Key, Look, Rect, Scene, Trans, Tween, Vel, World, burst,
+    collisions, draw_list, movement, particles,
 };
 
 const SPARK: Burst = Burst { count: 6, color: 0xffffff, speed: 120.0, life: 0.3, size: 3.0, gravity: 0.0 };
@@ -26,14 +26,23 @@ impl Scene for Menu {
     }
 }
 
-struct Pause;
+struct Pause {
+    fade: Tween,
+}
+
+impl Pause {
+    fn new() -> Self {
+        Pause { fade: Tween::new(0.0, 150.0, 0.15, Ease::OutQuad) }
+    }
+}
 
 impl Scene for Pause {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
+        self.fade.tick(ctx.dt());
         if ctx.input().pressed("pause") { Trans::Pop } else { Trans::None }
     }
     fn draw(&self, g: &mut Gfx) {
-        g.fill_alpha(&Rect { x: 0.0, y: 0.0, w: W, h: H }, 0x000000, 150);
+        g.fill_alpha(&Rect { x: 0.0, y: 0.0, w: W, h: H }, 0x000000, self.fade.value() as u8);
         g.text("PAUSED", 240, 170, 4, 0xffff66);
     }
 }
@@ -84,7 +93,7 @@ impl Scene for Pong {
             return Trans::Pop;
         }
         if ctx.input().pressed("pause") {
-            return Trans::Push(Box::new(Pause));
+            return Trans::Push(Box::new(Pause::new()));
         }
 
         for (b, p) in self.world.query_mut::<(&mut Body, &Paddle)>() {

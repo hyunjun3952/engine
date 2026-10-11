@@ -1,10 +1,9 @@
-use crate::{Body, Entity, Layer, Look, Rect, Rng, World};
+use crate::{Body, Entity, Layer, Look, Rect, Rng, Timer, World};
 
 pub struct Particle {
     vx: f32,
     vy: f32,
-    life: f32,
-    total: f32,
+    life: Timer,
     gravity: f32,
 }
 
@@ -28,8 +27,7 @@ pub fn burst(world: &mut World, rng: &mut Rng, at: (f32, f32), b: &Burst) {
             Particle {
                 vx: angle.cos() * speed,
                 vy: angle.sin() * speed,
-                life: b.life,
-                total: b.life,
+                life: Timer::once(b.life),
                 gravity: b.gravity,
             },
         ));
@@ -39,8 +37,8 @@ pub fn burst(world: &mut World, rng: &mut Rng, at: (f32, f32), b: &Burst) {
 pub fn particles(world: &mut World, dt: f32) {
     let mut dead = Vec::new();
     for (e, body, look, p) in world.query_mut::<(Entity, &mut Body, &mut Look, &mut Particle)>() {
-        p.life -= dt;
-        if p.life <= 0.0 {
+        p.life.tick(dt);
+        if p.life.done() {
             dead.push(e);
             continue;
         }
@@ -48,7 +46,7 @@ pub fn particles(world: &mut World, dt: f32) {
         body.0.x += p.vx * dt;
         body.0.y += p.vy * dt;
         if let Look::Alpha(_, a) = look {
-            *a = (255.0 * p.life / p.total) as u8;
+            *a = (255.0 * (1.0 - p.life.fraction())) as u8;
         }
     }
     for e in dead {

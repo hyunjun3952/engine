@@ -1,4 +1,4 @@
-use crate::{Rect, Rng};
+use crate::{Rect, Rng, Timer};
 
 const FOLLOW_SPEED: f32 = 10.0;
 
@@ -6,9 +6,7 @@ pub struct Camera {
     pos: (f32, f32),
     view: (f32, f32),
     placed: bool,
-    shake_amp: f32,
-    shake_left: f32,
-    shake_total: f32,
+    shake: Option<(f32, Timer)>,
     jitter: (f32, f32),
     rng: Rng,
 }
@@ -19,9 +17,7 @@ impl Camera {
             pos: (0.0, 0.0),
             view: (view_w, view_h),
             placed: false,
-            shake_amp: 0.0,
-            shake_left: 0.0,
-            shake_total: 1.0,
+            shake: None,
             jitter: (0.0, 0.0),
             rng: Rng::new(1),
         }
@@ -49,16 +45,19 @@ impl Camera {
     }
 
     pub fn shake(&mut self, amplitude: f32, secs: f32) {
-        (self.shake_amp, self.shake_left, self.shake_total) = (amplitude, secs, secs.max(f32::EPSILON));
+        self.shake = Some((amplitude, Timer::once(secs)));
     }
 
     pub(crate) fn tick(&mut self, dt: f32) {
-        if self.shake_left <= 0.0 {
+        let Some((amplitude, timer)) = &mut self.shake else {
             self.jitter = (0.0, 0.0);
             return;
+        };
+        timer.tick(dt);
+        let strength = *amplitude * (1.0 - timer.fraction());
+        if timer.done() {
+            self.shake = None;
         }
-        self.shake_left = (self.shake_left - dt).max(0.0);
-        let strength = self.shake_amp * self.shake_left / self.shake_total;
         self.jitter = (self.rng.range(-strength, strength), self.rng.range(-strength, strength));
     }
 
