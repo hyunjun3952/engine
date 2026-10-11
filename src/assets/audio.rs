@@ -9,14 +9,20 @@ pub struct Audio {
 
 impl Audio {
     pub(crate) fn new() -> Self {
-        let out = DeviceSinkBuilder::open_default_sink()
-            .map(|mut o| {
-                o.log_on_drop(false);
-                o
-            })
-            .map_err(|e| eprintln!("audio disabled: {e}"))
-            .ok();
-        Audio { out, files: HashMap::new(), music: None }
+        match DeviceSinkBuilder::open_default_sink() {
+            Ok(mut out) => {
+                out.log_on_drop(false);
+                Audio { out: Some(out), ..Audio::disabled() }
+            }
+            Err(e) => {
+                eprintln!("audio disabled: {e}");
+                Audio::disabled()
+            }
+        }
+    }
+
+    pub(crate) fn disabled() -> Self {
+        Audio { out: None, files: HashMap::new(), music: None }
     }
 
     fn open(&mut self, path: &str) -> Cursor<Arc<[u8]>> {

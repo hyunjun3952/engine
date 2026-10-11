@@ -40,6 +40,10 @@ impl Camera {
         self.pos = (self.pos.0 + (goal.0 - self.pos.0) * k, self.pos.1 + (goal.1 - self.pos.1) * k);
     }
 
+    pub fn reset(&mut self) {
+        *self = Camera::new(self.view.0, self.view.1);
+    }
+
     pub fn cut(&mut self) {
         self.placed = false;
     }

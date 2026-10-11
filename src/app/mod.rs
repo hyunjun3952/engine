@@ -32,6 +32,21 @@ pub struct Ctx {
     pub h: usize,
 }
 
+impl Ctx {
+    pub(crate) fn new(w: usize, h: usize, dt: f32, audio: Audio) -> Self {
+        Ctx {
+            input: Input::default(),
+            assets: Assets::default(),
+            audio,
+            cam: Camera::new(w as f32, h as f32),
+            rng: Rng::new(1),
+            dt,
+            w,
+            h,
+        }
+    }
+}
+
 pub enum Trans {
     None,
     Push(Box<dyn Scene>),
@@ -43,6 +58,38 @@ pub enum Trans {
 pub trait Scene {
     fn update(&mut self, ctx: &mut Ctx) -> Trans;
     fn draw(&self, gfx: &mut Gfx);
+    fn on_enter(&mut self, _ctx: &mut Ctx) {}
+    fn on_exit(&mut self, _ctx: &mut Ctx) {}
+}
+
+type Stack = Vec<Box<dyn Scene>>;
+
+fn enter(stack: &mut Stack, mut scene: Box<dyn Scene>, ctx: &mut Ctx) {
+    scene.on_enter(ctx);
+    stack.push(scene);
+}
+
+fn exit_top(stack: &mut Stack, ctx: &mut Ctx) {
+    if let Some(mut scene) = stack.pop() {
+        scene.on_exit(ctx);
+    }
+}
+
+fn apply(stack: &mut Stack, trans: Trans, ctx: &mut Ctx) {
+    match trans {
+        Trans::None => {}
+        Trans::Push(s) => enter(stack, s, ctx),
+        Trans::Pop => exit_top(stack, ctx),
+        Trans::Replace(s) => {
+            exit_top(stack, ctx);
+            enter(stack, s, ctx);
+        }
+        Trans::Quit => {
+            while !stack.is_empty() {
+                exit_top(stack, ctx);
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -60,17 +107,11 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut gfx = Gfx::new(cfg.w, cfg.h);
     let dt = 1.0 / cfg.tick_hz;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
-    let mut ctx = Ctx {
-        input: Input::default(),
-        assets: Assets::default(),
-        audio: Audio::new(),
-        cam: Camera::new(cfg.w as f32, cfg.h as f32),
-        rng: Rng::new(seed),
-        dt,
-        w: cfg.w,
-        h: cfg.h,
-    };
-    let mut stack = vec![first(&mut ctx)];
+    let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
+    ctx.rng = Rng::new(seed);
+    let mut stack = Stack::new();
+    let scene = first(&mut ctx);
+    enter(&mut stack, scene, &mut ctx);
     let (mut last, mut acc) = (Instant::now(), 0.0f32);
     let (mut stats, mut since, mut f3) = (Stats::default(), Instant::now(), false);
     while win.is_open() && !stack.is_empty() {
@@ -84,18 +125,8 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         }
         f3 = f3_down;
         while acc >= dt && !stack.is_empty() {
-            match stack.last_mut().unwrap().update(&mut ctx) {
-                Trans::None => {}
-                Trans::Push(s) => stack.push(s),
-                Trans::Pop => {
-                    stack.pop();
-                }
-                Trans::Replace(s) => {
-                    stack.pop();
-                    stack.push(s);
-                }
-                Trans::Quit => stack.clear(),
-            }
+            let trans = stack.last_mut().unwrap().update(&mut ctx);
+            apply(&mut stack, trans, &mut ctx);
             ctx.input.end_step();
             ctx.cam.tick(dt);
             stats.ticks += 1;
@@ -125,5 +156,42 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             since = Instant::now();
         }
         win.update_with_buffer(&gfx.buf, cfg.w, cfg.h).expect("present");
+    }
+    apply(&mut stack, Trans::Quit, &mut ctx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{cell::RefCell, rc::Rc};
+
+    struct Probe(&'static str, Rc<RefCell<Vec<String>>>);
+
+    impl Scene for Probe {
+        fn update(&mut self, _: &mut Ctx) -> Trans {
+            Trans::None
+        }
+        fn draw(&self, _: &mut Gfx) {}
+        fn on_enter(&mut self, _: &mut Ctx) {
+            self.1.borrow_mut().push(format!("{}+", self.0));
+        }
+        fn on_exit(&mut self, _: &mut Ctx) {
+            self.1.borrow_mut().push(format!("{}-", self.0));
+        }
+    }
+
+    #[test]
+    fn scenes_are_told_when_they_join_and_leave_the_stack() {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let probe = |name| Box::new(Probe(name, log.clone()));
+        let mut ctx = Ctx::new(64, 64, 1.0 / 60.0, Audio::disabled());
+        let mut stack = Stack::new();
+        apply(&mut stack, Trans::Push(probe("A")), &mut ctx);
+        apply(&mut stack, Trans::Push(probe("B")), &mut ctx);
+        apply(&mut stack, Trans::Pop, &mut ctx);
+        apply(&mut stack, Trans::Replace(probe("C")), &mut ctx);
+        apply(&mut stack, Trans::Quit, &mut ctx);
+        assert_eq!(*log.borrow(), ["A+", "B+", "B-", "A-", "C+", "C-"]);
+        assert!(stack.is_empty());
     }
 }

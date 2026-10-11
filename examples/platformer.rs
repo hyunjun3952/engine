@@ -25,12 +25,20 @@ impl Platformer {
             Vel { x: 0.0, y: 0.0 },
             Anim::new(ctx.assets.sprite("assets/player.png"), 12, 24),
         ));
-        ctx.audio.music("assets/music.wav");
         Platformer { world, player, map, start, grounded: false }
     }
 }
 
 impl Scene for Platformer {
+    fn on_enter(&mut self, ctx: &mut Ctx) {
+        ctx.cam.reset();
+        ctx.audio.music("assets/music.wav");
+    }
+
+    fn on_exit(&mut self, ctx: &mut Ctx) {
+        ctx.audio.stop_music();
+    }
+
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
         if ctx.input.pressed(Key::Escape) {
             return Trans::Quit;

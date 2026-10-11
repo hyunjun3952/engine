@@ -75,6 +75,10 @@ impl Pong {
 }
 
 impl Scene for Pong {
+    fn on_enter(&mut self, ctx: &mut Ctx) {
+        ctx.cam.reset();
+    }
+
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
         if ctx.input.pressed(Key::Escape) {
             return Trans::Pop;
