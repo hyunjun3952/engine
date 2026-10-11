@@ -16,10 +16,10 @@ struct Over(&'static str);
 
 impl Scene for Over {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input.pressed(Key::Enter) {
+        if ctx.input().pressed(Key::Enter) {
             return Trans::Replace(Box::new(Breakout::new(ctx)));
         }
-        if ctx.input.pressed(Key::Escape) {
+        if ctx.input().pressed(Key::Escape) {
             return Trans::Quit;
         }
         Trans::None
@@ -61,7 +61,7 @@ impl Breakout {
         let ball = world.spawn((
             Body(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }),
             Vel { x: 0.0, y: 0.0 },
-            Look::Sprite(ctx.assets.sprite("assets/ball.png")),
+            Look::Sprite(ctx.assets().sprite("assets/ball.png")),
             Collider,
         ));
         let mut g = Breakout { world, paddle, ball, score: 0, lives: 3 };
@@ -77,20 +77,20 @@ impl Breakout {
 
 impl Scene for Breakout {
     fn on_enter(&mut self, ctx: &mut Ctx) {
-        ctx.cam.reset();
+        ctx.cam().reset();
     }
 
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input.pressed(Key::Escape) {
+        if ctx.input().pressed(Key::Escape) {
             return Trans::Quit;
         }
 
         for (b, s) in self.world.query_mut::<(&mut Body, &Slider)>() {
-            let dx = ctx.input.axis(s.left, s.right) * 400.0 * ctx.dt;
+            let dx = ctx.input().axis(s.left, s.right) * 400.0 * ctx.dt();
             b.0.x = (b.0.x + dx).clamp(0.0, W - b.0.w);
         }
-        movement(&mut self.world, ctx.dt);
-        particles(&mut self.world, ctx.dt);
+        movement(&mut self.world, ctx.dt());
+        particles(&mut self.world, ctx.dt());
 
         let contacts: Vec<_> = collisions(&self.world).into_iter().filter(|c| c.other(self.ball).is_some()).collect();
         let paddle = self.world.get::<&Body>(self.paddle).unwrap().0;
@@ -117,7 +117,7 @@ impl Scene for Breakout {
             if other == self.paddle {
                 if v.y > 0.0 {
                     v.y = -v.y.abs();
-                    ctx.audio.play("assets/hit.wav");
+                    ctx.audio().play("assets/hit.wav");
                     v.x = ((b.0.x + b.0.w / 2.0) - (paddle.x + paddle.w / 2.0)) / (paddle.w / 2.0) * 250.0;
                 }
             } else if broken.is_none() {
@@ -131,14 +131,14 @@ impl Scene for Breakout {
         }
 
         if let Some(e) = broken {
-            ctx.audio.play("assets/brick.wav");
+            ctx.audio().play("assets/brick.wav");
             let rect = self.world.get::<&Body>(e).unwrap().0;
             let color = match *self.world.get::<&Look>(e).unwrap() {
                 Look::Color(c) => c,
                 _ => 0xffffff,
             };
             let spec = Burst { count: 10, color, speed: 140.0, life: 0.5, size: 4.0, gravity: 300.0 };
-            burst(&mut self.world, &mut ctx.rng, (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0), &spec);
+            burst(&mut self.world, ctx.rng(), (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0), &spec);
             self.world.despawn(e).unwrap();
             self.score += 10;
             if bricks_left == 1 {
@@ -147,8 +147,8 @@ impl Scene for Breakout {
         }
         if lost {
             self.lives -= 1;
-            ctx.audio.play("assets/score.wav");
-            ctx.cam.shake(5.0, 0.25);
+            ctx.audio().play("assets/score.wav");
+            ctx.cam().shake(5.0, 0.25);
             if self.lives == 0 {
                 return Trans::Replace(Box::new(Over("GAME OVER")));
             }

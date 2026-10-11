@@ -22,14 +22,14 @@ impl Default for Config {
 }
 
 pub struct Ctx {
-    pub input: Input,
-    pub assets: Assets,
-    pub audio: Audio,
-    pub cam: Camera,
-    pub rng: Rng,
-    pub dt: f32,
-    pub w: usize,
-    pub h: usize,
+    pub(crate) input: Input,
+    pub(crate) assets: Assets,
+    pub(crate) audio: Audio,
+    pub(crate) cam: Camera,
+    pub(crate) rng: Rng,
+    pub(crate) dt: f32,
+    pub(crate) w: usize,
+    pub(crate) h: usize,
 }
 
 impl Ctx {
@@ -44,6 +44,34 @@ impl Ctx {
             w,
             h,
         }
+    }
+
+    pub fn input(&self) -> &Input {
+        &self.input
+    }
+
+    pub fn assets(&mut self) -> &mut Assets {
+        &mut self.assets
+    }
+
+    pub fn audio(&mut self) -> &mut Audio {
+        &mut self.audio
+    }
+
+    pub fn cam(&mut self) -> &mut Camera {
+        &mut self.cam
+    }
+
+    pub fn rng(&mut self) -> &mut Rng {
+        &mut self.rng
+    }
+
+    pub fn dt(&self) -> f32 {
+        self.dt
+    }
+
+    pub fn size(&self) -> (usize, usize) {
+        (self.w, self.h)
     }
 }
 

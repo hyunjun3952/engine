@@ -16,14 +16,14 @@ struct Platformer {
 
 impl Platformer {
     fn new(ctx: &mut Ctx, level: &str) -> Self {
-        let map = Tilemap::load(level, TILE, ctx.assets.sprite("assets/tiles.png"));
+        let map = Tilemap::load(level, TILE, ctx.assets().sprite("assets/tiles.png"));
         let (x, y) = map.marks(b'P').next().expect("level needs a P marker");
         let start = Rect { x, y: y + TILE as f32 - 24.0, w: 12.0, h: 24.0 };
         let mut world = World::new();
         let player = world.spawn((
             Body(start),
             Vel { x: 0.0, y: 0.0 },
-            Anim::new(ctx.assets.sprite("assets/player.png"), 12, 24),
+            Anim::new(ctx.assets().sprite("assets/player.png"), 12, 24),
         ));
         Platformer { world, player, map, start, grounded: false }
     }
@@ -31,35 +31,35 @@ impl Platformer {
 
 impl Scene for Platformer {
     fn on_enter(&mut self, ctx: &mut Ctx) {
-        ctx.cam.reset();
-        ctx.audio.music("assets/music.wav");
+        ctx.cam().reset();
+        ctx.audio().music("assets/music.wav");
     }
 
     fn on_exit(&mut self, ctx: &mut Ctx) {
-        ctx.audio.stop_music();
+        ctx.audio().stop_music();
     }
 
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input.pressed(Key::Escape) {
+        if ctx.input().pressed(Key::Escape) {
             return Trans::Quit;
         }
 
         let (b, v, anim) = self.world.query_one_mut::<(&mut Body, &mut Vel, &mut Anim)>(self.player).unwrap();
         let (was_grounded, mut dust) = (self.grounded, false);
-        v.x = ctx.input.axis(Key::Left, Key::Right) * 160.0;
-        v.y = (v.y + 900.0 * ctx.dt).min(600.0);
-        if self.grounded && (ctx.input.pressed(Key::Space) || ctx.input.pressed(Key::Up)) {
+        v.x = ctx.input().axis(Key::Left, Key::Right) * 160.0;
+        v.y = (v.y + 900.0 * ctx.dt()).min(600.0);
+        if self.grounded && (ctx.input().pressed(Key::Space) || ctx.input().pressed(Key::Up)) {
             v.y = -330.0;
-            ctx.audio.play("assets/jump.wav");
+            ctx.audio().play("assets/jump.wav");
             dust = true;
         }
 
-        let (r, _, hit_y) = self.map.slide(&b.0, v.x * ctx.dt, v.y * ctx.dt);
+        let (r, _, hit_y) = self.map.slide(&b.0, v.x * ctx.dt(), v.y * ctx.dt());
         b.0 = r;
         self.grounded = hit_y && v.y > 0.0;
         dust |= self.grounded && !was_grounded;
         if self.grounded && v.y > 450.0 {
-            ctx.cam.shake(3.0, 0.2);
+            ctx.cam().shake(3.0, 0.2);
         }
         if hit_y {
             v.y = 0.0;
@@ -77,16 +77,17 @@ impl Scene for Platformer {
         if b.0.y > self.map.pixel_size().1 {
             b.0 = self.start;
             v.y = 0.0;
-            ctx.cam.cut();
-            ctx.cam.shake(6.0, 0.3);
+            ctx.cam().cut();
+            ctx.cam().shake(6.0, 0.3);
         }
-        ctx.cam.follow(&b.0, self.map.pixel_size(), ctx.dt);
+        let dt = ctx.dt();
+        ctx.cam().follow(&b.0, self.map.pixel_size(), dt);
         let feet = (b.0.x + b.0.w / 2.0, b.0.y + b.0.h);
         if dust {
-            burst(&mut self.world, &mut ctx.rng, feet, &DUST);
+            burst(&mut self.world, ctx.rng(), feet, &DUST);
         }
-        animate(&mut self.world, ctx.dt);
-        particles(&mut self.world, ctx.dt);
+        animate(&mut self.world, ctx.dt());
+        particles(&mut self.world, ctx.dt());
         Trans::None
     }
 

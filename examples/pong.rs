@@ -11,10 +11,10 @@ struct Menu;
 
 impl Scene for Menu {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input.pressed(Key::Enter) {
+        if ctx.input().pressed(Key::Enter) {
             return Trans::Push(Box::new(Pong::new(ctx)));
         }
-        if ctx.input.pressed(Key::Escape) {
+        if ctx.input().pressed(Key::Escape) {
             return Trans::Quit;
         }
         Trans::None
@@ -30,7 +30,7 @@ struct Pause;
 
 impl Scene for Pause {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input.pressed(Key::P) { Trans::Pop } else { Trans::None }
+        if ctx.input().pressed(Key::P) { Trans::Pop } else { Trans::None }
     }
     fn draw(&self, g: &mut Gfx) {
         g.fill_alpha(&Rect { x: 0.0, y: 0.0, w: W, h: H }, 0x000000, 150);
@@ -60,7 +60,7 @@ impl Pong {
         let ball = world.spawn((
             Body(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }),
             Vel { x: 0.0, y: 0.0 },
-            Look::Sprite(ctx.assets.sprite("assets/ball.png")),
+            Look::Sprite(ctx.assets().sprite("assets/ball.png")),
             Collider,
         ));
         let mut p = Pong { world, ball, score: [0, 0] };
@@ -76,23 +76,23 @@ impl Pong {
 
 impl Scene for Pong {
     fn on_enter(&mut self, ctx: &mut Ctx) {
-        ctx.cam.reset();
+        ctx.cam().reset();
     }
 
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input.pressed(Key::Escape) {
+        if ctx.input().pressed(Key::Escape) {
             return Trans::Pop;
         }
-        if ctx.input.pressed(Key::P) {
+        if ctx.input().pressed(Key::P) {
             return Trans::Push(Box::new(Pause));
         }
 
         for (b, p) in self.world.query_mut::<(&mut Body, &Paddle)>() {
-            let dy = ctx.input.axis(p.up, p.down) * 300.0 * ctx.dt;
+            let dy = ctx.input().axis(p.up, p.down) * 300.0 * ctx.dt();
             b.0.y = (b.0.y + dy).clamp(0.0, H - b.0.h);
         }
-        movement(&mut self.world, ctx.dt);
-        particles(&mut self.world, ctx.dt);
+        movement(&mut self.world, ctx.dt());
+        particles(&mut self.world, ctx.dt());
 
         let mut spark = None;
         let hit = collisions(&self.world).iter().any(|c| c.other(self.ball).is_some());
@@ -101,18 +101,18 @@ impl Scene for Pong {
             v.y = -v.y;
         }
         if hit {
-            ctx.audio.play("assets/hit.wav");
+            ctx.audio().play("assets/hit.wav");
             v.x = -v.x * 1.05;
             spark = Some((b.0.x + b.0.w / 2.0, b.0.y + b.0.h / 2.0));
         }
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
             self.score[(b.0.x > 0.0) as usize] += 1;
-            ctx.audio.play("assets/score.wav");
-            ctx.cam.shake(4.0, 0.2);
+            ctx.audio().play("assets/score.wav");
+            ctx.cam().shake(4.0, 0.2);
             self.serve();
         }
         if let Some(at) = spark {
-            burst(&mut self.world, &mut ctx.rng, at, &SPARK);
+            burst(&mut self.world, ctx.rng(), at, &SPARK);
         }
         Trans::None
     }
