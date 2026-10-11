@@ -93,8 +93,9 @@ impl Scene for Platformer {
 
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x6fa8e0);
-        self.map.draw(g);
-        g.draw(&draw_list(&self.world));
+        let mut cmds = self.map.draw_list(g.view());
+        cmds.extend(draw_list(&self.world));
+        g.draw(&cmds);
         g.text("ARROWS: move   SPACE: jump   F3: debug", 8, 340, 1, 0xffffff);
     }
 }

@@ -1,4 +1,4 @@
-use crate::{Gfx, Rect, Sprite};
+use crate::{DrawCmd, Paint, Rect, Sprite};
 use std::sync::Arc;
 
 pub struct Tilemap {
@@ -79,26 +79,24 @@ impl Tilemap {
         (r, hit_x, hit_y)
     }
 
-    pub fn draw(&self, g: &mut Gfx) {
-        let (cx, cy) = (g.cam.0 as i32, g.cam.1 as i32);
-        let s = self.size as i32;
-        let (tx0, ty0) = ((cx / s).max(0), (cy / s).max(0));
-        let (tx1, ty1) =
-            (((cx + g.w as i32) / s + 1).min(self.w as i32), ((cy + g.h as i32) / s + 1).min(self.h as i32));
+    pub fn draw_list(&self, view: Rect) -> Vec<DrawCmd> {
+        let s = self.size as f32;
+        let (tx0, ty0) = ((view.x / s).floor().max(0.0) as usize, (view.y / s).floor().max(0.0) as usize);
+        let tx1 = (((view.x + view.w) / s).ceil().max(0.0) as usize).min(self.w);
+        let ty1 = (((view.y + view.h) / s).ceil().max(0.0) as usize).min(self.h);
+        let mut cmds = Vec::new();
         for ty in ty0..ty1 {
             for tx in tx0..tx1 {
-                let id = self.tiles[ty as usize * self.w + tx as usize] as usize;
+                let id = self.tiles[ty * self.w + tx] as usize;
                 if id > 0 {
-                    g.blit_region(
-                        &self.sheet,
-                        Rect { x: ((id - 1) * self.size) as f32, y: 0.0, w: self.size as f32, h: self.size as f32 },
-                        tx * s - cx,
-                        ty * s - cy,
-                        false,
-                    );
+                    let src = Rect { x: ((id - 1) * self.size) as f32, y: 0.0, w: s, h: s };
+                    let paint = Paint::Region { sheet: self.sheet.clone(), src, flip: false };
+                    let rect = Rect { x: tx as f32 * s, y: ty as f32 * s, w: s, h: s };
+                    cmds.push(DrawCmd { layer: i32::MIN, rect, paint, debug_only: false });
                 }
             }
         }
+        cmds
     }
 }
 
@@ -118,6 +116,15 @@ mod tests {
         let map = Tilemap::load("assets/level1.txt", 16, Arc::new(Sprite::load("assets/tiles.png")));
         assert_eq!((map.w, map.h), (60, 23));
         assert_eq!(map.marks(b'P').count(), 1);
+    }
+
+    #[test]
+    fn draw_list_covers_only_the_visible_solid_tiles_in_world_space() {
+        let map = Tilemap::from_ascii(&["#.#", "...", "..."], 16, Arc::new(Sprite::load("assets/tiles.png")));
+        let at = |view| map.draw_list(view).iter().map(|c| (c.rect.x, c.rect.y)).collect::<Vec<_>>();
+        assert_eq!(at(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }), [(0.0, 0.0), (32.0, 0.0)]);
+        assert_eq!(at(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }), [(0.0, 0.0)]);
+        assert_eq!(at(Rect { x: 20.0, y: 0.0, w: 40.0, h: 16.0 }), [(32.0, 0.0)]);
     }
 
     #[test]

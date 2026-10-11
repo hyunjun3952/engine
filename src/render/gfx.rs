@@ -56,6 +56,10 @@ impl Gfx {
         }
     }
 
+    pub fn view(&self) -> Rect {
+        Rect { x: self.cam.0, y: self.cam.1, w: self.w as f32, h: self.h as f32 }
+    }
+
     pub fn draw(&mut self, cmds: &[DrawCmd]) {
         let (cx, cy) = self.cam;
         for c in cmds {
