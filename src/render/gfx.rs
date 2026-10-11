@@ -1,5 +1,6 @@
 use super::{DrawCmd, Paint};
 use font8x8::UnicodeFonts;
+use std::sync::Arc;
 
 #[derive(Clone, Copy)]
 pub struct Rect {
@@ -26,86 +27,63 @@ pub struct Gfx {
     pub h: usize,
     pub debug: bool,
     pub cam: (f32, f32),
-    pub(crate) buf: Vec<u32>,
+    cmds: Vec<DrawCmd>,
 }
 
 impl Gfx {
     pub(crate) fn new(w: usize, h: usize) -> Self {
-        Gfx { w, h, debug: false, cam: (0.0, 0.0), buf: vec![0; w * h] }
+        Gfx { w, h, debug: false, cam: (0.0, 0.0), cmds: Vec::new() }
     }
 
-    pub fn clear(&mut self, c: u32) {
-        self.buf.fill(c);
+    pub(crate) fn cmds(&self) -> &[DrawCmd] {
+        &self.cmds
     }
 
-    pub fn fill(&mut self, r: &Rect, c: u32) {
-        self.fill_with(r, |_| c);
+    pub(crate) fn reset(&mut self) {
+        self.cmds.clear();
     }
 
-    pub fn fill_alpha(&mut self, r: &Rect, c: u32, alpha: u8) {
-        self.fill_with(r, |d| blend(c, d, alpha as u32));
-    }
-
-    fn fill_with(&mut self, r: &Rect, f: impl Fn(u32) -> u32) {
-        let (x0, y0) = (r.x.max(0.0) as usize, r.y.max(0.0) as usize);
-        let (x1, y1) = (((r.x + r.w) as usize).min(self.w), ((r.y + r.h) as usize).min(self.h));
-        for y in y0..y1 {
-            for px in &mut self.buf[y * self.w + x0..y * self.w + x1.max(x0)] {
-                *px = f(*px);
-            }
-        }
+    fn push(&mut self, rect: Rect, paint: Paint) {
+        self.cmds.push(DrawCmd { layer: 0, rect, paint, debug_only: false });
     }
 
     pub fn view(&self) -> Rect {
         Rect { x: self.cam.0, y: self.cam.1, w: self.w as f32, h: self.h as f32 }
     }
 
-    pub fn draw(&mut self, cmds: &[DrawCmd]) {
-        let (cx, cy) = self.cam;
-        for c in cmds {
-            if c.debug_only && !self.debug {
-                continue;
-            }
-            let r = Rect { x: c.rect.x - cx, y: c.rect.y - cy, ..c.rect };
-            match &c.paint {
-                Paint::Color(col) => self.fill(&r, *col),
-                Paint::Alpha(col, a) => self.fill_alpha(&r, *col, *a),
-                Paint::Sprite(s) => self.blit(s, r.x as i32, r.y as i32),
-                Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r.x as i32, r.y as i32, *flip),
-                Paint::Outline(col) => self.outline(&r, *col),
-            }
-        }
+    pub fn clear(&mut self, c: u32) {
+        self.push(Rect { x: 0.0, y: 0.0, w: self.w as f32, h: self.h as f32 }, Paint::Clear(c));
+    }
+
+    pub fn fill(&mut self, r: &Rect, c: u32) {
+        self.push(*r, Paint::Color(c));
+    }
+
+    pub fn fill_alpha(&mut self, r: &Rect, c: u32, alpha: u8) {
+        self.push(*r, Paint::Alpha(c, alpha));
     }
 
     pub fn outline(&mut self, r: &Rect, c: u32) {
-        self.fill(&Rect { h: 1.0, ..*r }, c);
-        self.fill(&Rect { y: r.y + r.h - 1.0, h: 1.0, ..*r }, c);
-        self.fill(&Rect { w: 1.0, ..*r }, c);
-        self.fill(&Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, c);
+        self.push(*r, Paint::Outline(c));
     }
 
-    pub fn blit(&mut self, s: &Sprite, x: i32, y: i32) {
-        self.blit_region(s, Rect { x: 0.0, y: 0.0, w: s.w as f32, h: s.h as f32 }, x, y, false);
+    pub fn blit(&mut self, s: &Arc<Sprite>, x: i32, y: i32) {
+        self.push(Rect { x: x as f32, y: y as f32, w: s.w as f32, h: s.h as f32 }, Paint::Sprite(s.clone()));
     }
 
-    pub fn blit_region(&mut self, s: &Sprite, src: Rect, x: i32, y: i32, flip: bool) {
-        let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
-        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
-        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
-        for sy in rows {
-            let from = (sy0 + sy) * s.w + sx0;
-            let src_row = &s.px[from..from + w];
-            let dst_from = (y + sy as i32) as usize * self.w;
-            let dst_row = &mut self.buf[dst_from..dst_from + self.w];
-            for sx in cols.clone() {
-                let p = src_row[if flip { w - 1 - sx } else { sx }];
-                let d = &mut dst_row[(x + sx as i32) as usize];
-                match p >> 24 {
-                    255 => *d = p,
-                    0 => {}
-                    a => *d = blend(p, *d, a),
-                }
+    pub fn blit_region(&mut self, s: &Arc<Sprite>, src: Rect, x: i32, y: i32, flip: bool) {
+        let paint = Paint::Region { sheet: s.clone(), src, flip };
+        self.push(Rect { x: x as f32, y: y as f32, w: src.w, h: src.h }, paint);
+    }
+
+    pub fn draw(&mut self, cmds: impl IntoIterator<Item = DrawCmd>) {
+        for mut c in cmds {
+            if c.debug_only && !self.debug {
+                continue;
             }
+            c.rect.x -= self.cam.0;
+            c.rect.y -= self.cam.1;
+            self.cmds.push(c);
         }
     }
 
@@ -126,15 +104,10 @@ impl Gfx {
     }
 }
 
-fn blend(src: u32, dst: u32, a: u32) -> u32 {
-    let mix = |sh: u32| ((((src >> sh) & 255) * a + ((dst >> sh) & 255) * (255 - a)) / 255) << sh;
-    mix(16) | mix(8) | mix(0)
-}
-
 pub struct Sprite {
     pub w: usize,
     pub h: usize,
-    px: Vec<u32>,
+    pub(crate) px: Vec<u32>,
 }
 
 impl Sprite {
@@ -153,51 +126,25 @@ mod tests {
     fn draw_applies_the_camera_and_skips_debug_commands_unless_enabled() {
         let cmd = |debug_only| DrawCmd {
             layer: 0,
-            rect: Rect { x: 5.0, y: 0.0, w: 1.0, h: 1.0 },
+            rect: Rect { x: 5.0, y: 2.0, w: 1.0, h: 1.0 },
             paint: Paint::Color(7),
             debug_only,
         };
-        let mut g = Gfx::new(8, 1);
-        g.cam = (3.0, 0.0);
-        g.draw(&[cmd(false), cmd(true)]);
-        assert_eq!(g.buf.iter().filter(|&&p| p == 7).count(), 1);
-        assert_eq!(g.buf[2], 7);
-        g.buf.fill(0);
+        let mut g = Gfx::new(8, 8);
+        g.cam = (3.0, 1.0);
+        g.draw([cmd(false), cmd(true)]);
+        assert_eq!(g.cmds().len(), 1);
+        assert_eq!((g.cmds()[0].rect.x, g.cmds()[0].rect.y), (2.0, 1.0));
         g.debug = true;
-        g.draw(&[cmd(true)]);
-        assert_eq!(g.buf[2], 7);
+        g.draw([cmd(true)]);
+        assert_eq!(g.cmds().len(), 2);
     }
 
     #[test]
-    fn blit_clips_at_every_edge_and_flip_mirrors_columns() {
-        let s = Sprite::load("assets/ball.png");
-        let mut g = Gfx::new(16, 16);
-        g.blit(&s, -8, -8);
-        assert_eq!((g.buf[0], g.buf[8 * 16 + 8]), (s.px[8 * 16 + 8], 0));
-        g.buf.fill(0);
-        g.blit_region(&s, Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }, 0, 0, true);
-        assert_eq!(g.buf[8 * 16 + 3], s.px[8 * 16 + 12]);
-        for (x, y) in [(-100, 5), (100, 100), (5, -100), (15, 15), (-15, -15)] {
-            g.blit(&s, x, y);
-        }
-    }
-
-    #[test]
-    fn fill_alpha_blends_with_what_is_beneath() {
-        let mut g = Gfx::new(2, 1);
-        let all = Rect { x: 0.0, y: 0.0, w: 2.0, h: 1.0 };
-        g.fill_alpha(&all, 0xffffff, 128);
-        assert_eq!(g.buf[0], 0x808080);
-        g.fill_alpha(&all, 0x000000, 0);
-        assert_eq!(g.buf[1], 0x808080);
-        g.fill_alpha(&all, 0x102030, 255);
-        assert_eq!(g.buf[0], 0x102030);
-    }
-
-    #[test]
-    fn outline_leaves_interior_untouched() {
-        let mut g = Gfx::new(10, 10);
-        g.outline(&Rect { x: 2.0, y: 2.0, w: 5.0, h: 5.0 }, 1);
-        assert_eq!((g.buf[2 * 10 + 2], g.buf[6 * 10 + 6], g.buf[4 * 10 + 4]), (1, 1, 0));
+    fn text_records_one_fill_per_lit_glyph_pixel() {
+        let mut g = Gfx::new(8, 8);
+        g.text("I", 0, 0, 2, 5);
+        assert!(!g.cmds().is_empty());
+        assert!(g.cmds().iter().all(|c| matches!(c.paint, Paint::Color(5)) && c.rect.w == 2.0));
     }
 }

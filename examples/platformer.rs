@@ -95,7 +95,7 @@ impl Scene for Platformer {
         g.clear(0x6fa8e0);
         let mut cmds = self.map.draw_list(g.view());
         cmds.extend(draw_list(&self.world));
-        g.draw(&cmds);
+        g.draw(cmds);
         g.text("ARROWS: move   SPACE: jump   F3: debug", 8, 340, 1, 0xffffff);
     }
 }

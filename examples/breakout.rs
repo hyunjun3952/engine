@@ -159,7 +159,7 @@ impl Scene for Breakout {
 
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x101018);
-        g.draw(&draw_list(&self.world));
+        g.draw(draw_list(&self.world));
         g.text(&format!("SCORE {}", self.score), 20, 10, 2, 0xaaaaaa);
         g.text(&format!("LIVES {}", self.lives), 500, 10, 2, 0xaaaaaa);
     }

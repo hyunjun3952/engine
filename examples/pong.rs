@@ -119,7 +119,7 @@ impl Scene for Pong {
 
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x101018);
-        g.draw(&draw_list(&self.world));
+        g.draw(draw_list(&self.world));
         g.text(&format!("{}  {}", self.score[0], self.score[1]), W as i32 / 2 - 40, 10, 3, 0xaaaaaa);
     }
 }

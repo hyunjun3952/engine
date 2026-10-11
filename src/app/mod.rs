@@ -4,6 +4,7 @@ mod rng;
 pub use input::{Input, Key};
 pub use rng::Rng;
 
+use crate::render::Soft;
 use crate::{Assets, Audio, Camera, Gfx, Rect};
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
@@ -133,6 +134,7 @@ struct Stats {
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut win = Window::new(cfg.title, cfg.w, cfg.h, WindowOptions::default()).expect("window");
     let mut gfx = Gfx::new(cfg.w, cfg.h);
+    let mut soft = Soft::new(cfg.w, cfg.h);
     let dt = 1.0 / cfg.tick_hz;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
     let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
@@ -183,7 +185,9 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             };
             since = Instant::now();
         }
-        win.update_with_buffer(&gfx.buf, cfg.w, cfg.h).expect("present");
+        soft.render(gfx.cmds());
+        gfx.reset();
+        win.update_with_buffer(&soft.buf, cfg.w, cfg.h).expect("present");
     }
     apply(&mut stack, Trans::Quit, &mut ctx);
 }
