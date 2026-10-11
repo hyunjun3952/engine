@@ -1,6 +1,6 @@
 use engine::{
     Body, Burst, Collider, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Trans, Vel, World, burst, collisions,
-    movement, particles, render,
+    draw_list, movement, particles,
 };
 
 const W: f32 = 640.0;
@@ -159,7 +159,7 @@ impl Scene for Breakout {
 
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x101018);
-        render(&self.world, g);
+        g.draw(&draw_list(&self.world));
         g.text(&format!("SCORE {}", self.score), 20, 10, 2, 0xaaaaaa);
         g.text(&format!("LIVES {}", self.lives), 500, 10, 2, 0xaaaaaa);
     }

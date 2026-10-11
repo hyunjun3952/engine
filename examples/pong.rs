@@ -1,6 +1,6 @@
 use engine::{
     Body, Burst, Collider, Config, Ctx, Entity, Gfx, Key, Look, Rect, Scene, Trans, Vel, World, burst, collisions,
-    movement, particles, render,
+    draw_list, movement, particles,
 };
 
 const SPARK: Burst = Burst { count: 6, color: 0xffffff, speed: 120.0, life: 0.3, size: 3.0, gravity: 0.0 };
@@ -119,7 +119,7 @@ impl Scene for Pong {
 
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x101018);
-        render(&self.world, g);
+        g.draw(&draw_list(&self.world));
         g.text(&format!("{}  {}", self.score[0], self.score[1]), W as i32 / 2 - 40, 10, 3, 0xaaaaaa);
     }
 }

@@ -1,6 +1,6 @@
 use engine::{
     Anim, Body, Burst, Config, Ctx, Entity, Gfx, Key, Rect, Scene, Tilemap, Trans, Vel, World, animate, burst,
-    particles, render,
+    draw_list, particles,
 };
 
 const TILE: usize = 16;
@@ -93,7 +93,7 @@ impl Scene for Platformer {
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x6fa8e0);
         self.map.draw(g);
-        render(&self.world, g);
+        g.draw(&draw_list(&self.world));
         g.text("ARROWS: move   SPACE: jump   F3: debug", 8, 340, 1, 0xffffff);
     }
 }

@@ -1,3 +1,4 @@
+use super::{DrawCmd, Paint};
 use font8x8::UnicodeFonts;
 
 #[derive(Clone, Copy)]
@@ -51,6 +52,23 @@ impl Gfx {
         for y in y0..y1 {
             for px in &mut self.buf[y * self.w + x0..y * self.w + x1.max(x0)] {
                 *px = f(*px);
+            }
+        }
+    }
+
+    pub fn draw(&mut self, cmds: &[DrawCmd]) {
+        let (cx, cy) = self.cam;
+        for c in cmds {
+            if c.debug_only && !self.debug {
+                continue;
+            }
+            let r = Rect { x: c.rect.x - cx, y: c.rect.y - cy, ..c.rect };
+            match &c.paint {
+                Paint::Color(col) => self.fill(&r, *col),
+                Paint::Alpha(col, a) => self.fill_alpha(&r, *col, *a),
+                Paint::Sprite(s) => self.blit(s, r.x as i32, r.y as i32),
+                Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r.x as i32, r.y as i32, *flip),
+                Paint::Outline(col) => self.outline(&r, *col),
             }
         }
     }
@@ -128,6 +146,25 @@ impl Sprite {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draw_applies_the_camera_and_skips_debug_commands_unless_enabled() {
+        let cmd = |debug_only| DrawCmd {
+            layer: 0,
+            rect: Rect { x: 5.0, y: 0.0, w: 1.0, h: 1.0 },
+            paint: Paint::Color(7),
+            debug_only,
+        };
+        let mut g = Gfx::new(8, 1);
+        g.cam = (3.0, 0.0);
+        g.draw(&[cmd(false), cmd(true)]);
+        assert_eq!(g.buf.iter().filter(|&&p| p == 7).count(), 1);
+        assert_eq!(g.buf[2], 7);
+        g.buf.fill(0);
+        g.debug = true;
+        g.draw(&[cmd(true)]);
+        assert_eq!(g.buf[2], 7);
+    }
 
     #[test]
     fn fill_alpha_blends_with_what_is_beneath() {
