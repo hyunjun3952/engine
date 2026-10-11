@@ -11,10 +11,10 @@ struct Menu;
 
 impl Scene for Menu {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input().pressed(Key::Enter) {
+        if ctx.input().pressed("confirm") {
             return Trans::Push(Box::new(Pong::new(ctx)));
         }
-        if ctx.input().pressed(Key::Escape) {
+        if ctx.input().pressed("back") {
             return Trans::Quit;
         }
         Trans::None
@@ -30,7 +30,7 @@ struct Pause;
 
 impl Scene for Pause {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input().pressed(Key::P) { Trans::Pop } else { Trans::None }
+        if ctx.input().pressed("pause") { Trans::Pop } else { Trans::None }
     }
     fn draw(&self, g: &mut Gfx) {
         g.fill_alpha(&Rect { x: 0.0, y: 0.0, w: W, h: H }, 0x000000, 150);
@@ -39,8 +39,8 @@ impl Scene for Pause {
 }
 
 struct Paddle {
-    up: Key,
-    down: Key,
+    up: &'static str,
+    down: &'static str,
 }
 
 struct Pong {
@@ -55,8 +55,8 @@ impl Pong {
         let paddle = |x, up, down| {
             (Body(Rect { x, y: 150.0, w: 10.0, h: 60.0 }), Look::Color(0xffffff), Paddle { up, down }, Collider)
         };
-        world.spawn(paddle(20.0, Key::W, Key::S));
-        world.spawn(paddle(W - 30.0, Key::Up, Key::Down));
+        world.spawn(paddle(20.0, "p1_up", "p1_down"));
+        world.spawn(paddle(W - 30.0, "p2_up", "p2_down"));
         let ball = world.spawn((
             Body(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }),
             Vel { x: 0.0, y: 0.0 },
@@ -80,10 +80,10 @@ impl Scene for Pong {
     }
 
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input().pressed(Key::Escape) {
+        if ctx.input().pressed("back") {
             return Trans::Pop;
         }
-        if ctx.input().pressed(Key::P) {
+        if ctx.input().pressed("pause") {
             return Trans::Push(Box::new(Pause));
         }
 
@@ -125,5 +125,18 @@ impl Scene for Pong {
 }
 
 fn main() {
-    engine::run(Config::default(), |_| Box::new(Menu));
+    engine::run(Config::default(), |ctx| {
+        for (action, keys) in [
+            ("confirm", &[Key::Enter][..]),
+            ("back", &[Key::Escape]),
+            ("pause", &[Key::P]),
+            ("p1_up", &[Key::W]),
+            ("p1_down", &[Key::S]),
+            ("p2_up", &[Key::Up]),
+            ("p2_down", &[Key::Down]),
+        ] {
+            ctx.bind(action, keys);
+        }
+        Box::new(Menu)
+    });
 }

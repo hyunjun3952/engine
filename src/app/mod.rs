@@ -55,6 +55,10 @@ impl Ctx {
         }
     }
 
+    pub fn bind(&mut self, action: &'static str, keys: &[Key]) {
+        self.input.bind(action, keys);
+    }
+
     pub fn input(&self) -> &Input {
         &self.input
     }
@@ -188,7 +192,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         acc = (acc + (now - last).as_secs_f32()).min(0.25);
         last = now;
         ctx.input.poll(&win);
-        let f3_down = ctx.input.down(Key::F3);
+        let f3_down = ctx.input.key_down(Key::F3);
         if f3_down && !f3 {
             gfx.debug = !gfx.debug;
         }

@@ -40,15 +40,15 @@ impl Scene for Platformer {
     }
 
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input().pressed(Key::Escape) {
+        if ctx.input().pressed("back") {
             return Trans::Quit;
         }
 
         let (b, v, anim) = self.world.query_one_mut::<(&mut Body, &mut Vel, &mut Anim)>(self.player).unwrap();
         let (was_grounded, mut dust) = (self.grounded, false);
-        v.x = ctx.input().axis(Key::Left, Key::Right) * 160.0;
+        v.x = ctx.input().axis("left", "right") * 160.0;
         v.y = (v.y + 900.0 * ctx.dt()).min(600.0);
-        if self.grounded && (ctx.input().pressed(Key::Space) || ctx.input().pressed(Key::Up)) {
+        if self.grounded && ctx.input().pressed("jump") {
             v.y = -330.0;
             ctx.audio().play("assets/jump.wav");
             dust = true;
@@ -96,11 +96,17 @@ impl Scene for Platformer {
         let mut cmds = self.map.draw_list(g.view());
         cmds.extend(draw_list(&self.world));
         g.draw(cmds);
-        g.text("ARROWS: move   SPACE: jump   F3: debug", 8, 340, 1, 0xffffff);
+        g.text("ARROWS or A/D: move   SPACE: jump   F3: debug", 8, 340, 1, 0xffffff);
     }
 }
 
 fn main() {
     let level = std::env::args().nth(1).unwrap_or_else(|| "assets/level1.txt".into());
-    engine::run(Config { title: "platformer", ..Config::default() }, |ctx| Box::new(Platformer::new(ctx, &level)));
+    engine::run(Config { title: "platformer", ..Config::default() }, |ctx| {
+        ctx.bind("left", &[Key::Left, Key::A]);
+        ctx.bind("right", &[Key::Right, Key::D]);
+        ctx.bind("jump", &[Key::Space, Key::Up, Key::W]);
+        ctx.bind("back", &[Key::Escape]);
+        Box::new(Platformer::new(ctx, &level))
+    });
 }

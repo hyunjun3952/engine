@@ -7,8 +7,8 @@ const W: f32 = 640.0;
 const H: f32 = 360.0;
 
 struct Slider {
-    left: Key,
-    right: Key,
+    left: &'static str,
+    right: &'static str,
 }
 struct Brick;
 
@@ -16,10 +16,10 @@ struct Over(&'static str);
 
 impl Scene for Over {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input().pressed(Key::Enter) {
+        if ctx.input().pressed("confirm") {
             return Trans::Replace(Box::new(Breakout::new(ctx)));
         }
-        if ctx.input().pressed(Key::Escape) {
+        if ctx.input().pressed("back") {
             return Trans::Quit;
         }
         Trans::None
@@ -45,7 +45,7 @@ impl Breakout {
         let paddle = world.spawn((
             Body(Rect { x: W / 2.0 - 40.0, y: H - 30.0, w: 80.0, h: 10.0 }),
             Look::Color(0xffffff),
-            Slider { left: Key::Left, right: Key::Right },
+            Slider { left: "left", right: "right" },
             Collider,
         ));
         for row in 0..5 {
@@ -81,7 +81,7 @@ impl Scene for Breakout {
     }
 
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
-        if ctx.input().pressed(Key::Escape) {
+        if ctx.input().pressed("back") {
             return Trans::Quit;
         }
 
@@ -166,5 +166,11 @@ impl Scene for Breakout {
 }
 
 fn main() {
-    engine::run(Config { title: "breakout", ..Config::default() }, |ctx| Box::new(Breakout::new(ctx)));
+    engine::run(Config { title: "breakout", ..Config::default() }, |ctx| {
+        ctx.bind("left", &[Key::Left, Key::A]);
+        ctx.bind("right", &[Key::Right, Key::D]);
+        ctx.bind("confirm", &[Key::Enter]);
+        ctx.bind("back", &[Key::Escape]);
+        Box::new(Breakout::new(ctx))
+    });
 }
