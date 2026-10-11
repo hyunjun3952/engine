@@ -107,6 +107,9 @@ fn main() {
         ctx.bind("right", &[Key::Right, Key::D]);
         ctx.bind("jump", &[Key::Space, Key::Up, Key::W]);
         ctx.bind("back", &[Key::Escape]);
+        if let Err(e) = ctx.load_bindings("input.txt") {
+            eprintln!("{e}");
+        }
         Box::new(Platformer::new(ctx, &level))
     });
 }

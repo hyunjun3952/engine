@@ -171,6 +171,9 @@ fn main() {
         ctx.bind("right", &[Key::Right, Key::D]);
         ctx.bind("confirm", &[Key::Enter]);
         ctx.bind("back", &[Key::Escape]);
+        if let Err(e) = ctx.load_bindings("input.txt") {
+            eprintln!("{e}");
+        }
         Box::new(Breakout::new(ctx))
     });
 }

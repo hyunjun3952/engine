@@ -59,8 +59,20 @@ impl Ctx {
         }
     }
 
-    pub fn bind(&mut self, action: &'static str, keys: &[Key]) {
+    pub fn bind(&mut self, action: &str, keys: &[Key]) {
         self.input.bind(action, keys);
+    }
+
+    pub fn load_bindings(&mut self, path: &str) -> Result<(), String> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => self.input.load_text(&text).map_err(|e| format!("{path}: {e}")),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("{path}: {e}")),
+        }
+    }
+
+    pub fn save_bindings(&self, path: &str) -> std::io::Result<()> {
+        std::fs::write(path, self.input.to_text())
     }
 
     pub fn input(&self) -> &Input {
@@ -290,6 +302,27 @@ mod tests {
         fn on_exit(&mut self, _: &mut Ctx) {
             self.1.borrow_mut().push(format!("{}-", self.0));
         }
+    }
+
+    #[test]
+    fn bindings_save_and_load_through_a_file_and_a_missing_file_keeps_the_defaults() {
+        let path = std::env::temp_dir().join(format!("engine-bindings-{}.txt", std::process::id()));
+        let path = path.to_str().unwrap();
+        let mut ctx = Ctx::new(64, 64, 1.0 / 60.0, Audio::disabled());
+        ctx.bind("jump", &[Key::Space, Key::Up]);
+        ctx.save_bindings(path).unwrap();
+
+        let mut other = Ctx::new(64, 64, 1.0 / 60.0, Audio::disabled());
+        other.load_bindings(path).unwrap();
+        assert_eq!(other.input.to_text(), "jump = Space Up\n");
+
+        std::fs::write(path, "jump = Nope\n").unwrap();
+        let err = other.load_bindings(path).unwrap_err();
+        assert!(err.starts_with(path) && err.contains("line 1"), "{err}");
+        assert_eq!(other.input.to_text(), "jump = Space Up\n");
+
+        std::fs::remove_file(path).unwrap();
+        assert!(other.load_bindings(path).is_ok());
     }
 
     #[test]

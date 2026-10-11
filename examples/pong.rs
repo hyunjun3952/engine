@@ -146,6 +146,9 @@ fn main() {
         ] {
             ctx.bind(action, keys);
         }
+        if let Err(e) = ctx.load_bindings("input.txt") {
+            eprintln!("{e}");
+        }
         Box::new(Menu)
     });
 }
