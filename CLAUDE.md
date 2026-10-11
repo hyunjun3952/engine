@@ -36,4 +36,6 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 
 **Audio (`audio.rs`).** `ctx.audio.play(path)` fires a one-shot, `music(path)` loops one track. File bytes are cached, decoding happens per play. If no output device opens, audio disables itself with one stderr line and every call becomes a no-op, so games never fail on audio. Under WSL, ALSA needs the PulseAudio plugin (`libasound2-plugins`) to find WSLg's sound server.
 
+**Levels.** `Tilemap::load(path, ...)` reads a plain-text grid, one row per line, all rows the same width: `#` ground and `+` brick are solid tiles, `.` or space is empty, and any other character is a marker the game queries with `map.marks(b'P')` (pixel position of the tile's top-left). The platformer takes the level path as its first CLI argument (default `assets/level1.txt`) and needs exactly one `P` for the player start.
+
 **Assets and input.** `Ctx::assets` caches sprites by path (`Arc<Sprite>`, never evicted). `Input` wraps `minifb::Key`, exposing `down`, `pressed` (edge-triggered per fixed step) and `axis`.

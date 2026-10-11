@@ -1,52 +1,28 @@
 use engine::{Anim, Body, Config, Ctx, Entity, Gfx, Key, Rect, Scene, Tilemap, Trans, Vel, World, animate, render};
 
-const LEVEL: [&str; 23] = [
-    "#..........................................................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#.........................++...............................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#.................................................++++++...#",
-    "#...............................++++.......................#",
-    "#.............+++..........................................#",
-    "#..........................................................#",
-    "#..........................................................#",
-    "#.............................................++++++.......#",
-    "#.....++++..............++++++.............................#",
-    "#...................................##.....................#",
-    "#..........................................................#",
-    "#.........###..............................................#",
-    "##################....##################....################",
-    "##################....##################....################",
-];
-
 const TILE: usize = 16;
-const START: Rect = Rect { x: 32.0, y: 21.0 * 16.0 - 24.0, w: 12.0, h: 24.0 };
 
 struct Platformer {
     world: World,
     player: Entity,
     map: Tilemap,
+    start: Rect,
     grounded: bool,
 }
 
 impl Platformer {
-    fn new(ctx: &mut Ctx) -> Self {
+    fn new(ctx: &mut Ctx, level: &str) -> Self {
+        let map = Tilemap::load(level, TILE, ctx.assets.sprite("assets/tiles.png"));
+        let (x, y) = map.marks(b'P').next().expect("level needs a P marker");
+        let start = Rect { x, y: y + TILE as f32 - 24.0, w: 12.0, h: 24.0 };
         let mut world = World::new();
         let player = world.spawn((
-            Body(START),
+            Body(start),
             Vel { x: 0.0, y: 0.0 },
             Anim::new(ctx.assets.sprite("assets/player.png"), 12, 24),
         ));
         ctx.audio.music("assets/music.wav");
-        let map = Tilemap::from_ascii(&LEVEL, TILE, ctx.assets.sprite("assets/tiles.png"));
-        Platformer { world, player, map, grounded: false }
+        Platformer { world, player, map, start, grounded: false }
     }
 }
 
@@ -81,7 +57,7 @@ impl Scene for Platformer {
             anim.play(0, 2, 2.0);
         }
         if b.0.y > self.map.pixel_size().1 {
-            b.0 = START;
+            b.0 = self.start;
             v.y = 0.0;
         }
         animate(&mut self.world, ctx.dt);
@@ -99,5 +75,6 @@ impl Scene for Platformer {
 }
 
 fn main() {
-    engine::run(Config { title: "platformer", ..Config::default() }, |ctx| Box::new(Platformer::new(ctx)));
+    let level = std::env::args().nth(1).unwrap_or_else(|| "assets/level1.txt".into());
+    engine::run(Config { title: "platformer", ..Config::default() }, |ctx| Box::new(Platformer::new(ctx, &level)));
 }

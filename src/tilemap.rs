@@ -6,24 +6,39 @@ pub struct Tilemap {
     pub h: usize,
     pub size: usize,
     tiles: Vec<u8>,
+    marks: Vec<(u8, usize, usize)>,
     sheet: Arc<Sprite>,
 }
 
 impl Tilemap {
     pub fn from_ascii(rows: &[&str], size: usize, sheet: Arc<Sprite>) -> Self {
         let w = rows[0].len();
-        let tiles = rows
-            .iter()
-            .flat_map(|r| {
-                assert_eq!(r.len(), w, "ragged tilemap row");
-                r.bytes().map(|c| match c {
+        let mut tiles = Vec::with_capacity(w * rows.len());
+        let mut marks = Vec::new();
+        for (y, row) in rows.iter().enumerate() {
+            assert_eq!(row.len(), w, "ragged tilemap row {y}");
+            for (x, c) in row.bytes().enumerate() {
+                tiles.push(match c {
                     b'#' => 1,
                     b'+' => 2,
                     _ => 0,
-                })
-            })
-            .collect();
-        Tilemap { w, h: rows.len(), size, tiles, sheet }
+                });
+                if !matches!(c, b'.' | b' ' | b'#' | b'+') {
+                    marks.push((c, x, y));
+                }
+            }
+        }
+        Tilemap { w, h: rows.len(), size, tiles, marks, sheet }
+    }
+
+    pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Self {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let rows: Vec<&str> = text.trim_end().lines().collect();
+        Self::from_ascii(&rows, size, sheet)
+    }
+
+    pub fn marks(&self, c: u8) -> impl Iterator<Item = (f32, f32)> + '_ {
+        self.marks.iter().filter(move |m| m.0 == c).map(|&(_, x, y)| ((x * self.size) as f32, (y * self.size) as f32))
     }
 
     pub fn pixel_size(&self) -> (f32, f32) {
@@ -90,6 +105,20 @@ impl Tilemap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn letters_become_markers_with_pixel_positions() {
+        let map = Tilemap::from_ascii(&["...", ".P.", "###"], 16, Arc::new(Sprite::load("assets/tiles.png")));
+        assert_eq!(map.marks(b'P').collect::<Vec<_>>(), vec![(16.0, 16.0)]);
+        assert_eq!(map.marks(b'E').count(), 0);
+    }
+
+    #[test]
+    fn level_file_loads_with_a_start_marker() {
+        let map = Tilemap::load("assets/level1.txt", 16, Arc::new(Sprite::load("assets/tiles.png")));
+        assert_eq!((map.w, map.h), (60, 23));
+        assert_eq!(map.marks(b'P').count(), 1);
+    }
 
     #[test]
     fn falling_box_lands_on_floor_and_wall_stops_it() {
