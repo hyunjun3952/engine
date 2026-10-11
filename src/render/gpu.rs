@@ -1,4 +1,4 @@
-use super::{DrawCmd, Paint, font};
+use super::{DrawCmd, Paint, Transform, font};
 use crate::Sprite;
 use std::{collections::HashMap, sync::Arc};
 
@@ -138,6 +138,19 @@ fn vertex_buffer(device: &wgpu::Device, cap: usize) -> wgpu::Buffer {
     })
 }
 
+fn best(adapters: impl IntoIterator<Item = wgpu::Adapter>, allow_cpu: bool) -> Result<wgpu::Adapter, String> {
+    adapters
+        .into_iter()
+        .filter(|a| allow_cpu || a.get_info().device_type != wgpu::DeviceType::Cpu)
+        .min_by_key(|a| match a.get_info().device_type {
+            wgpu::DeviceType::DiscreteGpu => 0,
+            wgpu::DeviceType::IntegratedGpu => 1,
+            wgpu::DeviceType::Cpu => 3,
+            _ => 2,
+        })
+        .ok_or("no usable GPU adapter".to_string())
+}
+
 impl Gpu {
     pub(crate) fn for_window<W: wgpu::rwh::HasWindowHandle + wgpu::rwh::HasDisplayHandle>(
         win: &W,
@@ -151,17 +164,8 @@ impl Gpu {
         let target = unsafe { wgpu::SurfaceTargetUnsafe::from_window(win) }.map_err(|e| e.to_string())?;
         let surface = unsafe { instance.create_surface_unsafe(target) }.map_err(|e| e.to_string())?;
         let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
-        let adapter = adapters
-            .into_iter()
-            .filter(|a| a.is_surface_supported(&surface))
-            .filter(|a| allow_cpu || a.get_info().device_type != wgpu::DeviceType::Cpu)
-            .min_by_key(|a| match a.get_info().device_type {
-                wgpu::DeviceType::DiscreteGpu => 0,
-                wgpu::DeviceType::IntegratedGpu => 1,
-                wgpu::DeviceType::Cpu => 3,
-                _ => 2,
-            })
-            .ok_or("no usable GPU adapter")?;
+        let usable = adapters.into_iter().filter(|a| a.is_surface_supported(&surface));
+        let adapter = best(usable, allow_cpu)?;
         let caps = surface.get_capabilities(&adapter);
         let format = caps.formats.iter().copied().find(|f| !f.is_srgb()).or(caps.formats.first().copied());
         let format = format.ok_or("surface reports no formats")?;
@@ -186,10 +190,7 @@ impl Gpu {
     pub(crate) fn offscreen(size: (u32, u32), allow_cpu: bool) -> Result<Gpu, String> {
         let instance = wgpu::Instance::default();
         let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
-        let adapter = adapters
-            .into_iter()
-            .find(|a| allow_cpu || a.get_info().device_type != wgpu::DeviceType::Cpu)
-            .ok_or("no usable GPU adapter")?;
+        let adapter = best(adapters, allow_cpu)?;
         Gpu::new(adapter, wgpu::TextureFormat::Rgba8Unorm, size)
     }
 
@@ -328,20 +329,40 @@ impl Gpu {
         (u0, v0, u1, v1): (f32, f32, f32, f32),
         color: [f32; 4],
     ) {
+        self.quad4(tex, [[x0, y0], [x1, y0], [x0, y1], [x1, y1]], (u0, v0, u1, v1), color);
+    }
+
+    fn quad4(
+        &mut self,
+        tex: Tex,
+        [tl, tr, bl, br]: [[f32; 2]; 4],
+        (u0, v0, u1, v1): (f32, f32, f32, f32),
+        color: [f32; 4],
+    ) {
         let at = self.verts.len() as u32;
         let v = |pos, uv| Vertex { pos, uv, color };
         self.verts.extend([
-            v([x0, y0], [u0, v0]),
-            v([x1, y0], [u1, v0]),
-            v([x0, y1], [u0, v1]),
-            v([x1, y0], [u1, v0]),
-            v([x1, y1], [u1, v1]),
-            v([x0, y1], [u0, v1]),
+            v(tl, [u0, v0]),
+            v(tr, [u1, v0]),
+            v(bl, [u0, v1]),
+            v(tr, [u1, v0]),
+            v(br, [u1, v1]),
+            v(bl, [u0, v1]),
         ]);
         match self.batches.last_mut() {
             Some(b) if b.tex == tex => b.end = at + 6,
             _ => self.batches.push(Batch { tex, start: at, end: at + 6 }),
         }
+    }
+
+    fn warped(&mut self, tex: Tex, quad: crate::Rect, t: &Transform, uv: (f32, f32, f32, f32), color: [f32; 4]) {
+        let (cx, cy) = (quad.x + quad.w / 2.0, quad.y + quad.h / 2.0);
+        let (s, c) = t.angle.sin_cos();
+        let corner = |ux: f32, uy: f32| {
+            let (lx, ly) = (ux * quad.w / 2.0 * t.sx, uy * quad.h / 2.0 * t.sy);
+            [cx + lx * c - ly * s, cy + lx * s + ly * c]
+        };
+        self.quad4(tex, [corner(-1.0, -1.0), corner(1.0, -1.0), corner(-1.0, 1.0), corner(1.0, 1.0)], uv, color);
     }
 
     fn solid(&mut self, r: &crate::Rect, color: [f32; 4]) {
@@ -378,7 +399,26 @@ impl Gpu {
         let full = crate::Rect { x: 0.0, y: 0.0, w: self.size.0 as f32, h: self.size.1 as f32 };
         for c in cmds {
             let r = &c.rect;
+            let t = &c.xform;
             match &c.paint {
+                Paint::Color(col) if !t.is_identity() => {
+                    self.warped(Tex::White, *r, t, (0.0, 0.0, 1.0, 1.0), rgba(*col, 1.0))
+                }
+                Paint::Alpha(col, a) if !t.is_identity() => {
+                    self.warped(Tex::White, *r, t, (0.0, 0.0, 1.0, 1.0), rgba(*col, *a as f32 / 255.0))
+                }
+                Paint::Sprite(s) if !t.is_identity() => {
+                    let (tex, (w, h)) = self.texture(s);
+                    let quad = crate::Rect { x: r.x, y: r.y, w, h };
+                    self.warped(tex, quad, t, (0.0, 0.0, 1.0, 1.0), [1.0; 4]);
+                }
+                Paint::Region { sheet, src, flip } if !t.is_identity() => {
+                    let (tex, (sw, sh)) = self.texture(sheet);
+                    let (u0, u1) = (src.x / sw, (src.x + src.w) / sw);
+                    let (u0, u1) = if *flip { (u1, u0) } else { (u0, u1) };
+                    let quad = crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h };
+                    self.warped(tex, quad, t, (u0, src.y / sh, u1, (src.y + src.h) / sh), [1.0; 4]);
+                }
                 Paint::Clear(col) => self.solid(&full, rgba(*col, 1.0)),
                 Paint::Color(col) => self.solid(r, rgba(*col, 1.0)),
                 Paint::Alpha(col, a) => self.solid(r, rgba(*col, *a as f32 / 255.0)),
@@ -614,5 +654,78 @@ mod tests {
         assert!(soft != soft2, "the new image really looks different");
         assert!(soft2 == hard2, "re-uploaded texture differs from the software output");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn transformed_scene() -> Gfx {
+        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let (ball, player) = (sprite("assets/ball.png"), sprite("assets/player.png"));
+        let mut g = Gfx::new(160, 120);
+        g.clear(0x203050);
+        let cmd = |rect, paint, angle, sx, sy| DrawCmd {
+            layer: 0,
+            rect,
+            paint,
+            debug_only: false,
+            xform: Transform { angle, sx, sy },
+        };
+        let at = |x, y, w, h| Rect { x, y, w, h };
+        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        g.draw([
+            cmd(at(10.0, 10.0, 16.0, 16.0), Paint::Sprite(ball.clone()), 0.5, 1.0, 1.0),
+            cmd(at(40.0, 10.0, 16.0, 16.0), Paint::Sprite(ball.clone()), 0.0, 3.0, 2.0),
+            cmd(at(90.0, 10.0, 16.0, 16.0), Paint::Sprite(ball), 2.0, -1.5, 1.5),
+            cmd(
+                at(20.0, 50.0, 12.0, 24.0),
+                Paint::Region { sheet: player.clone(), src: frame, flip: false },
+                1.0,
+                1.0,
+                1.0,
+            ),
+            cmd(
+                at(50.0, 50.0, 12.0, 24.0),
+                Paint::Region { sheet: player.clone(), src: frame, flip: true },
+                0.7,
+                2.0,
+                2.0,
+            ),
+            cmd(at(100.0, 50.0, 30.0, 12.0), Paint::Color(0xff4040), 0.4, 1.0, 1.0),
+            cmd(at(110.0, 60.0, 30.0, 30.0), Paint::Alpha(0x40ff80, 128), -0.8, 1.0, 0.6),
+        ]);
+        g
+    }
+
+    #[test]
+    fn rotated_and_scaled_drawing_agrees_between_the_two_backends() {
+        let Ok(mut gpu) = Gpu::offscreen((160, 120), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let g = transformed_scene();
+        let mut soft = Soft::new(160, 120, 1);
+        soft.render(g.cmds());
+        let soft_px: Vec<u32> = soft.buf.iter().map(|p| p & 0x00ff_ffff).collect();
+        let gpu_px = gpu.render_to_pixels(g.cmds());
+        if let Ok(dir) = std::env::var("ENGINE_DUMP") {
+            let save = |px: &[u32], name: &str| {
+                let mut img = image::RgbImage::new(160, 120);
+                for (i, p) in px.iter().enumerate() {
+                    img.put_pixel(
+                        i as u32 % 160,
+                        i as u32 / 160,
+                        image::Rgb([(p >> 16) as u8, (p >> 8) as u8, *p as u8]),
+                    );
+                }
+                img.save(format!("{dir}/{name}")).unwrap();
+            };
+            save(&soft_px, "xform_soft.png");
+            save(&gpu_px, "xform_gpu.png");
+        }
+        let channel = |p: u32, sh: u32| (p >> sh & 255) as i32;
+        let differ =
+            |i: usize| [16, 8, 0].iter().any(|&sh| (channel(soft_px[i], sh) - channel(gpu_px[i], sh)).abs() > 2);
+        let drawn = soft_px.iter().filter(|&&p| p != 0x203050).count();
+        let off = (0..soft_px.len()).filter(|&i| differ(i)).count();
+        eprintln!("transform parity: {off} of {drawn} drawn pixels differ on {}", gpu.adapter);
+        assert!(off * 100 <= drawn * 3, "{off} of {drawn} drawn pixels differ");
     }
 }

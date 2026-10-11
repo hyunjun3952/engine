@@ -1,4 +1,4 @@
-use super::{DrawCmd, Paint, font};
+use super::{DrawCmd, Paint, Transform, font};
 use std::sync::{
     Arc, RwLock, RwLockReadGuard,
     atomic::{AtomicU64, Ordering},
@@ -46,7 +46,7 @@ impl Gfx {
     }
 
     fn push(&mut self, rect: Rect, paint: Paint) {
-        self.cmds.push(DrawCmd { layer: 0, rect, paint, debug_only: false });
+        self.cmds.push(DrawCmd { layer: 0, rect, paint, debug_only: false, xform: Transform::IDENTITY });
     }
 
     pub fn view(&self) -> Rect {
@@ -162,6 +162,7 @@ mod tests {
             rect: Rect { x: 5.0, y: 2.0, w: 1.0, h: 1.0 },
             paint: Paint::Color(7),
             debug_only,
+            xform: Transform::IDENTITY,
         };
         let mut g = Gfx::new(8, 8);
         g.cam = (3.0, 1.0);

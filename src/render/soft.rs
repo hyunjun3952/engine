@@ -1,4 +1,4 @@
-use super::{DrawCmd, Paint, font};
+use super::{DrawCmd, Paint, Transform, font};
 use crate::{Rect, Sprite};
 
 pub(crate) struct Soft {
@@ -27,6 +27,9 @@ impl Soft {
         self.buf.fill(0);
         for c in cmds {
             let r = &c.rect;
+            if !c.xform.is_identity() && self.transformed(c) {
+                continue;
+            }
             match &c.paint {
                 Paint::Clear(col) => self.buf.fill(*col),
                 Paint::Color(col) => self.fill_with(r, |_| *col),
@@ -44,6 +47,58 @@ impl Soft {
                         let src = Rect { x: ((id as u32 - 1) * size) as f32, y: 0.0, w: *size as f32, h: *size as f32 };
                         self.blit_region(sheet, src, &at, false);
                     }
+                }
+            }
+        }
+    }
+
+    fn transformed(&mut self, c: &DrawCmd) -> bool {
+        let (r, t) = (&c.rect, &c.xform);
+        match &c.paint {
+            Paint::Color(col) => {
+                let col = *col;
+                self.warp(*r, t, |d, _, _| *d = col);
+            }
+            Paint::Alpha(col, a) => {
+                let (col, a) = (*col, *a as u32);
+                self.warp(*r, t, |d, _, _| *d = blend(col, *d, a));
+            }
+            Paint::Sprite(s) => {
+                let img = s.image();
+                let quad = Rect { x: r.x, y: r.y, w: img.w as f32, h: img.h as f32 };
+                self.warp(quad, t, |d, u, v| put(d, img.px[v as usize * img.w + u as usize]));
+            }
+            Paint::Region { sheet, src, flip } => {
+                let img = sheet.image();
+                let (sx0, sy0, w) = (src.x as usize, src.y as usize, src.w as usize);
+                let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
+                self.warp(quad, t, |d, u, v| {
+                    let u = if *flip { w - 1 - u as usize } else { u as usize };
+                    put(d, img.px[(sy0 + v as usize) * img.w + sx0 + u]);
+                });
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    fn warp(&mut self, quad: Rect, t: &Transform, mut shade: impl FnMut(&mut u32, f32, f32)) {
+        if t.sx == 0.0 || t.sy == 0.0 {
+            return;
+        }
+        let (cx, cy) = (quad.x + quad.w / 2.0, quad.y + quad.h / 2.0);
+        let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
+        let (s, c) = t.angle.sin_cos();
+        let (ex, ey) = (hw * c.abs() + hh * s.abs(), hw * s.abs() + hh * c.abs());
+        let (x0, x1) = ((cx - ex).floor().max(0.0) as usize, ((cx + ex).ceil().max(0.0) as usize).min(self.w));
+        let (y0, y1) = ((cy - ey).floor().max(0.0) as usize, ((cy + ey).ceil().max(0.0) as usize).min(self.h));
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let (dx, dy) = (px as f32 + 0.5 - cx, py as f32 + 0.5 - cy);
+                let (lx, ly) = (dx * c + dy * s, dy * c - dx * s);
+                let (u, v) = (lx / t.sx + quad.w / 2.0, ly / t.sy + quad.h / 2.0);
+                if u >= 0.0 && u < quad.w && v >= 0.0 && v < quad.h {
+                    shade(&mut self.buf[py * self.w + px], u, v);
                 }
             }
         }
@@ -111,14 +166,18 @@ impl Soft {
             let dst_row = &mut self.buf[dst_from..dst_from + self.w];
             for sx in cols.clone() {
                 let p = src_row[if flip { w - 1 - sx } else { sx }];
-                let d = &mut dst_row[(x + sx as i32) as usize];
-                match p >> 24 {
-                    255 => *d = p,
-                    0 => {}
-                    a => *d = blend(p, *d, a),
-                }
+                put(&mut dst_row[(x + sx as i32) as usize], p);
             }
         }
+    }
+}
+
+#[inline(always)]
+fn put(d: &mut u32, p: u32) {
+    match p >> 24 {
+        255 => *d = p,
+        0 => {}
+        a => *d = blend(p, *d, a),
     }
 }
 
@@ -169,7 +228,7 @@ fn blend(src: u32, dst: u32, a: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Gfx;
+    use crate::{DrawCmd, Gfx};
     use std::sync::Arc;
 
     fn run(w: usize, h: usize, f: impl FnOnce(&mut Gfx)) -> Soft {
@@ -237,6 +296,62 @@ mod tests {
             unsafe { blend_row_avx2(&mut fast, src, a) };
             assert!(plain == fast, "src {src:x} a {a}");
         }
+    }
+
+    fn drawn(w: usize, h: usize, rect: Rect, paint: Paint, xform: Transform) -> Soft {
+        run(w, h, |g| g.draw([DrawCmd { layer: 0, rect, paint, debug_only: false, xform }]))
+    }
+
+    fn lit(s: &Soft, w: usize) -> Vec<(usize, usize)> {
+        s.buf.iter().enumerate().filter(|(_, p)| **p != 0).map(|(i, _)| (i % w, i / w)).collect()
+    }
+
+    #[test]
+    fn rotating_a_rect_a_quarter_turn_swaps_its_width_and_height_around_the_centre() {
+        let quarter = Transform { angle: std::f32::consts::FRAC_PI_2, ..Transform::IDENTITY };
+        let s = drawn(8, 8, Rect { x: 2.0, y: 3.0, w: 4.0, h: 2.0 }, Paint::Color(7), quarter);
+        let want: Vec<(usize, usize)> = (2..6).flat_map(|y| (3..5).map(move |x| (x, y))).collect();
+        assert_eq!(lit(&s, 8), want);
+    }
+
+    #[test]
+    fn scaling_grows_around_the_centre_and_a_zero_scale_draws_nothing() {
+        let double = Transform { sx: 2.0, sy: 2.0, ..Transform::IDENTITY };
+        let s = drawn(8, 8, Rect { x: 3.0, y: 3.0, w: 2.0, h: 2.0 }, Paint::Color(7), double);
+        let want: Vec<(usize, usize)> = (2..6).flat_map(|y| (2..6).map(move |x| (x, y))).collect();
+        assert_eq!(lit(&s, 8), want);
+        let none = Transform { sx: 0.0, ..Transform::IDENTITY };
+        assert!(
+            drawn(8, 8, Rect { x: 3.0, y: 3.0, w: 2.0, h: 2.0 }, Paint::Color(7), none).buf.iter().all(|&p| p == 0)
+        );
+    }
+
+    #[test]
+    fn a_square_turned_45_degrees_keeps_its_area() {
+        let eighth = Transform { angle: std::f32::consts::FRAC_PI_4, ..Transform::IDENTITY };
+        let s = drawn(48, 48, Rect { x: 14.0, y: 14.0, w: 20.0, h: 20.0 }, Paint::Color(7), eighth);
+        let area = lit(&s, 48).len();
+        assert!((380..=420).contains(&area), "{area}");
+    }
+
+    #[test]
+    fn a_half_turn_flips_a_sprite_both_ways_and_a_negative_scale_mirrors_like_flip() {
+        let sprite = Arc::new(Sprite::load("assets/ball.png"));
+        let img = sprite.image();
+        let at = Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 };
+        let half = Transform { angle: std::f32::consts::PI, ..Transform::IDENTITY };
+        let s = drawn(16, 16, at, Paint::Sprite(sprite.clone()), half);
+        for y in 0..16 {
+            for x in 0..16 {
+                let p = img.px[(15 - y) * 16 + 15 - x];
+                assert_eq!(s.buf[y * 16 + x], if p >> 24 == 255 { p } else { 0 }, "({x},{y})");
+            }
+        }
+        let region =
+            |flip| Paint::Region { sheet: sprite.clone(), src: Rect { x: 2.0, y: 0.0, w: 10.0, h: 16.0 }, flip };
+        let flipped = drawn(16, 16, at, region(true), Transform::IDENTITY);
+        let mirrored = drawn(16, 16, at, region(false), Transform { sx: -1.0, ..Transform::IDENTITY });
+        assert!(flipped.buf == mirrored.buf);
     }
 
     #[test]

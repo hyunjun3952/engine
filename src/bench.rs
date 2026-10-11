@@ -1,7 +1,7 @@
 use crate::render::Soft;
 use crate::{
-    Body, Burst, Collider, DrawCmd, Gfx, Look, Paint, Rect, Rng, Sprite, Tilemap, World, burst, collisions, draw_list,
-    particles,
+    Body, Burst, Collider, DrawCmd, Gfx, Look, Paint, Rect, Rng, Sprite, Tilemap, Transform, World, burst, collisions,
+    draw_list, particles,
 };
 use std::hint::black_box;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ fn time(name: &str, runs: u32, mut f: impl FnMut()) {
 }
 
 fn cmd(rect: Rect, paint: Paint) -> DrawCmd {
-    DrawCmd { layer: 0, rect, paint, debug_only: false }
+    DrawCmd { layer: 0, rect, paint, debug_only: false, xform: Default::default() }
 }
 
 #[test]
@@ -98,4 +98,12 @@ fn bench() {
             black_box(up.present());
         });
     }
+
+    let turned: Vec<DrawCmd> = sprites
+        .iter()
+        .take(2000)
+        .map(|c| DrawCmd { xform: Transform { angle: 0.6, sx: 1.0, sy: 1.0 }, ..c.clone() })
+        .collect();
+    time("soft: 2000 sprites, plain", 50, || soft.render(black_box(&sprites[..2000])));
+    time("soft: 2000 sprites, rotated", 50, || soft.render(black_box(&turned)));
 }
