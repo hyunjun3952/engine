@@ -68,7 +68,7 @@ impl Physics {
         if let Some(map) = tiles {
             add_tiles(&mut nodes, bodies, map);
         }
-        let hits = find_hits(&nodes);
+        let hits = find_hits(&nodes, bodies, tiles);
         for _ in 0..self.iterations {
             for hit in &hits {
                 let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
@@ -137,7 +137,7 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
     }
 }
 
-fn find_hits(nodes: &[Node]) -> Vec<Hit> {
+fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>) -> Vec<Hit> {
     let rects: Vec<Rect> = nodes.iter().map(|n| n.rect).collect();
     overlapping_pairs(&rects)
         .into_iter()
@@ -154,7 +154,15 @@ fn find_hits(nodes: &[Node]) -> Vec<Hit> {
             };
             Hit { a, b, normal }
         })
+        .filter(|hit| !tiles.is_some_and(|map| hit.b >= bodies && is_inner_face(map, &nodes[hit.b].rect, hit.normal)))
         .collect()
+}
+
+// A face between two solid tiles cannot be touched; a body sliding along the floor would otherwise
+// catch on the seam, because the resting overlap of 0.02 px makes the seam look like a wall.
+fn is_inner_face(map: &Tilemap, tile: &Rect, (nx, ny): (f32, f32)) -> bool {
+    let probe = Rect { x: tile.x + tile.w / 2.0 - nx * tile.w, y: tile.y + tile.h / 2.0 - ny * tile.h, w: 0.1, h: 0.1 };
+    !map.solid_in(probe).is_empty()
 }
 
 fn hit_along_x(a: &Rect, b: &Rect, ox: f32, oy: f32) -> bool {
@@ -349,6 +357,28 @@ mod tests {
             assert!(r.x >= 9.0 && r.x + r.w <= 631.0, "left the arena sideways: {r:?}");
             assert!(r.y + r.h <= 341.0, "sank into or through the floor: {r:?}");
         }
+    }
+
+    #[test]
+    fn a_body_walks_along_a_tile_floor_without_catching_on_the_seams() {
+        let map = Tilemap::from_ascii(
+            &["....................", "....................", "####################"],
+            16,
+            std::sync::Arc::new(crate::Sprite::load("assets/tiles.png")),
+        );
+        let (p, mut w) = (Physics::default(), World::new());
+        let e = boxed(
+            &mut w,
+            Rect { x: 20.0, y: 0.0, w: 12.0, h: 24.0 },
+            RigidBody::dynamic(1.0).with_friction(0.0),
+            (0.0, 0.0),
+        );
+        for _ in 0..120 {
+            w.query_one_mut::<&mut Vel>(e).unwrap().x = 100.0;
+            p.step(&mut w, Some(&map), 1.0 / 60.0);
+        }
+        let (r, _) = state(&w, e);
+        assert!(r.x > 219.0, "caught on a seam at {r:?}");
     }
 
     #[test]
