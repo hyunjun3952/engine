@@ -1,6 +1,6 @@
 use engine::{
-    Anim, Body, Burst, Config, Ctx, Entity, Gfx, Key, Rect, Scene, Tilemap, Trans, Vel, World, animate, burst,
-    draw_list, particles,
+    Anim, Body, Burst, Config, Ctx, Entity, Gfx, Key, Physics, Rect, RigidBody, Scene, Tilemap, Trans, Vel, World,
+    animate, burst, draw_list, particles,
 };
 
 const TILE: usize = 16;
@@ -8,6 +8,7 @@ const DUST: Burst = Burst { count: 6, color: 0xdddddd, speed: 50.0, life: 0.3, s
 
 struct Platformer {
     world: World,
+    physics: Physics,
     player: Entity,
     map: Tilemap,
     start: Rect,
@@ -29,9 +30,10 @@ impl Platformer {
         let player = world.spawn((
             Body(start),
             Vel { x: 0.0, y: 0.0 },
+            RigidBody::dynamic(1.0).with_friction(0.0),
             Anim::new(ctx.assets().sprite("assets/player.png"), 12, 24),
         ));
-        Platformer { world, player, map, start, grounded: false, level: level.to_string() }
+        Platformer { world, physics: Physics::default(), player, map, start, grounded: false, level: level.to_string() }
     }
 }
 
@@ -57,25 +59,24 @@ impl Scene for Platformer {
             }
         }
 
-        let (b, v, anim) = self.world.query_one_mut::<(&mut Body, &mut Vel, &mut Anim)>(self.player).unwrap();
+        let v = self.world.query_one_mut::<&mut Vel>(self.player).unwrap();
         let (was_grounded, mut dust) = (self.grounded, false);
         v.x = ctx.input().axis("left", "right") * 160.0;
-        v.y = (v.y + 900.0 * ctx.dt()).min(600.0);
         if self.grounded && ctx.input().pressed("jump") {
             v.y = -330.0;
             ctx.audio().play("assets/jump.wav");
             dust = true;
         }
 
-        let (r, _, hit_y) = self.map.slide(&b.0, v.x * ctx.dt(), v.y * ctx.dt());
-        b.0 = r;
-        self.grounded = hit_y && v.y > 0.0;
+        let fall = v.y + self.physics.gravity.1 * ctx.dt();
+        self.physics.step(&mut self.world, Some(&self.map), ctx.dt());
+        let (b, v, anim) = self.world.query_one_mut::<(&mut Body, &mut Vel, &mut Anim)>(self.player).unwrap();
+        v.y = v.y.min(600.0);
+        let feet = Rect { x: b.0.x, y: b.0.y + b.0.h, w: b.0.w, h: 1.0 };
+        self.grounded = v.y >= 0.0 && !self.map.solid_in(feet).is_empty();
         dust |= self.grounded && !was_grounded;
-        if self.grounded && v.y > 450.0 {
+        if self.grounded && !was_grounded && fall > 450.0 {
             ctx.cam().shake(3.0, 0.2);
-        }
-        if hit_y {
-            v.y = 0.0;
         }
         if v.x != 0.0 {
             anim.flip = v.x < 0.0;
