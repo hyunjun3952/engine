@@ -1,3 +1,7 @@
+mod particles;
+
+pub use particles::{Burst, burst, particles};
+
 use crate::{Gfx, Rect, Sprite};
 pub use hecs::{Entity, World};
 use std::sync::Arc;

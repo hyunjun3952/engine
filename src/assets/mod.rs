@@ -1,3 +1,7 @@
+mod audio;
+
+pub use audio::Audio;
+
 use crate::Sprite;
 use std::{collections::HashMap, sync::Arc};
 

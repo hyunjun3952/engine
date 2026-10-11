@@ -1,4 +1,10 @@
-use crate::{Assets, Audio, Camera, Gfx, Input, Key, Rect, Rng};
+mod input;
+mod rng;
+
+pub use input::{Input, Key};
+pub use rng::Rng;
+
+use crate::{Assets, Audio, Camera, Gfx, Rect};
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
 
