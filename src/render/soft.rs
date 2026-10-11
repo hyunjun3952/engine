@@ -1,4 +1,4 @@
-use super::{DrawCmd, Paint};
+use super::{DrawCmd, Paint, font};
 use crate::{Rect, Sprite};
 
 pub(crate) struct Soft {
@@ -25,6 +25,7 @@ impl Soft {
                 }
                 Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r, *flip),
                 Paint::Outline(col) => self.outline(r, *col),
+                Paint::Glyph { ch, color, scale } => self.glyph(r, *ch, *color, *scale),
             }
         }
     }
@@ -35,6 +36,26 @@ impl Soft {
         for y in y0..y1 {
             for px in &mut self.buf[y * self.w + x0..y * self.w + x1.max(x0)] {
                 *px = f(*px);
+            }
+        }
+    }
+
+    fn glyph(&mut self, r: &Rect, ch: u8, color: u32, scale: u32) {
+        let s = scale as f32;
+        for (row, bits) in font::bits(ch).into_iter().enumerate() {
+            let mut col = 0;
+            while col < 8 {
+                if bits >> col & 1 == 0 {
+                    col += 1;
+                    continue;
+                }
+                let start = col;
+                while col < 8 && bits >> col & 1 == 1 {
+                    col += 1;
+                }
+                let run =
+                    Rect { x: r.x + start as f32 * s, y: r.y + row as f32 * s, w: (col - start) as f32 * s, h: s };
+                self.fill_with(&run, |_| color);
             }
         }
     }
@@ -99,6 +120,15 @@ mod tests {
                 g.blit(&sprite, x, y);
             }
         });
+    }
+
+    #[test]
+    fn text_lights_exactly_the_glyph_bits_scaled() {
+        let lit: u32 = font::bits(b'A').iter().map(|b| b.count_ones()).sum();
+        let s = run(40, 40, |g| g.text("A", 3, 5, 2, 7));
+        assert_eq!(s.buf.iter().filter(|&&p| p == 7).count() as u32, lit * 4);
+        let s = run(8, 8, |g| g.text("A", -4, -4, 1, 7));
+        assert!(s.buf.contains(&7));
     }
 
     #[test]

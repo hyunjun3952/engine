@@ -1,4 +1,4 @@
-use super::{DrawCmd, Paint};
+use super::{DrawCmd, Paint, font};
 use crate::Sprite;
 use std::{collections::HashMap, sync::Arc};
 
@@ -40,6 +40,7 @@ struct Vertex {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Tex {
     White,
+    Font,
     Sprite(usize),
 }
 
@@ -75,6 +76,7 @@ pub(crate) struct Gpu {
     tex_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     white: wgpu::BindGroup,
+    font: wgpu::BindGroup,
     textures: HashMap<usize, Uploaded>,
     verts: Vec<Vertex>,
     batches: Vec<Batch>,
@@ -286,6 +288,15 @@ impl Gpu {
             ..Default::default()
         });
         let white = upload(&device, &queue, &tex_layout, &sampler, &[0xffff_ffff], (1, 1));
+        let atlas: Vec<u32> = (0..8)
+            .flat_map(|row| {
+                (0..font::GLYPHS).flat_map(move |ch| {
+                    let bits = font::bits(ch as u8)[row];
+                    (0..8).map(move |col| if bits >> col & 1 == 1 { 0xffff_ffff } else { 0x00ff_ffff })
+                })
+            })
+            .collect();
+        let font = upload(&device, &queue, &tex_layout, &sampler, &atlas, (font::GLYPHS as u32 * 8, 8));
         let vcap = 4096;
         let vbuf = vertex_buffer(&device, vcap);
         Ok(Gpu {
@@ -296,6 +307,7 @@ impl Gpu {
             tex_layout,
             sampler,
             white,
+            font,
             textures: HashMap::new(),
             verts: Vec::new(),
             batches: Vec::new(),
@@ -367,6 +379,11 @@ impl Gpu {
                     self.solid(&crate::Rect { w: 1.0, ..*r }, color);
                     self.solid(&crate::Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, color);
                 }
+                Paint::Glyph { ch, color, scale } => {
+                    let (x, y, size) = (r.x.trunc(), r.y.trunc(), 8.0 * *scale as f32);
+                    let (u0, u1) = (*ch as f32 / font::GLYPHS as f32, (*ch as f32 + 1.0) / font::GLYPHS as f32);
+                    self.quad(Tex::Font, (x, y, x + size, y + size), (u0, 0.0, u1, 1.0), rgba(*color, 1.0));
+                }
                 Paint::Sprite(s) => {
                     let (tex, (w, h)) = self.texture(s);
                     let (x, y) = (r.x.trunc(), r.y.trunc());
@@ -415,6 +432,7 @@ impl Gpu {
             for b in &self.batches {
                 let bind = match b.tex {
                     Tex::White => &self.white,
+                    Tex::Font => &self.font,
                     Tex::Sprite(k) => &self.textures[&k].bind,
                 };
                 pass.set_bind_group(1, bind, &[]);

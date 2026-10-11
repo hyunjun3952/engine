@@ -9,6 +9,7 @@ pub enum Paint {
     Sprite(Arc<Sprite>),
     Region { sheet: Arc<Sprite>, src: Rect, flip: bool },
     Outline(u32),
+    Glyph { ch: u8, color: u32, scale: u32 },
 }
 
 #[derive(Clone)]

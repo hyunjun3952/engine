@@ -1,5 +1,6 @@
 mod camera;
 mod cmd;
+mod font;
 mod gfx;
 mod gpu;
 mod soft;

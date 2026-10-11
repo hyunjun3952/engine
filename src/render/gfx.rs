@@ -1,5 +1,4 @@
-use super::{DrawCmd, Paint};
-use font8x8::UnicodeFonts;
+use super::{DrawCmd, Paint, font};
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -88,18 +87,14 @@ impl Gfx {
     }
 
     pub fn text(&mut self, s: &str, x: i32, y: i32, scale: i32, c: u32) {
+        let (scale, size) = (scale.max(1) as u32, 8.0 * scale.max(1) as f32);
         for (i, ch) in s.chars().enumerate() {
-            let Some(g) = font8x8::BASIC_FONTS.get(ch) else { continue };
-            for (row, bits) in g.iter().enumerate() {
-                for col in 0..8 {
-                    if bits >> col & 1 == 1 {
-                        let px = x + (i as i32 * 8 + col) * scale;
-                        let r =
-                            Rect { x: px as f32, y: (y + row as i32 * scale) as f32, w: scale as f32, h: scale as f32 };
-                        self.fill(&r, c);
-                    }
-                }
+            let code = u32::from(ch);
+            if code >= font::GLYPHS as u32 || font::bits(code as u8) == [0; 8] {
+                continue;
             }
+            let rect = Rect { x: x as f32 + i as f32 * size, y: y as f32, w: size, h: size };
+            self.push(rect, Paint::Glyph { ch: code as u8, color: c, scale });
         }
     }
 }
@@ -141,10 +136,12 @@ mod tests {
     }
 
     #[test]
-    fn text_records_one_fill_per_lit_glyph_pixel() {
-        let mut g = Gfx::new(8, 8);
-        g.text("I", 0, 0, 2, 5);
-        assert!(!g.cmds().is_empty());
-        assert!(g.cmds().iter().all(|c| matches!(c.paint, Paint::Color(5)) && c.rect.w == 2.0));
+    fn text_records_one_command_per_visible_ascii_char_at_the_right_offset() {
+        let mut g = Gfx::new(64, 16);
+        g.text("A B\u{ac00}", 4, 2, 2, 5);
+        let at: Vec<f32> = g.cmds().iter().map(|c| c.rect.x).collect();
+        assert_eq!(at, [4.0, 4.0 + 2.0 * 16.0]);
+        assert!(matches!(g.cmds()[0].paint, Paint::Glyph { ch: b'A', color: 5, scale: 2 }));
+        assert_eq!(g.cmds()[0].rect.w, 16.0);
     }
 }
