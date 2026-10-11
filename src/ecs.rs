@@ -41,6 +41,7 @@ impl Anim {
 
 pub enum Look {
     Color(u32),
+    Alpha(u32, u8),
     Sprite(Arc<Sprite>),
 }
 
@@ -80,6 +81,7 @@ pub fn render(world: &World, gfx: &mut Gfx) {
     for (_, r, draw) in items {
         match draw {
             Draw::Look(Look::Color(c)) => gfx.fill(&r, *c),
+            Draw::Look(Look::Alpha(c, a)) => gfx.fill_alpha(&r, *c, *a),
             Draw::Look(Look::Sprite(s)) => gfx.blit(s, r.x as i32, r.y as i32),
             Draw::Anim(a) => {
                 let (fw, fh) = a.size;

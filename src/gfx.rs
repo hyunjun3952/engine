@@ -38,10 +38,20 @@ impl Gfx {
     }
 
     pub fn fill(&mut self, r: &Rect, c: u32) {
+        self.fill_with(r, |_| c);
+    }
+
+    pub fn fill_alpha(&mut self, r: &Rect, c: u32, alpha: u8) {
+        self.fill_with(r, |d| blend(c, d, alpha as u32));
+    }
+
+    fn fill_with(&mut self, r: &Rect, f: impl Fn(u32) -> u32) {
         let (x0, y0) = (r.x.max(0.0) as usize, r.y.max(0.0) as usize);
         let (x1, y1) = (((r.x + r.w) as usize).min(self.w), ((r.y + r.h) as usize).min(self.h));
         for y in y0..y1 {
-            self.buf[y * self.w + x0..y * self.w + x1.max(x0)].fill(c);
+            for px in &mut self.buf[y * self.w + x0..y * self.w + x1.max(x0)] {
+                *px = f(*px);
+            }
         }
     }
 
@@ -73,8 +83,7 @@ impl Gfx {
                 if a == 255 {
                     *d = p;
                 } else if a > 0 {
-                    let mix = |sh: u32| ((((p >> sh) & 255) * a + ((*d >> sh) & 255) * (255 - a)) / 255) << sh;
-                    *d = mix(16) | mix(8) | mix(0);
+                    *d = blend(p, *d, a);
                 }
             }
         }
@@ -97,6 +106,11 @@ impl Gfx {
     }
 }
 
+fn blend(src: u32, dst: u32, a: u32) -> u32 {
+    let mix = |sh: u32| ((((src >> sh) & 255) * a + ((dst >> sh) & 255) * (255 - a)) / 255) << sh;
+    mix(16) | mix(8) | mix(0)
+}
+
 pub struct Sprite {
     pub w: usize,
     pub h: usize,
@@ -114,6 +128,18 @@ impl Sprite {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fill_alpha_blends_with_what_is_beneath() {
+        let mut g = Gfx::new(2, 1);
+        let all = Rect { x: 0.0, y: 0.0, w: 2.0, h: 1.0 };
+        g.fill_alpha(&all, 0xffffff, 128);
+        assert_eq!(g.buf[0], 0x808080);
+        g.fill_alpha(&all, 0x000000, 0);
+        assert_eq!(g.buf[1], 0x808080);
+        g.fill_alpha(&all, 0x102030, 255);
+        assert_eq!(g.buf[0], 0x102030);
+    }
 
     #[test]
     fn outline_leaves_interior_untouched() {

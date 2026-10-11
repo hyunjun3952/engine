@@ -33,7 +33,7 @@ impl Scene for Pause {
         if ctx.input.pressed(Key::P) { Trans::Pop } else { Trans::None }
     }
     fn draw(&self, g: &mut Gfx) {
-        g.fill(&Rect { x: 200.0, y: 140.0, w: 240.0, h: 80.0 }, 0x000000);
+        g.fill_alpha(&Rect { x: 0.0, y: 0.0, w: W, h: H }, 0x000000, 150);
         g.text("PAUSED", 240, 170, 4, 0xffff66);
     }
 }
