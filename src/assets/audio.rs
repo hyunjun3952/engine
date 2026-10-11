@@ -9,6 +9,9 @@ pub struct Audio {
 
 impl Audio {
     pub(crate) fn new() -> Self {
+        if std::env::var_os("ENGINE_MUTE").is_some() {
+            return Audio::disabled();
+        }
         match DeviceSinkBuilder::open_default_sink() {
             Ok(mut out) => {
                 out.log_on_drop(false);

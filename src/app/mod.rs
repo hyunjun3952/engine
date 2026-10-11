@@ -4,21 +4,29 @@ mod rng;
 pub use input::{Input, Key};
 pub use rng::Rng;
 
-use crate::render::Soft;
+use crate::render::{Gpu, Soft};
 use crate::{Assets, Audio, Camera, Gfx, Rect};
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RenderMode {
+    Auto,
+    Gpu,
+    Software,
+}
 
 pub struct Config {
     pub title: &'static str,
     pub w: usize,
     pub h: usize,
     pub tick_hz: f32,
+    pub renderer: RenderMode,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { title: "engine", w: 640, h: 360, tick_hz: 60.0 }
+        Config { title: "engine", w: 640, h: 360, tick_hz: 60.0, renderer: RenderMode::Auto }
     }
 }
 
@@ -126,15 +134,46 @@ struct Stats {
     frames: u32,
     ticks: u32,
     work: f32,
+    present: f32,
     fps: u32,
     tps: u32,
     ms: f32,
+    present_ms: f32,
+}
+
+enum Backend {
+    Soft(Soft),
+    Gpu(Box<Gpu>),
+}
+
+fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize)) -> Backend {
+    let mode = match std::env::var("ENGINE_RENDERER").as_deref() {
+        Ok("gpu") => RenderMode::Gpu,
+        Ok("soft") => RenderMode::Software,
+        Ok("auto") => RenderMode::Auto,
+        _ => mode,
+    };
+    if mode != RenderMode::Software {
+        // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
+        if std::env::var_os("GALLIUM_DRIVER").is_none() && std::path::Path::new("/dev/dxg").exists() {
+            unsafe { std::env::set_var("GALLIUM_DRIVER", "d3d12") };
+        }
+        match Gpu::for_window(win, (w as u32, h as u32), mode == RenderMode::Gpu) {
+            Ok(gpu) => {
+                eprintln!("renderer: gpu, {}", gpu.adapter);
+                return Backend::Gpu(Box::new(gpu));
+            }
+            Err(e) => eprintln!("renderer: software ({e})"),
+        }
+    }
+    Backend::Soft(Soft::new(w, h))
 }
 
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut win = Window::new(cfg.title, cfg.w, cfg.h, WindowOptions::default()).expect("window");
     let mut gfx = Gfx::new(cfg.w, cfg.h);
-    let mut soft = Soft::new(cfg.w, cfg.h);
+    let log_stats = std::env::var_os("ENGINE_STATS").is_some();
+    let mut backend = pick_backend(cfg.renderer, &win, (cfg.w, cfg.h));
     let dt = 1.0 / cfg.tick_hz;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
     let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
@@ -181,13 +220,30 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
                 fps: stats.frames,
                 tps: stats.ticks,
                 ms: stats.work / stats.frames as f32 * 1000.0,
+                present_ms: stats.present / stats.frames as f32 * 1000.0,
                 ..Stats::default()
             };
+            if log_stats {
+                eprintln!(
+                    "fps {} tps {} work {:.2}ms present {:.2}ms",
+                    stats.fps, stats.tps, stats.ms, stats.present_ms
+                );
+            }
             since = Instant::now();
         }
-        soft.render(gfx.cmds());
+        let presenting = Instant::now();
+        match &mut backend {
+            Backend::Soft(soft) => {
+                soft.render(gfx.cmds());
+                win.update_with_buffer(&soft.buf, cfg.w, cfg.h).expect("present");
+            }
+            Backend::Gpu(gpu) => {
+                gpu.render(gfx.cmds());
+                win.update();
+            }
+        }
+        stats.present += presenting.elapsed().as_secs_f32();
         gfx.reset();
-        win.update_with_buffer(&soft.buf, cfg.w, cfg.h).expect("present");
     }
     apply(&mut stack, Trans::Quit, &mut ctx);
 }

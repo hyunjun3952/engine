@@ -1,0 +1,551 @@
+use super::{DrawCmd, Paint};
+use crate::Sprite;
+use std::{collections::HashMap, sync::Arc};
+
+const SHADER: &str = "
+struct Globals { size: vec2<f32> };
+@group(0) @binding(0) var<uniform> globals: Globals;
+@group(1) @binding(0) var tex: texture_2d<f32>;
+@group(1) @binding(1) var samp: sampler;
+
+struct Out {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+@vertex
+fn vs(@location(0) p: vec2<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>) -> Out {
+    var o: Out;
+    o.pos = vec4<f32>(p.x / globals.size.x * 2.0 - 1.0, 1.0 - p.y / globals.size.y * 2.0, 0.0, 1.0);
+    o.uv = uv;
+    o.color = color;
+    return o;
+}
+
+@fragment
+fn fs(i: Out) -> @location(0) vec4<f32> {
+    return textureSample(tex, samp, i.uv) * i.color;
+}
+";
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    pos: [f32; 2],
+    uv: [f32; 2],
+    color: [f32; 4],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Tex {
+    White,
+    Sprite(usize),
+}
+
+struct Batch {
+    tex: Tex,
+    start: u32,
+    end: u32,
+}
+
+struct Uploaded {
+    _keep: Arc<Sprite>,
+    bind: wgpu::BindGroup,
+}
+
+#[derive(Debug)]
+struct Display(wgpu::rwh::RawDisplayHandle);
+
+// The handle is only a pointer to the window system connection, which outlives the Gpu (see `run`).
+unsafe impl Send for Display {}
+unsafe impl Sync for Display {}
+
+impl wgpu::rwh::HasDisplayHandle for Display {
+    fn display_handle(&self) -> Result<wgpu::rwh::DisplayHandle<'_>, wgpu::rwh::HandleError> {
+        Ok(unsafe { wgpu::rwh::DisplayHandle::borrow_raw(self.0) })
+    }
+}
+
+pub(crate) struct Gpu {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    pipeline: wgpu::RenderPipeline,
+    globals_bind: wgpu::BindGroup,
+    tex_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    white: wgpu::BindGroup,
+    textures: HashMap<usize, Uploaded>,
+    verts: Vec<Vertex>,
+    batches: Vec<Batch>,
+    vbuf: wgpu::Buffer,
+    vcap: usize,
+    size: (u32, u32),
+    surface: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
+    pub(crate) adapter: String,
+}
+
+fn rgba(c: u32, a: f32) -> [f32; 4] {
+    [(c >> 16 & 255) as f32 / 255.0, (c >> 8 & 255) as f32 / 255.0, (c & 255) as f32 / 255.0, a]
+}
+
+fn upload(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    px: &[u32],
+    (w, h): (u32, u32),
+) -> wgpu::BindGroup {
+    let extent = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let bytes: Vec<u8> = px.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, (p >> 24) as u8]).collect();
+    queue.write_texture(
+        tex.as_image_copy(),
+        &bytes,
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * w), rows_per_image: Some(h) },
+        extent,
+    );
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+        ],
+    })
+}
+
+fn vertex_buffer(device: &wgpu::Device, cap: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: (cap * std::mem::size_of::<Vertex>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+impl Gpu {
+    pub(crate) fn for_window<W: wgpu::rwh::HasWindowHandle + wgpu::rwh::HasDisplayHandle>(
+        win: &W,
+        size: (u32, u32),
+        allow_cpu: bool,
+    ) -> Result<Gpu, String> {
+        let raw = win.display_handle().map_err(|e| e.to_string())?.as_raw();
+        let desc = wgpu::InstanceDescriptor::new_with_display_handle(Box::new(Display(raw)));
+        let instance = wgpu::Instance::new(desc);
+        let target = unsafe { wgpu::SurfaceTargetUnsafe::from_window(win) }.map_err(|e| e.to_string())?;
+        let surface = unsafe { instance.create_surface_unsafe(target) }.map_err(|e| e.to_string())?;
+        let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+        let adapter = adapters
+            .into_iter()
+            .filter(|a| a.is_surface_supported(&surface))
+            .filter(|a| allow_cpu || a.get_info().device_type != wgpu::DeviceType::Cpu)
+            .min_by_key(|a| match a.get_info().device_type {
+                wgpu::DeviceType::DiscreteGpu => 0,
+                wgpu::DeviceType::IntegratedGpu => 1,
+                wgpu::DeviceType::Cpu => 3,
+                _ => 2,
+            })
+            .ok_or("no usable GPU adapter")?;
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps.formats.iter().copied().find(|f| !f.is_srgb()).or(caps.formats.first().copied());
+        let format = format.ok_or("surface reports no formats")?;
+        let mut gpu = Gpu::new(adapter, format, size)?;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.0,
+            height: size.1,
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            color_space: wgpu::SurfaceColorSpace::default(),
+            view_formats: vec![],
+        };
+        surface.configure(&gpu.device, &config);
+        gpu.surface = Some((surface, config));
+        Ok(gpu)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn offscreen(size: (u32, u32), allow_cpu: bool) -> Result<Gpu, String> {
+        let instance = wgpu::Instance::default();
+        let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+        let adapter = adapters
+            .into_iter()
+            .find(|a| allow_cpu || a.get_info().device_type != wgpu::DeviceType::Cpu)
+            .ok_or("no usable GPU adapter")?;
+        Gpu::new(adapter, wgpu::TextureFormat::Rgba8Unorm, size)
+    }
+
+    fn new(adapter: wgpu::Adapter, format: wgpu::TextureFormat, size: (u32, u32)) -> Result<Gpu, String> {
+        let info = adapter.get_info();
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .map_err(|e| e.to_string())?;
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("engine"),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        });
+        let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let tex_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&globals_layout), Some(&tex_layout)],
+            immediate_size: 0,
+        });
+        let attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4];
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &attrs,
+                })],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let globals = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&globals, 0, bytemuck::cast_slice(&[size.0 as f32, size.1 as f32, 0.0, 0.0]));
+        let globals_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &globals_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let white = upload(&device, &queue, &tex_layout, &sampler, &[0xffff_ffff], (1, 1));
+        let vcap = 4096;
+        let vbuf = vertex_buffer(&device, vcap);
+        Ok(Gpu {
+            device,
+            queue,
+            pipeline,
+            globals_bind,
+            tex_layout,
+            sampler,
+            white,
+            textures: HashMap::new(),
+            verts: Vec::new(),
+            batches: Vec::new(),
+            vbuf,
+            vcap,
+            size,
+            surface: None,
+            adapter: format!("{} ({:?})", info.name, info.backend),
+        })
+    }
+
+    fn quad(
+        &mut self,
+        tex: Tex,
+        (x0, y0, x1, y1): (f32, f32, f32, f32),
+        (u0, v0, u1, v1): (f32, f32, f32, f32),
+        color: [f32; 4],
+    ) {
+        let at = self.verts.len() as u32;
+        let v = |pos, uv| Vertex { pos, uv, color };
+        self.verts.extend([
+            v([x0, y0], [u0, v0]),
+            v([x1, y0], [u1, v0]),
+            v([x0, y1], [u0, v1]),
+            v([x1, y0], [u1, v0]),
+            v([x1, y1], [u1, v1]),
+            v([x0, y1], [u0, v1]),
+        ]);
+        match self.batches.last_mut() {
+            Some(b) if b.tex == tex => b.end = at + 6,
+            _ => self.batches.push(Batch { tex, start: at, end: at + 6 }),
+        }
+    }
+
+    fn solid(&mut self, r: &crate::Rect, color: [f32; 4]) {
+        let (w, h) = (self.size.0 as f32, self.size.1 as f32);
+        let (x0, y0) = (r.x.max(0.0).trunc(), r.y.max(0.0).trunc());
+        let (x1, y1) = ((r.x + r.w).max(0.0).trunc().min(w), (r.y + r.h).max(0.0).trunc().min(h));
+        if x1 > x0 && y1 > y0 {
+            self.quad(Tex::White, (x0, y0, x1, y1), (0.0, 0.0, 1.0, 1.0), color);
+        }
+    }
+
+    fn texture(&mut self, s: &Arc<Sprite>) -> (Tex, (f32, f32)) {
+        let key = Arc::as_ptr(s) as usize;
+        let size = (s.w as f32, s.h as f32);
+        if !self.textures.contains_key(&key) {
+            let bind =
+                upload(&self.device, &self.queue, &self.tex_layout, &self.sampler, &s.px, (s.w as u32, s.h as u32));
+            self.textures.insert(key, Uploaded { _keep: s.clone(), bind });
+        }
+        (Tex::Sprite(key), size)
+    }
+
+    fn build(&mut self, cmds: &[DrawCmd]) {
+        self.verts.clear();
+        self.batches.clear();
+        let full = crate::Rect { x: 0.0, y: 0.0, w: self.size.0 as f32, h: self.size.1 as f32 };
+        for c in cmds {
+            let r = &c.rect;
+            match &c.paint {
+                Paint::Clear(col) => self.solid(&full, rgba(*col, 1.0)),
+                Paint::Color(col) => self.solid(r, rgba(*col, 1.0)),
+                Paint::Alpha(col, a) => self.solid(r, rgba(*col, *a as f32 / 255.0)),
+                Paint::Outline(col) => {
+                    let color = rgba(*col, 1.0);
+                    self.solid(&crate::Rect { h: 1.0, ..*r }, color);
+                    self.solid(&crate::Rect { y: r.y + r.h - 1.0, h: 1.0, ..*r }, color);
+                    self.solid(&crate::Rect { w: 1.0, ..*r }, color);
+                    self.solid(&crate::Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, color);
+                }
+                Paint::Sprite(s) => {
+                    let (tex, (w, h)) = self.texture(s);
+                    let (x, y) = (r.x.trunc(), r.y.trunc());
+                    self.quad(tex, (x, y, x + w, y + h), (0.0, 0.0, 1.0, 1.0), [1.0; 4]);
+                }
+                Paint::Region { sheet, src, flip } => {
+                    let (tex, (sw, sh)) = self.texture(sheet);
+                    let (x, y) = (r.x.trunc(), r.y.trunc());
+                    let (u0, u1) = (src.x / sw, (src.x + src.w) / sw);
+                    let (u0, u1) = if *flip { (u1, u0) } else { (u0, u1) };
+                    self.quad(tex, (x, y, x + src.w, y + src.h), (u0, src.y / sh, u1, (src.y + src.h) / sh), [1.0; 4]);
+                }
+            }
+        }
+    }
+
+    fn encode(&mut self, view: &wgpu::TextureView) -> wgpu::CommandEncoder {
+        if self.verts.len() > self.vcap {
+            self.vcap = self.verts.len().next_power_of_two();
+            self.vbuf = vertex_buffer(&self.device, self.vcap);
+        }
+        if !self.verts.is_empty() {
+            self.queue.write_buffer(&self.vbuf, 0, bytemuck::cast_slice(&self.verts));
+        }
+        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.globals_bind, &[]);
+            pass.set_vertex_buffer(0, self.vbuf.slice(..));
+            for b in &self.batches {
+                let bind = match b.tex {
+                    Tex::White => &self.white,
+                    Tex::Sprite(k) => &self.textures[&k].bind,
+                };
+                pass.set_bind_group(1, bind, &[]);
+                pass.draw(b.start..b.end, 0..1);
+            }
+        }
+        enc
+    }
+
+    pub(crate) fn render(&mut self, cmds: &[DrawCmd]) {
+        self.build(cmds);
+        let Some((surface, config)) = &self.surface else { return };
+        let frame = match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) => t,
+            wgpu::CurrentSurfaceTexture::Suboptimal(_)
+            | wgpu::CurrentSurfaceTexture::Outdated
+            | wgpu::CurrentSurfaceTexture::Lost => return surface.configure(&self.device, config),
+            _ => return,
+        };
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let enc = self.encode(&view);
+        self.queue.submit([enc.finish()]);
+        self.queue.present(frame);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn render_to_pixels(&mut self, cmds: &[DrawCmd]) -> Vec<u32> {
+        self.build(cmds);
+        let (w, h) = self.size;
+        let extent = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut enc = self.encode(&view);
+        let row = (4 * w).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let out = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (row * h) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        enc.copy_texture_to_buffer(
+            tex.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &out,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) },
+            },
+            extent,
+        );
+        self.queue.submit([enc.finish()]);
+        out.slice(..).map_async(wgpu::MapMode::Read, |r| r.expect("map"));
+        self.device.poll(wgpu::PollType::wait_indefinitely()).expect("poll");
+        let data = out.slice(..).get_mapped_range().expect("mapped");
+        let mut px = Vec::with_capacity((w * h) as usize);
+        for y in 0..h as usize {
+            for x in 0..w as usize {
+                let i = y * row as usize + x * 4;
+                px.push((data[i] as u32) << 16 | (data[i + 1] as u32) << 8 | data[i + 2] as u32);
+            }
+        }
+        px
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::Soft;
+    use crate::{Gfx, Rect, Tilemap};
+
+    fn scene() -> Gfx {
+        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let mut g = Gfx::new(640, 360);
+        g.cam = (120.0, 0.0);
+        g.clear(0x6fa8e0);
+        let map = Tilemap::load("assets/level1.txt", 16, sprite("assets/tiles.png"));
+        g.draw(map.draw_list(g.view()));
+        let player = sprite("assets/player.png");
+        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        g.blit_region(&player, frame, 50, 40, false);
+        g.blit_region(&player, frame, 80, 40, true);
+        g.blit(&sprite("assets/ball.png"), -4, 100);
+        g.fill(&Rect { x: 300.0, y: 200.0, w: 50.0, h: 30.0 }, 0xff0000);
+        g.fill_alpha(&Rect { x: 320.0, y: 210.0, w: 50.0, h: 30.0 }, 0x0000ff, 128);
+        g.outline(&Rect { x: 400.0, y: 50.0, w: 40.0, h: 20.0 }, 0x00ff00);
+        g.fill(&Rect { x: -5.0, y: 350.0, w: 30.0, h: 30.0 }, 0xffff00);
+        g.text("HELLO 123", 10, 10, 2, 0xffffff);
+        g
+    }
+
+    fn dump(px: &[u32], path: &str) {
+        let mut img = image::RgbImage::new(640, 360);
+        for (i, p) in px.iter().enumerate() {
+            img.put_pixel(i as u32 % 640, i as u32 / 640, image::Rgb([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+        }
+        img.save(path).unwrap();
+    }
+
+    #[test]
+    fn gpu_output_matches_the_software_rasterizer() {
+        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let g = scene();
+        let mut soft = Soft::new(640, 360);
+        soft.render(g.cmds());
+        let gpu_px = gpu.render_to_pixels(g.cmds());
+        if let Ok(dir) = std::env::var("ENGINE_DUMP") {
+            dump(&soft.buf, &format!("{dir}/soft.png"));
+            dump(&gpu_px, &format!("{dir}/gpu.png"));
+        }
+        let channel = |p: u32, sh: u32| (p >> sh & 255) as i32;
+        let off: Vec<usize> = (0..soft.buf.len())
+            .filter(|&i| [16, 8, 0].iter().any(|&sh| (channel(soft.buf[i], sh) - channel(gpu_px[i], sh)).abs() > 2))
+            .collect();
+        assert!(
+            off.is_empty(),
+            "{} of {} pixels differ on {}, first at {:?}",
+            off.len(),
+            gpu_px.len(),
+            gpu.adapter,
+            off.first().map(|i| (i % 640, i / 640))
+        );
+    }
+}
