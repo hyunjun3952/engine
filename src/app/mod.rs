@@ -26,11 +26,19 @@ pub struct Config {
     pub h: usize,
     pub tick_hz: f32,
     pub renderer: RenderMode,
+    pub hot_reload: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { title: "engine", w: 640, h: 360, tick_hz: 60.0, renderer: RenderMode::Auto }
+        Config {
+            title: "engine",
+            w: 640,
+            h: 360,
+            tick_hz: 60.0,
+            renderer: RenderMode::Auto,
+            hot_reload: cfg!(debug_assertions),
+        }
     }
 }
 
@@ -40,6 +48,7 @@ pub struct Ctx {
     pub(crate) audio: Audio,
     pub(crate) cam: Camera,
     pub(crate) rng: Rng,
+    pub(crate) bindings_path: Option<String>,
     pub(crate) dt: f32,
     pub(crate) w: usize,
     pub(crate) h: usize,
@@ -53,6 +62,7 @@ impl Ctx {
             audio,
             cam: Camera::new(w as f32, h as f32),
             rng: Rng::new(1),
+            bindings_path: None,
             dt,
             w,
             h,
@@ -64,6 +74,8 @@ impl Ctx {
     }
 
     pub fn load_bindings(&mut self, path: &str) -> Result<(), String> {
+        self.bindings_path = Some(path.to_string());
+        self.assets.watcher.watch(path);
         match std::fs::read_to_string(path) {
             Ok(text) => self.input.load_text(&text).map_err(|e| format!("{path}: {e}")),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -73,6 +85,32 @@ impl Ctx {
 
     pub fn save_bindings(&self, path: &str) -> std::io::Result<()> {
         std::fs::write(path, self.input.to_text())
+    }
+
+    pub fn watch(&mut self, path: &str) {
+        self.assets.watcher.watch(path);
+    }
+
+    pub fn changed(&mut self, path: &str) -> bool {
+        self.assets.watcher.take(path)
+    }
+
+    pub(crate) fn poll_files(&mut self) {
+        self.assets.watcher.poll();
+        for result in self.assets.reload_changed() {
+            match result {
+                Ok(path) => eprintln!("reloaded {path}"),
+                Err(e) => eprintln!("{e}"),
+            }
+        }
+        if let Some(path) = self.bindings_path.clone()
+            && self.assets.watcher.take(&path)
+        {
+            match self.load_bindings(&path) {
+                Ok(()) => eprintln!("reloaded {path}"),
+                Err(e) => eprintln!("{e}"),
+            }
+        }
     }
 
     pub fn input(&self) -> &Input {
@@ -216,12 +254,17 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut stack = Stack::new();
     let scene = first(&mut ctx);
     enter(&mut stack, scene, &mut ctx);
+    let mut last_poll = Instant::now();
     let (mut last, mut acc) = (Instant::now(), 0.0f32);
     let (mut stats, mut since, mut f3) = (Stats::default(), Instant::now(), false);
     while win.is_open() && !stack.is_empty() {
         let now = Instant::now();
         acc = (acc + (now - last).as_secs_f32()).min(0.25);
         last = now;
+        if cfg.hot_reload && last_poll.elapsed().as_secs_f32() >= 0.5 {
+            ctx.poll_files();
+            last_poll = Instant::now();
+        }
         ctx.input.poll(&win);
         let f3_down = ctx.input.key_down(Key::F3);
         if f3_down && !f3 {

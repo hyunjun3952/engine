@@ -1,5 +1,8 @@
 use super::{DrawCmd, Paint, font};
-use std::sync::Arc;
+use std::sync::{
+    Arc, RwLock, RwLockReadGuard,
+    atomic::{AtomicU64, Ordering},
+};
 
 #[derive(Clone, Copy)]
 pub struct Rect {
@@ -67,7 +70,8 @@ impl Gfx {
     }
 
     pub fn blit(&mut self, s: &Arc<Sprite>, x: i32, y: i32) {
-        self.push(Rect { x: x as f32, y: y as f32, w: s.w as f32, h: s.h as f32 }, Paint::Sprite(s.clone()));
+        let (w, h) = s.size();
+        self.push(Rect { x: x as f32, y: y as f32, w: w as f32, h: h as f32 }, Paint::Sprite(s.clone()));
     }
 
     pub fn blit_region(&mut self, s: &Arc<Sprite>, src: Rect, x: i32, y: i32, flip: bool) {
@@ -99,18 +103,52 @@ impl Gfx {
     }
 }
 
-pub struct Sprite {
-    pub w: usize,
-    pub h: usize,
+pub(crate) struct Image {
+    pub(crate) w: usize,
+    pub(crate) h: usize,
     pub(crate) px: Vec<u32>,
+}
+
+pub struct Sprite {
+    image: RwLock<Image>,
+    version: AtomicU64,
 }
 
 impl Sprite {
     pub fn load(path: &str) -> Self {
-        let img = image::open(path).unwrap_or_else(|e| panic!("{path}: {e}")).to_rgba8();
-        let px = img.pixels().map(|p| u32::from_be_bytes([p[3], p[0], p[1], p[2]])).collect();
-        Sprite { w: img.width() as usize, h: img.height() as usize, px }
+        Sprite::try_load(path).unwrap_or_else(|e| panic!("{e}"))
     }
+
+    pub fn try_load(path: &str) -> Result<Self, String> {
+        Ok(Sprite { image: RwLock::new(decode(path)?), version: AtomicU64::new(0) })
+    }
+
+    pub fn size(&self) -> (usize, usize) {
+        let img = self.image();
+        (img.w, img.h)
+    }
+
+    pub(crate) fn image(&self) -> RwLockReadGuard<'_, Image> {
+        self.image.read().unwrap()
+    }
+
+    #[cfg(any(feature = "gpu", test))]
+    pub(crate) fn version(&self) -> u64 {
+        self.version.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn reload(&self, path: &str) -> Result<(), String> {
+        let image = decode(path)?;
+        *self.image.write().unwrap() = image;
+        self.version.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    }
+}
+
+fn decode(path: &str) -> Result<Image, String> {
+    let img = image::open(path).map_err(|e| format!("{path}: {e}"))?.to_rgba8();
+    let px = img.pixels().map(|p| u32::from_be_bytes([p[3], p[0], p[1], p[2]])).collect();
+    Ok(Image { w: img.width() as usize, h: img.height() as usize, px })
 }
 
 #[cfg(test)]

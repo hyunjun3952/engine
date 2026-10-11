@@ -12,11 +12,17 @@ pub struct Tilemap {
 
 impl Tilemap {
     pub fn from_ascii(rows: &[&str], size: usize, sheet: Arc<Sprite>) -> Self {
-        let w = rows[0].len();
+        Tilemap::try_from_ascii(rows, size, sheet).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    pub fn try_from_ascii(rows: &[&str], size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
+        let w = rows.first().ok_or("empty tilemap")?.len();
         let mut tiles = Vec::with_capacity(w * rows.len());
         let mut marks = Vec::new();
         for (y, row) in rows.iter().enumerate() {
-            assert_eq!(row.len(), w, "ragged tilemap row {y}");
+            if row.len() != w {
+                return Err(format!("ragged tilemap row {} (width {}, expected {w})", y + 1, row.len()));
+            }
             for (x, c) in row.bytes().enumerate() {
                 tiles.push(match c {
                     b'#' => 1,
@@ -28,13 +34,17 @@ impl Tilemap {
                 }
             }
         }
-        Tilemap { w, h: rows.len(), size, tiles, marks, sheet }
+        Ok(Tilemap { w, h: rows.len(), size, tiles, marks, sheet })
     }
 
     pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Self {
-        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        Tilemap::try_load(path, size, sheet).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    pub fn try_load(path: &str, size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
         let rows: Vec<&str> = text.trim_end().lines().collect();
-        Self::from_ascii(&rows, size, sheet)
+        Tilemap::try_from_ascii(&rows, size, sheet).map_err(|e| format!("{path}: {e}"))
     }
 
     pub fn marks(&self, c: u8) -> impl Iterator<Item = (f32, f32)> + '_ {
@@ -111,6 +121,16 @@ mod tests {
         let map = Tilemap::from_ascii(&["...", ".P.", "###"], 16, Arc::new(Sprite::load("assets/tiles.png")));
         assert_eq!(map.marks(b'P').collect::<Vec<_>>(), vec![(16.0, 16.0)]);
         assert_eq!(map.marks(b'E').count(), 0);
+    }
+
+    #[test]
+    fn a_broken_level_is_an_error_not_a_crash() {
+        let sheet = Arc::new(Sprite::load("assets/tiles.png"));
+        let err = Tilemap::try_from_ascii(&["###", "##"], 16, sheet.clone()).err().unwrap();
+        assert!(err.contains("row 2"), "{err}");
+        assert!(Tilemap::try_from_ascii(&[], 16, sheet.clone()).is_err());
+        let err = Tilemap::try_load("assets/nope.txt", 16, sheet).err().unwrap();
+        assert!(err.starts_with("assets/nope.txt"), "{err}");
     }
 
     #[test]

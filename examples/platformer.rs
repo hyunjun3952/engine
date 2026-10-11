@@ -12,20 +12,26 @@ struct Platformer {
     map: Tilemap,
     start: Rect,
     grounded: bool,
+    level: String,
+}
+
+fn load_level(ctx: &mut Ctx, path: &str) -> Result<(Tilemap, Rect), String> {
+    let map = Tilemap::try_load(path, TILE, ctx.assets().sprite("assets/tiles.png"))?;
+    let (x, y) = map.marks(b'P').next().ok_or(format!("{path}: level needs a P marker"))?;
+    Ok((map, Rect { x, y: y + TILE as f32 - 24.0, w: 12.0, h: 24.0 }))
 }
 
 impl Platformer {
     fn new(ctx: &mut Ctx, level: &str) -> Self {
-        let map = Tilemap::load(level, TILE, ctx.assets().sprite("assets/tiles.png"));
-        let (x, y) = map.marks(b'P').next().expect("level needs a P marker");
-        let start = Rect { x, y: y + TILE as f32 - 24.0, w: 12.0, h: 24.0 };
+        let (map, start) = load_level(ctx, level).unwrap_or_else(|e| panic!("{e}"));
+        ctx.watch(level);
         let mut world = World::new();
         let player = world.spawn((
             Body(start),
             Vel { x: 0.0, y: 0.0 },
             Anim::new(ctx.assets().sprite("assets/player.png"), 12, 24),
         ));
-        Platformer { world, player, map, start, grounded: false }
+        Platformer { world, player, map, start, grounded: false, level: level.to_string() }
     }
 }
 
@@ -42,6 +48,13 @@ impl Scene for Platformer {
     fn update(&mut self, ctx: &mut Ctx) -> Trans {
         if ctx.input().pressed("back") {
             return Trans::Quit;
+        }
+
+        if ctx.changed(&self.level) {
+            match load_level(ctx, &self.level) {
+                Ok((map, start)) => (self.map, self.start) = (map, start),
+                Err(e) => eprintln!("{e}"),
+            }
         }
 
         let (b, v, anim) = self.world.query_one_mut::<(&mut Body, &mut Vel, &mut Anim)>(self.player).unwrap();

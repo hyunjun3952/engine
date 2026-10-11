@@ -53,6 +53,7 @@ struct Batch {
 struct Uploaded {
     _keep: Arc<Sprite>,
     bind: wgpu::BindGroup,
+    version: u64,
 }
 
 #[derive(Debug)]
@@ -353,13 +354,21 @@ impl Gpu {
 
     fn texture(&mut self, s: &Arc<Sprite>) -> (Tex, (f32, f32)) {
         let key = Arc::as_ptr(s) as usize;
-        let size = (s.w as f32, s.h as f32);
-        if !self.textures.contains_key(&key) {
-            let bind =
-                upload(&self.device, &self.queue, &self.tex_layout, &self.sampler, &s.px, (s.w as u32, s.h as u32));
-            self.textures.insert(key, Uploaded { _keep: s.clone(), bind });
+        let version = s.version();
+        if self.textures.get(&key).is_none_or(|t| t.version != version) {
+            let img = s.image();
+            let bind = upload(
+                &self.device,
+                &self.queue,
+                &self.tex_layout,
+                &self.sampler,
+                &img.px,
+                (img.w as u32, img.h as u32),
+            );
+            self.textures.insert(key, Uploaded { _keep: s.clone(), bind, version });
         }
-        (Tex::Sprite(key), size)
+        let (w, h) = s.size();
+        (Tex::Sprite(key), (w as f32, h as f32))
     }
 
     fn build(&mut self, cmds: &[DrawCmd]) {
@@ -574,5 +583,35 @@ mod tests {
             gpu.adapter,
             off.first().map(|i| (i % 640, i / 640))
         );
+    }
+
+    #[test]
+    fn a_reloaded_sprite_is_uploaded_again_and_still_matches_the_software_output() {
+        let Ok(mut gpu) = Gpu::offscreen((64, 64), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("engine-gpu-reload-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.png");
+        let path = path.to_str().unwrap();
+        std::fs::copy("assets/ball.png", path).unwrap();
+        let sprite = Arc::new(Sprite::load(path));
+        let draw = |gpu: &mut Gpu| {
+            let mut g = Gfx::new(64, 64);
+            g.blit(&sprite, 4, 4);
+            let mut soft = Soft::new(64, 64);
+            soft.render(g.cmds());
+            let rgb: Vec<u32> = soft.buf.iter().map(|p| p & 0x00ff_ffff).collect();
+            (rgb, gpu.render_to_pixels(g.cmds()))
+        };
+        let (soft, hard) = draw(&mut gpu);
+        assert!(soft == hard, "first upload differs from the software output");
+        std::fs::copy("assets/player.png", path).unwrap();
+        sprite.reload(path).unwrap();
+        let (soft2, hard2) = draw(&mut gpu);
+        assert!(soft != soft2, "the new image really looks different");
+        assert!(soft2 == hard2, "re-uploaded texture differs from the software output");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

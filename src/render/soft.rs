@@ -21,7 +21,8 @@ impl Soft {
                 Paint::Color(col) => self.fill_with(r, |_| *col),
                 Paint::Alpha(col, a) => self.fill_with(r, |d| blend(*col, d, *a as u32)),
                 Paint::Sprite(s) => {
-                    self.blit_region(s, Rect { x: 0.0, y: 0.0, w: s.w as f32, h: s.h as f32 }, r, false)
+                    let (w, h) = s.size();
+                    self.blit_region(s, Rect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 }, r, false)
                 }
                 Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r, *flip),
                 Paint::Outline(col) => self.outline(r, *col),
@@ -75,13 +76,14 @@ impl Soft {
     }
 
     fn blit_region(&mut self, s: &Sprite, src: Rect, at: &Rect, flip: bool) {
+        let img = s.image();
         let (x, y) = (at.x as i32, at.y as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
         let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
         let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
         for sy in rows {
-            let from = (sy0 + sy) * s.w + sx0;
-            let src_row = &s.px[from..from + w];
+            let from = (sy0 + sy) * img.w + sx0;
+            let src_row = &img.px[from..from + w];
             let dst_from = (y + sy as i32) as usize * self.w;
             let dst_row = &mut self.buf[dst_from..dst_from + self.w];
             for sx in cols.clone() {
@@ -119,9 +121,9 @@ mod tests {
     fn blit_clips_at_every_edge_and_flip_mirrors_columns() {
         let sprite = Arc::new(Sprite::load("assets/ball.png"));
         let s = run(16, 16, |g| g.blit(&sprite, -8, -8));
-        assert_eq!((s.buf[0], s.buf[8 * 16 + 8]), (sprite.px[8 * 16 + 8], 0));
+        assert_eq!((s.buf[0], s.buf[8 * 16 + 8]), (sprite.image().px[8 * 16 + 8], 0));
         let s = run(16, 16, |g| g.blit_region(&sprite, Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }, 0, 0, true));
-        assert_eq!(s.buf[8 * 16 + 3], sprite.px[8 * 16 + 12]);
+        assert_eq!(s.buf[8 * 16 + 3], sprite.image().px[8 * 16 + 12]);
         run(16, 16, |g| {
             for (x, y) in [(-100, 5), (100, 100), (5, -100), (15, 15), (-15, -15)] {
                 g.blit(&sprite, x, y);
