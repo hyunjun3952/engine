@@ -31,14 +31,11 @@ impl minifb::InputCallback for Typing {
     }
 }
 
+const MOUSE: [MouseButton; 5] =
+    [MouseButton::Left, MouseButton::Right, MouseButton::Middle, MouseButton::Back, MouseButton::Forward];
+
 fn slot(b: MouseButton) -> usize {
-    match b {
-        MouseButton::Left => 0,
-        MouseButton::Right => 1,
-        MouseButton::Middle => 2,
-        MouseButton::Back => 3,
-        MouseButton::Forward => 4,
-    }
+    MOUSE.iter().position(|&m| m == b).unwrap()
 }
 
 impl Input {
@@ -51,9 +48,7 @@ impl Input {
         self.pad_down = self.pad.poll();
         let s = scale as f32;
         self.mouse = win.get_mouse_pos(minifb::MouseMode::Discard).map(|(x, y)| (x / s, y / s));
-        for b in [MouseButton::Left, MouseButton::Right, MouseButton::Middle, MouseButton::Back, MouseButton::Forward] {
-            self.buttons[slot(b)] = win.get_mouse_down(b);
-        }
+        self.buttons = MOUSE.map(|b| win.get_mouse_down(b));
         self.wheel += win.get_scroll_wheel().map_or(0.0, |(_, y)| y);
         if let Ok(mut chars) = self.typing.lock() {
             self.typed.extend(chars.drain(..).filter(|c| !c.is_control()));
@@ -112,14 +107,16 @@ impl Input {
         self.pad_actions.get(action).map_or(&[], Vec::as_slice)
     }
 
-    pub fn down(&self, action: &str) -> bool {
-        self.keys(action).iter().any(|k| self.down.contains(k))
-            || self.pads(action).iter().any(|p| self.pad_down.contains(p))
+    fn held(&self, action: &str, keys: &HashSet<Key>, pads: &HashSet<Pad>) -> bool {
+        self.keys(action).iter().any(|k| keys.contains(k)) || self.pads(action).iter().any(|p| pads.contains(p))
     }
+
+    pub fn down(&self, action: &str) -> bool {
+        self.held(action, &self.down, &self.pad_down)
+    }
+
     pub fn pressed(&self, action: &str) -> bool {
-        let before = self.keys(action).iter().any(|k| self.prev.contains(k))
-            || self.pads(action).iter().any(|p| self.pad_prev.contains(p));
-        self.down(action) && !before
+        self.down(action) && !self.held(action, &self.prev, &self.pad_prev)
     }
     pub fn axis(&self, neg: &str, pos: &str) -> f32 {
         self.down(pos) as i32 as f32 - self.down(neg) as i32 as f32

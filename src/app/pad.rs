@@ -44,7 +44,6 @@ pub(crate) const PADS: &[(&str, Pad)] = &[
 
 const STICK_ON: i16 = 16000;
 const DEADZONE: f32 = 0.2;
-const BUTTONS: [Pad; 8] = [Pad::A, Pad::B, Pad::X, Pad::Y, Pad::LB, Pad::RB, Pad::Back, Pad::Start];
 
 /// First pad through the Linux joystick API (`/dev/input/js0`, Xbox-style layout). Elsewhere, or with no pad
 /// plugged in, it simply reports nothing held. The d-pad and left stick both count as Up/Down/Left/Right.
@@ -94,9 +93,9 @@ impl PadState {
         match (kind, n) {
             (1, 0..8) => {
                 if value != 0 {
-                    self.buttons.insert(BUTTONS[n]);
+                    self.buttons.insert(PADS[n].1);
                 } else {
-                    self.buttons.remove(&BUTTONS[n]);
+                    self.buttons.remove(&PADS[n].1);
                 }
             }
             (2, 0 | 1) => self.stick[n] = value,
