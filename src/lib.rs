@@ -15,4 +15,4 @@ pub use ecs::{
     collisions, draw_list, movement, particles,
 };
 pub use render::{Camera, DrawCmd, Font, Gfx, Paint, Rect, Sprite, Tilemap, Transform};
-pub use ui::{Menu, draw_bar, draw_panel};
+pub use ui::{Menu, clicked, draw_bar, draw_panel, hovered, slider};

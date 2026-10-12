@@ -12,6 +12,7 @@ pub struct Input {
     pad_prev: HashSet<Pad>,
     pad_actions: HashMap<String, Vec<Pad>>,
     mouse: Option<(f32, f32)>,
+    mouse_prev: Option<(f32, f32)>,
     buttons: [bool; 5],
     buttons_prev: [bool; 5],
     wheel: f32,
@@ -51,6 +52,7 @@ impl Input {
         self.prev = self.down.clone();
         self.pad_prev = self.pad_down.clone();
         self.buttons_prev = self.buttons;
+        self.mouse_prev = self.mouse;
         self.wheel = 0.0;
     }
     pub(crate) fn bind(&mut self, action: &str, keys: &[Key]) {
@@ -104,6 +106,10 @@ impl Input {
     /// Cursor in screen pixels of the logical canvas; `None` while it is outside the window.
     pub fn mouse(&self) -> Option<(f32, f32)> {
         self.mouse
+    }
+    /// True when the cursor is somewhere else than it was at the previous step.
+    pub fn mouse_moved(&self) -> bool {
+        self.mouse != self.mouse_prev
     }
     pub fn mouse_down(&self, b: MouseButton) -> bool {
         self.buttons[slot(b)]
