@@ -84,6 +84,8 @@ pub(crate) struct Gpu {
     vbuf: wgpu::Buffer,
     vcap: usize,
     size: (u32, u32),
+    // What the picture is drawn into (the window), and where in it the picture goes.
+    target: (u32, u32),
     viewport: crate::Rect,
     surface: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     pub(crate) adapter: String,
@@ -196,6 +198,15 @@ impl Gpu {
         }
         (config.width, config.height) = (w, h);
         surface.configure(&self.device, config);
+        self.fit((w, h));
+    }
+
+    // The picture keeps its shape, centred in a `target`-sized area; a zero size (minimized) changes nothing.
+    fn fit(&mut self, (w, h): (u32, u32)) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        self.target = (w, h);
         let canvas = (self.size.0 as f32, self.size.1 as f32);
         self.viewport = super::letterbox((w as f32, h as f32), canvas);
     }
@@ -331,6 +342,7 @@ impl Gpu {
             vbuf,
             vcap,
             size,
+            target: size,
             viewport: crate::Rect { x: 0.0, y: 0.0, w: size.0 as f32, h: size.1 as f32 },
             surface: None,
             adapter: format!("{} ({:?})", info.name, info.backend),
@@ -537,7 +549,7 @@ impl Gpu {
     #[cfg(test)]
     pub(crate) fn render_to_pixels(&mut self, cmds: &[DrawCmd]) -> Vec<u32> {
         self.build(cmds);
-        let (w, h) = self.size;
+        let (w, h) = self.target;
         let extent = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
@@ -765,5 +777,33 @@ mod tests {
         let off = (0..soft_px.len()).filter(|&i| differ(i)).count();
         eprintln!("transform parity: {off} of {drawn} drawn pixels differ on {}", gpu.adapter);
         assert!(off * 100 <= drawn * 3, "{off} of {drawn} drawn pixels differ");
+    }
+
+    #[test]
+    fn a_window_of_another_shape_gets_the_picture_centred_with_black_around_it() {
+        let Ok(mut gpu) = Gpu::offscreen((64, 32), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let mut g = crate::Gfx::new(64, 32);
+        g.clear(0xff0000);
+        gpu.fit((128, 128));
+        let px = gpu.render_to_pixels(g.cmds());
+        assert_eq!(px.len(), 128 * 128);
+        let at = |x: usize, y: usize| px[y * 128 + x];
+        // 2:1 picture at 2x in a square window: 32 rows of bar above and below it.
+        assert_eq!((at(64, 10), at(64, 120)), (0, 0), "the bars stay black");
+        assert_eq!(
+            (at(0, 40), at(127, 90), at(64, 64)),
+            (0xff0000, 0xff0000, 0xff0000),
+            "the picture fills the middle"
+        );
+        assert_eq!(
+            (at(5, 31), at(5, 32), at(5, 95), at(5, 96)),
+            (0, 0xff0000, 0xff0000, 0),
+            "edges fall on whole rows"
+        );
+        gpu.fit((0, 0));
+        assert_eq!(gpu.target, (128, 128), "a minimized window changes nothing");
     }
 }
