@@ -58,6 +58,8 @@ pub struct Ctx {
     pub(crate) cam: Camera,
     pub(crate) rng: Rng,
     pub(crate) bindings_path: Option<String>,
+    // The bindings as the game set them before the first file was applied, so a save keeps only the player's changes.
+    defaults: Option<String>,
     pub(crate) dt: f32,
     pub(crate) w: usize,
     pub(crate) h: usize,
@@ -72,6 +74,7 @@ impl Ctx {
             cam: Camera::new(w as f32, h as f32),
             rng: Rng::new(1),
             bindings_path: None,
+            defaults: None,
             dt,
             w,
             h,
@@ -88,6 +91,7 @@ impl Ctx {
 
     pub fn load_bindings(&mut self, path: &str) -> Result<(), String> {
         self.bindings_path = Some(path.to_string());
+        self.defaults.get_or_insert_with(|| self.input.to_text());
         self.watch(path);
         match crate::assets::read_text_if_exists(path)? {
             Some(text) => self.input.load_text(&text).map_err(|e| format!("{path}: {e}")),
@@ -95,8 +99,12 @@ impl Ctx {
         }
     }
 
+    /// Writes the bindings, only those that differ from what the game had bound when it first called
+    /// `load_bindings`, so changing a default later still reaches players who remapped something else.
     pub fn save_bindings(&self, path: &str) -> std::io::Result<()> {
-        std::fs::write(path, self.input.to_text())
+        let all = self.input.to_text();
+        let kept = |line: &&str| self.defaults.as_ref().is_none_or(|d| !d.lines().any(|l| l == *line));
+        std::fs::write(path, all.lines().filter(kept).map(|l| format!("{l}\n")).collect::<String>())
     }
 
     pub fn watch(&mut self, path: &str) {
@@ -408,6 +416,26 @@ mod tests {
 
         std::fs::remove_file(path).unwrap();
         assert!(other.load_bindings(path).is_ok());
+    }
+
+    #[test]
+    fn saving_keeps_only_the_bindings_the_player_changed() {
+        let path = std::env::temp_dir().join(format!("engine-diff-{}.txt", std::process::id()));
+        let path = path.to_str().unwrap();
+        let mut ctx = Ctx::new(64, 64, 1.0 / 60.0, Audio::disabled());
+        ctx.bind("jump", &[Key::Space]);
+        ctx.bind("left", &[Key::Left]);
+        ctx.load_bindings(path).unwrap();
+        ctx.bind("left", &[Key::A]);
+        ctx.save_bindings(path).unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "left = A\n");
+
+        let mut next = Ctx::new(64, 64, 1.0 / 60.0, Audio::disabled());
+        next.bind("jump", &[Key::Z]);
+        next.bind("left", &[Key::Left]);
+        next.load_bindings(path).unwrap();
+        assert_eq!(next.input.to_text(), "jump = Z\nleft = A\n", "a new default reaches this player");
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
