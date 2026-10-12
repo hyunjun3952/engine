@@ -80,6 +80,9 @@ pub struct Physics {
     cache: HashMap<(u64, u64), Memory>,
     joints: Vec<Joint>,
     rest: HashMap<Entity, Rest>,
+    // What the last step saw, to notice a body that vanished or a gravity change: sleepers must then be woken.
+    known: HashSet<Entity>,
+    last_gravity: V2,
 }
 
 impl Default for Physics {
@@ -90,6 +93,8 @@ impl Default for Physics {
             cache: HashMap::new(),
             joints: Vec::new(),
             rest: HashMap::new(),
+            known: HashSet::new(),
+            last_gravity: (0.0, 900.0),
         }
     }
 }
@@ -273,6 +278,13 @@ impl Physics {
             let n = &nodes[i];
             r.asleep.is_none_or(|at| at == n.rect && n.vel == (0.0, 0.0) && n.spin == 0.0)
         });
+        // Whatever a sleeper rested on may be gone (a despawned body or wall) or pulling another way.
+        let changed = self.known.iter().any(|e| !index.contains_key(e)) || self.gravity != self.last_gravity;
+        self.known = ents.iter().copied().collect();
+        self.last_gravity = self.gravity;
+        if changed {
+            self.rest.clear();
+        }
         let movers: Vec<Rect> = ents
             .iter()
             .zip(nodes.iter())
@@ -1390,5 +1402,36 @@ mod tests {
             assert!(cx >= 9.0 + near && cx <= 631.0 - near && cy <= 341.0 - near, "escaped or sank: {r:?}");
             assert!(v.0.hypot(v.1) < 60.0, "still flying after 15 s: {v:?}");
         }
+    }
+
+    fn sleeping_pair(p: &mut Physics, w: &mut World) -> (Entity, Entity) {
+        floor(w);
+        let low = boxed(w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        let top = boxed(w, square(50.0, 30.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(p, w, None, 240);
+        assert!(p.asleep(low) && p.asleep(top));
+        (low, top)
+    }
+
+    #[test]
+    fn a_sleeper_falls_when_the_body_under_it_is_despawned() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        let (low, top) = sleeping_pair(&mut p, &mut w);
+        w.despawn(low).unwrap();
+        run(&mut p, &mut w, None, 120);
+        let r = state(&w, top).0;
+        assert!((r.y + r.h - 100.0).abs() < 0.5, "bottom at {}", r.y + r.h);
+    }
+
+    #[test]
+    fn a_sleeper_moves_when_gravity_changes_and_wake_wakes_one() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        let (low, top) = sleeping_pair(&mut p, &mut w);
+        p.wake(low);
+        p.step(&mut w, None, DT);
+        assert!(!p.asleep(low) && p.asleep(top));
+        p.gravity = (0.0, -900.0);
+        run(&mut p, &mut w, None, 30);
+        assert!(!p.asleep(top) && state(&w, top).1.1 < 0.0, "flipped gravity lifts it");
     }
 }
