@@ -1,5 +1,5 @@
 use super::pad::{PADS, Pad, PadState};
-pub use minifb::Key;
+pub use minifb::{Key, MouseButton};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -11,20 +11,47 @@ pub struct Input {
     pad_down: HashSet<Pad>,
     pad_prev: HashSet<Pad>,
     pad_actions: HashMap<String, Vec<Pad>>,
+    mouse: Option<(f32, f32)>,
+    buttons: [bool; 5],
+    buttons_prev: [bool; 5],
+    wheel: f32,
+}
+
+fn slot(b: MouseButton) -> usize {
+    match b {
+        MouseButton::Left => 0,
+        MouseButton::Right => 1,
+        MouseButton::Middle => 2,
+        MouseButton::Back => 3,
+        MouseButton::Forward => 4,
+    }
 }
 
 impl Input {
-    pub(crate) fn poll(&mut self, win: &minifb::Window) {
+    pub(crate) fn poll(&mut self, win: &minifb::Window, scale: usize) {
         self.down = win.get_keys().into_iter().collect();
         self.pad_down = self.pad.poll();
+        let s = scale as f32;
+        self.mouse = win.get_mouse_pos(minifb::MouseMode::Discard).map(|(x, y)| (x / s, y / s));
+        for b in [MouseButton::Left, MouseButton::Right, MouseButton::Middle, MouseButton::Back, MouseButton::Forward] {
+            self.buttons[slot(b)] = win.get_mouse_down(b);
+        }
+        self.wheel += win.get_scroll_wheel().map_or(0.0, |(_, y)| y);
     }
     #[cfg(test)]
     pub(crate) fn hold(&mut self, keys: &[Key]) {
         self.down = keys.iter().copied().collect();
     }
+    #[cfg(test)]
+    pub(crate) fn point(&mut self, at: Option<(f32, f32)>, left: bool) {
+        self.mouse = at;
+        self.buttons[0] = left;
+    }
     pub(crate) fn end_step(&mut self) {
         self.prev = self.down.clone();
         self.pad_prev = self.pad_down.clone();
+        self.buttons_prev = self.buttons;
+        self.wheel = 0.0;
     }
     pub(crate) fn bind(&mut self, action: &str, keys: &[Key]) {
         self.actions.insert(action.to_string(), keys.to_vec());
@@ -73,6 +100,23 @@ impl Input {
     }
     pub fn axis(&self, neg: &str, pos: &str) -> f32 {
         self.down(pos) as i32 as f32 - self.down(neg) as i32 as f32
+    }
+    /// Cursor in screen pixels of the logical canvas; `None` while it is outside the window.
+    pub fn mouse(&self) -> Option<(f32, f32)> {
+        self.mouse
+    }
+    pub fn mouse_down(&self, b: MouseButton) -> bool {
+        self.buttons[slot(b)]
+    }
+    pub fn mouse_pressed(&self, b: MouseButton) -> bool {
+        self.buttons[slot(b)] && !self.buttons_prev[slot(b)]
+    }
+    pub fn mouse_released(&self, b: MouseButton) -> bool {
+        !self.buttons[slot(b)] && self.buttons_prev[slot(b)]
+    }
+    /// Wheel movement since the last tick, positive away from the user.
+    pub fn wheel(&self) -> f32 {
+        self.wheel
     }
     pub fn key_down(&self, key: Key) -> bool {
         self.down.contains(&key)
@@ -283,6 +327,18 @@ mod tests {
         names.sort();
         names.dedup();
         assert_eq!(names.len(), KEYS.len());
+    }
+
+    #[test]
+    fn mouse_buttons_report_edges_between_steps() {
+        let mut i = Input::default();
+        i.point(Some((3.0, 4.0)), true);
+        assert!(i.mouse_pressed(MouseButton::Left) && i.mouse_down(MouseButton::Left));
+        assert!(!i.mouse_down(MouseButton::Right));
+        i.end_step();
+        assert!(!i.mouse_pressed(MouseButton::Left) && i.mouse_down(MouseButton::Left));
+        i.point(None, false);
+        assert!(i.mouse_released(MouseButton::Left) && i.mouse().is_none());
     }
 
     #[test]

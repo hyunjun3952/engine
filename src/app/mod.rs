@@ -4,7 +4,7 @@ mod rng;
 mod save;
 mod time;
 
-pub use input::{Input, Key};
+pub use input::{Input, Key, MouseButton};
 pub use pad::Pad;
 pub use rng::Rng;
 pub use save::Save;
@@ -276,7 +276,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             ctx.poll_files();
             last_poll = Instant::now();
         }
-        ctx.input.poll(&win);
+        ctx.input.poll(&win, scale);
         let f3_down = ctx.input.key_down(Key::F3);
         if f3_down && !f3 {
             gfx.debug = !gfx.debug;

@@ -1,5 +1,6 @@
 use engine::{
-    Body, Config, Ctx, Entity, Gfx, Key, Look, Physics, Rect, RigidBody, Scene, Trans, Transform, Vel, World, draw_list,
+    Body, Config, Ctx, Entity, Gfx, Key, Look, MouseButton, Physics, Rect, RigidBody, Scene, Trans, Transform, Vel,
+    World, draw_list,
 };
 
 const W: f32 = 640.0;
@@ -22,7 +23,8 @@ impl Sandbox {
             sandbox.drop_box(ctx, -20.0 * i as f32);
         }
         for i in 0..12 {
-            sandbox.drop_ball(ctx, -40.0 * i as f32);
+            let x = ctx.rng().range(20.0, W - 36.0);
+            sandbox.drop_ball(ctx, x, -40.0 * i as f32);
         }
         sandbox
     }
@@ -43,9 +45,8 @@ impl Sandbox {
 }
 
 impl Sandbox {
-    fn drop_ball(&mut self, ctx: &mut Ctx, y: f32) -> Entity {
+    fn drop_ball(&mut self, ctx: &mut Ctx, x: f32, y: f32) -> Entity {
         let sprite = ctx.assets().sprite("assets/ball.png");
-        let x = ctx.rng().range(20.0, W - 36.0);
         let body = RigidBody::dynamic(2.5).with_bounce(0.7).with_friction(0.2).circle();
         let rect = Rect { x, y, w: 16.0, h: 16.0 };
         self.world.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, Look::Sprite(sprite), body, Transform::IDENTITY))
@@ -58,7 +59,11 @@ impl Scene for Sandbox {
             return Trans::Quit;
         }
         if ctx.input().pressed("drop") {
-            self.drop_ball(ctx, 0.0);
+            let x = ctx.rng().range(20.0, W - 36.0);
+            self.drop_ball(ctx, x, 0.0);
+        }
+        if let Some((x, y)) = ctx.input().mouse().filter(|_| ctx.input().mouse_pressed(MouseButton::Left)) {
+            self.drop_ball(ctx, x - 8.0, y - 8.0);
         }
         self.physics.step(&mut self.world, None, ctx.dt());
         Trans::None
@@ -67,7 +72,7 @@ impl Scene for Sandbox {
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x101018);
         g.draw(draw_list(&self.world));
-        g.text("SPACE: drop a ball   brighter boxes bounce more", 16, 16, 1, 0xaaaaaa);
+        g.text("SPACE or click: drop a ball   brighter boxes bounce more", 16, 16, 1, 0xaaaaaa);
     }
 }
 
