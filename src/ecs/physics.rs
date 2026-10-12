@@ -832,7 +832,6 @@ fn write_back(world: &mut World, ents: &[Entity], nodes: &[Node]) {
 mod tests {
     use super::*;
     use crate::Sprite;
-    use std::sync::Arc;
 
     const DT: f32 = 1.0 / 60.0;
 
@@ -960,7 +959,7 @@ mod tests {
         let map = Tilemap::from_ascii(
             &["....................", "....................", "####################"],
             16,
-            std::sync::Arc::new(crate::Sprite::load("assets/images/tiles.png")),
+            Sprite::test_tiles(),
         );
         let (mut p, mut w) = (Physics::default(), World::new());
         let e = boxed(
@@ -1039,7 +1038,7 @@ mod tests {
 
     #[test]
     fn tiles_act_as_floor_and_walls_for_dynamic_bodies() {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         let map = Tilemap::from_ascii(&["....", "....", "####"], 16, sheet);
         let (mut p, mut w) = (Physics::default(), World::new());
         let e = boxed(&mut w, square(20.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
@@ -1063,7 +1062,7 @@ mod tests {
     }
 
     fn tile_floor() -> Tilemap {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         Tilemap::from_ascii(&["....................", "....................", "####################"], 16, sheet)
     }
 

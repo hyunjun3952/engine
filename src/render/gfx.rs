@@ -179,6 +179,16 @@ impl Sprite {
         Rect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_tiles() -> Arc<Sprite> {
+        Arc::new(Sprite::load("assets/images/tiles.png"))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_ball() -> Arc<Sprite> {
+        Arc::new(Sprite::load("assets/images/ball.png"))
+    }
+
     pub(crate) fn image(&self) -> RwLockReadGuard<'_, Image> {
         self.image.read().unwrap()
     }

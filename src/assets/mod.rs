@@ -72,7 +72,7 @@ mod tests {
         let held = a.sprite(path);
         let version = held.version();
         assert_eq!(held.size(), (16, 16));
-        let sheet_size = Sprite::load("assets/images/tiles.png").size();
+        let sheet_size = Sprite::test_tiles().size();
 
         std::fs::copy("assets/images/tiles.png", path).unwrap();
         bump(2000);

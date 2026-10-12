@@ -247,7 +247,6 @@ fn blend(src: u32, dst: u32, a: u32) -> u32 {
 mod tests {
     use super::*;
     use crate::{DrawCmd, Gfx};
-    use std::sync::Arc;
 
     fn run(w: usize, h: usize, f: impl FnOnce(&mut Gfx)) -> Soft {
         let (mut g, mut s) = (Gfx::new(w, h), Soft::new(w, h, 1));
@@ -269,7 +268,7 @@ mod tests {
 
     #[test]
     fn blit_clips_at_every_edge_and_flip_mirrors_columns() {
-        let sprite = Arc::new(Sprite::load("assets/images/ball.png"));
+        let sprite = Sprite::test_ball();
         let s = run(16, 16, |g| g.blit(&sprite, -8, -8));
         assert_eq!((s.buf[0], s.buf[8 * 16 + 8]), (sprite.image().px[8 * 16 + 8], 0));
         let s = run(16, 16, |g| g.blit_region(&sprite, Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }, 0, 0, true));
@@ -365,7 +364,7 @@ mod tests {
 
     #[test]
     fn a_half_turn_flips_a_sprite_both_ways_and_a_negative_scale_mirrors_like_flip() {
-        let sprite = Arc::new(Sprite::load("assets/images/ball.png"));
+        let sprite = Sprite::test_ball();
         let img = sprite.image();
         let at = Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 };
         let half = Transform { angle: std::f32::consts::PI, ..Transform::IDENTITY };

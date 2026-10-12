@@ -691,7 +691,7 @@ mod tests {
             eprintln!("no GPU adapter, skipping");
             return;
         };
-        let kept = Arc::new(Sprite::load("assets/images/ball.png"));
+        let kept = Sprite::test_ball();
         for _ in 0..20 {
             let temp = Arc::new(Sprite::load("assets/images/player.png"));
             let mut g = Gfx::new(64, 64);

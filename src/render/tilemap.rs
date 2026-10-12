@@ -213,14 +213,14 @@ mod tests {
 
     #[test]
     fn letters_become_markers_with_pixel_positions() {
-        let map = Tilemap::from_ascii(&["...", ".P.", "###"], 16, Arc::new(Sprite::load("assets/images/tiles.png")));
+        let map = Tilemap::from_ascii(&["...", ".P.", "###"], 16, Sprite::test_tiles());
         assert_eq!(map.marks(b'P').collect::<Vec<_>>(), vec![(16.0, 16.0)]);
         assert_eq!(map.marks(b'E').count(), 0);
     }
 
     #[test]
     fn a_broken_level_is_an_error_not_a_crash() {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         let err = Tilemap::try_from_ascii(&["###", "##"], 16, sheet.clone()).err().unwrap();
         assert!(err.contains("row 2"), "{err}");
         assert!(Tilemap::try_from_ascii(&[], 16, sheet.clone()).is_err());
@@ -230,14 +230,14 @@ mod tests {
 
     #[test]
     fn level_file_loads_with_a_start_marker() {
-        let map = Tilemap::load("assets/levels/level1.txt", 16, Arc::new(Sprite::load("assets/images/tiles.png")));
+        let map = Tilemap::load("assets/levels/level1.txt", 16, Sprite::test_tiles());
         assert_eq!((map.w, map.h), (60, 23));
         assert_eq!(map.marks(b'P').count(), 1);
     }
 
     #[test]
     fn draw_list_covers_only_the_visible_solid_tiles_in_world_space() {
-        let map = Tilemap::from_ascii(&["#.#", "...", "..."], 16, Arc::new(Sprite::load("assets/images/tiles.png")));
+        let map = Tilemap::from_ascii(&["#.#", "...", "..."], 16, Sprite::test_tiles());
         let at = |view| {
             map.draw_list(view)
                 .iter()
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn falling_box_lands_on_floor_and_wall_stops_it() {
-        let map = Tilemap::from_ascii(&["...", "...", "###"], 16, Arc::new(Sprite::load("assets/images/tiles.png")));
+        let map = Tilemap::from_ascii(&["...", "...", "###"], 16, Sprite::test_tiles());
         let (r, hx, hy) = map.slide(&Rect { x: 0.0, y: 20.0, w: 10.0, h: 10.0 }, 0.0, 5.0);
         assert_eq!((r.y, hx, hy), (22.0, false, true));
         let (r, hx, _) = map.slide(&Rect { x: 1.0, y: 0.0, w: 10.0, h: 10.0 }, -3.0, 0.0);
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn set_replaces_a_tile_and_gives_the_map_a_new_stamp() {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         let mut map = Tilemap::from_ascii(&["...", "###"], 16, sheet);
         let before = map.stamp();
         map.set(1, 0, 2);
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn a_legend_makes_tiles_that_do_not_block_and_tiles_drawn_in_front() {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         let map = Tilemap::try_from_ascii_with(&["P.v", ":::", "###"], 16, sheet, &legend()).unwrap();
         assert_eq!(map.marks(b'P').count(), 1, "characters outside the legend are still markers");
         assert_eq!(map.solid_in(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }).len(), 3, "only the ground blocks");
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn a_legend_that_hides_empty_tiles_is_an_error() {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         let bad = [Tile { ch: b'.', id: 1, solid: true, front: false }];
         assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &bad).is_err());
         let zero = [Tile { ch: b'#', id: 0, solid: true, front: false }];
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn a_tile_the_sheet_does_not_have_is_refused_instead_of_crashing_the_renderer() {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         let columns = sheet.size().0 / 16;
         let past = [Tile { ch: b'#', id: columns as u8 + 1, solid: true, front: false }];
         let err = Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &past).err().unwrap();
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "does not exist")]
     fn setting_a_tile_past_the_sheet_panics_at_the_call_not_when_drawn() {
-        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let sheet = Sprite::test_tiles();
         let mut map = Tilemap::from_ascii(&["."], 16, sheet);
         map.set(0, 0, 200);
     }
