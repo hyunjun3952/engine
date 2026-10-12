@@ -69,6 +69,9 @@ impl Soft {
             _ => {
                 let Some((sheet, src, flip)) = c.paint.region() else { return false };
                 let img = sheet.image();
+                if !img.holds(&src) {
+                    return true;
+                }
                 let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
                 let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
                 if t.angle == 0.0 && t.sx != 0.0 && t.sy != 0.0 {
@@ -216,6 +219,9 @@ impl Soft {
     // The destination rect is the source scaled by a whole number, so each source pixel covers k by k.
     fn mask(&mut self, s: &Sprite, src: Rect, at: &Rect, color: u32) {
         let img = s.image();
+        if !img.holds(&src) {
+            return;
+        }
         let (x, y) = (at.x as i32, at.y as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
         let k = ((at.w / src.w) as usize).max(1);
@@ -234,6 +240,9 @@ impl Soft {
 
     fn blit_region(&mut self, s: &Sprite, src: Rect, at: &Rect, flip: bool) {
         let img = s.image();
+        if !img.holds(&src) {
+            return;
+        }
         let (x, y) = (at.x as i32, at.y as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
         let (cols, rows) = self.visible(x, y, w, h);
@@ -392,6 +401,34 @@ mod tests {
 
     fn lit(s: &Soft, w: usize) -> Vec<(usize, usize)> {
         s.buf.iter().enumerate().filter(|(_, p)| **p != 0).map(|(i, _)| (i % w, i / w)).collect()
+    }
+
+    #[test]
+    fn a_source_rect_that_is_not_inside_its_sheet_draws_nothing_instead_of_panicking() {
+        // What hot reload leaves behind when a sheet is replaced by a smaller picture.
+        let sheet = std::sync::Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
+        let at = Rect { x: 2.0, y: 2.0, w: 8.0, h: 8.0 };
+        for src in [
+            Rect { x: 8.0, y: 0.0, w: 4.0, h: 4.0 },
+            Rect { x: 2.0, y: 2.0, w: 4.0, h: 4.0 },
+            Rect { x: -1.0, y: 0.0, w: 4.0, h: 4.0 },
+        ] {
+            for xform in [
+                Transform::IDENTITY,
+                Transform { angle: 0.0, sx: 2.0, sy: 2.0 },
+                Transform { angle: 0.6, sx: 1.0, sy: 1.0 },
+            ] {
+                let region = Paint::Region { sheet: sheet.clone(), src, flip: false };
+                assert!(drawn(32, 32, at, region, xform).buf.iter().all(|&p| p == 0), "{src:?} {xform:?}");
+            }
+            let mask = Paint::Mask { sheet: sheet.clone(), src, color: 0xffffff };
+            assert!(drawn(32, 32, at, mask, Transform::IDENTITY).buf.iter().all(|&p| p == 0), "mask {src:?}");
+        }
+        let inside = Paint::Region { sheet, src: Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 }, flip: false };
+        assert!(
+            drawn(32, 32, at, inside, Transform::IDENTITY).buf.iter().any(|&p| p != 0),
+            "a rect inside still draws"
+        );
     }
 
     #[test]
