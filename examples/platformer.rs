@@ -29,7 +29,7 @@ impl Platformer {
         let mut world = World::new();
         let player = world.spawn((
             Body(start),
-            Vel { x: 0.0, y: 0.0 },
+            Vel::default(),
             RigidBody::dynamic(1.0).with_friction(0.0),
             Anim::new(ctx.assets().sprite("assets/images/player.png"), 12, 24),
         ));

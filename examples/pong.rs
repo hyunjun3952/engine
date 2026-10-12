@@ -70,7 +70,7 @@ impl Pong {
         world.spawn(paddle(W - 30.0, "p2_up", "p2_down"));
         let ball = world.spawn((
             Body(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }),
-            Vel { x: 0.0, y: 0.0 },
+            Vel::default(),
             Look::Sprite(ctx.assets().sprite("assets/images/ball.png")),
             Collider,
         ));

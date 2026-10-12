@@ -60,7 +60,7 @@ impl Breakout {
         }
         let ball = world.spawn((
             Body(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }),
-            Vel { x: 0.0, y: 0.0 },
+            Vel::default(),
             Look::Sprite(ctx.assets().sprite("assets/images/ball.png")),
             Collider,
         ));

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 pub struct Body(pub Rect);
 
+#[derive(Default)]
 pub struct Vel {
     pub x: f32,
     pub y: f32,

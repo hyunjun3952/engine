@@ -85,7 +85,7 @@ impl Ctx {
 
     pub fn load_bindings(&mut self, path: &str) -> Result<(), String> {
         self.bindings_path = Some(path.to_string());
-        self.assets.watcher.watch(path);
+        self.watch(path);
         match std::fs::read_to_string(path) {
             Ok(text) => self.input.load_text(&text).map_err(|e| format!("{path}: {e}")),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -114,7 +114,7 @@ impl Ctx {
             }
         }
         if let Some(path) = self.bindings_path.clone()
-            && self.assets.watcher.take(&path)
+            && self.changed(&path)
         {
             match self.load_bindings(&path) {
                 Ok(()) => eprintln!("reloaded {path}"),
