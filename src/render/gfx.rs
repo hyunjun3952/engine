@@ -26,6 +26,20 @@ impl Rect {
     pub fn overlaps(&self, o: &Rect) -> bool {
         self.penetration(o).is_some()
     }
+
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
+
+    /// The one-pixel top, bottom, left and right borders, as an outline is drawn.
+    pub fn edges(&self) -> [Rect; 4] {
+        [
+            Rect { h: 1.0, ..*self },
+            Rect { y: self.y + self.h - 1.0, h: 1.0, ..*self },
+            Rect { w: 1.0, ..*self },
+            Rect { x: self.x + self.w - 1.0, w: 1.0, ..*self },
+        ]
+    }
 }
 
 pub struct Gfx {
@@ -74,8 +88,7 @@ impl Gfx {
     }
 
     pub fn blit(&mut self, s: &Arc<Sprite>, x: i32, y: i32) {
-        let (w, h) = s.size();
-        self.push(Rect { x: x as f32, y: y as f32, w: w as f32, h: h as f32 }, Paint::Sprite(s.clone()));
+        self.push(Rect { x: x as f32, y: y as f32, ..s.bounds() }, Paint::Sprite(s.clone()));
     }
 
     pub fn blit_region(&mut self, s: &Arc<Sprite>, src: Rect, x: i32, y: i32, flip: bool) {
@@ -149,6 +162,12 @@ impl Sprite {
     pub fn size(&self) -> (usize, usize) {
         let img = self.image();
         (img.w, img.h)
+    }
+
+    /// The whole image as a rect at the origin.
+    pub fn bounds(&self) -> Rect {
+        let (w, h) = self.size();
+        Rect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 }
     }
 
     pub(crate) fn image(&self) -> RwLockReadGuard<'_, Image> {

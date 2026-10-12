@@ -425,11 +425,9 @@ impl Gpu {
                 Paint::Color(col) => self.solid(r, rgba(*col, 1.0)),
                 Paint::Alpha(col, a) => self.solid(r, rgba(*col, *a as f32 / 255.0)),
                 Paint::Outline(col) => {
-                    let color = rgba(*col, 1.0);
-                    self.solid(&crate::Rect { h: 1.0, ..*r }, color);
-                    self.solid(&crate::Rect { y: r.y + r.h - 1.0, h: 1.0, ..*r }, color);
-                    self.solid(&crate::Rect { w: 1.0, ..*r }, color);
-                    self.solid(&crate::Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, color);
+                    for edge in r.edges() {
+                        self.solid(&edge, rgba(*col, 1.0));
+                    }
                 }
                 Paint::Glyph { ch, color, scale } => {
                     let (x, y, size) = (r.x.trunc(), r.y.trunc(), 8.0 * *scale as f32);

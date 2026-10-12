@@ -34,10 +34,7 @@ impl Soft {
                 Paint::Clear(col) => self.buf.fill(*col),
                 Paint::Color(col) => self.fill_with(r, |_| *col),
                 Paint::Alpha(col, a) => self.fill_alpha(r, *col, *a as u32),
-                Paint::Sprite(s) => {
-                    let (w, h) = s.size();
-                    self.blit_region(s, Rect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 }, r, false)
-                }
+                Paint::Sprite(s) => self.blit_region(s, s.bounds(), r, false),
                 Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r, *flip),
                 Paint::Mask { sheet, src, color } => self.mask(sheet, *src, r, *color),
                 Paint::Outline(col) => self.outline(r, *col),
@@ -148,10 +145,9 @@ impl Soft {
     }
 
     fn outline(&mut self, r: &Rect, c: u32) {
-        self.fill_with(&Rect { h: 1.0, ..*r }, |_| c);
-        self.fill_with(&Rect { y: r.y + r.h - 1.0, h: 1.0, ..*r }, |_| c);
-        self.fill_with(&Rect { w: 1.0, ..*r }, |_| c);
-        self.fill_with(&Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, |_| c);
+        for edge in r.edges() {
+            self.fill_with(&edge, |_| c);
+        }
     }
 
     // The destination rect is the source scaled by a whole number, so each source pixel covers k by k.
