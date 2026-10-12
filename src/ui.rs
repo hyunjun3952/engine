@@ -36,7 +36,7 @@ pub fn slider(input: &Input, r: &Rect, value: f32) -> f32 {
 ///
 /// Hangul is composed here, so no input method is needed: jamo from a Korean keyboard layout are joined into
 /// syllables as they arrive, and with `set_korean(true)` (RightAlt toggles it) letter keys type jamo as on a
-/// two-set keyboard. Only syllables in the font's set draw; the bundled font has the 2350 of KS X 1001.
+/// two-set keyboard. The bundled font has all 11172 syllables.
 pub struct TextField {
     text: String,
     max: usize,

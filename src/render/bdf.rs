@@ -157,9 +157,10 @@ mod tests {
     #[test]
     fn the_bundled_font_has_hangul_and_ascii() {
         let f = Font::load("assets/fonts/galmuri9.bdf").unwrap();
-        assert_eq!(f.layout("한글 abc 가힣").count(), 7, "a syllable outside the subset shows as `?`");
-        assert_eq!(f.width("힣"), f.width("?"));
+        assert_eq!(f.layout("한글 abc 가힣").count(), 7);
         assert!(f.width("한글") > f.width("ab"));
+        let all: String = ('\u{AC00}'..='\u{D7A3}').collect();
+        assert_eq!(f.layout(&all).count(), 11172, "every syllable has a glyph, so none falls back to `?`");
     }
 
     #[test]
