@@ -463,6 +463,37 @@ mod tests {
     }
 
     #[test]
+    fn a_zoom_and_a_camera_of_any_kind_never_panic_the_path_from_draw_to_pixels() {
+        let sheet = std::sync::Arc::new(Sprite::from_pixels(8, 4, (0..32).map(|i| 0xFF00_0000 | (i * 977)).collect()));
+        let odd = [0.0, -1.0, 1e-9, 0.5, 1.0, 7.5, 31.9, 1e9, -1e9, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+        let zooms = [0.25, 0.5, 1.0, 1.5, 2.0, 3.3, 8.0, f32::NAN, f32::INFINITY, 0.0, -1.0, 1e-30, 1e30];
+        let mut rng = crate::Rng::new(4);
+        let mut pick = move || odd[(rng.f32() * odd.len() as f32) as usize % odd.len()];
+        for case in 0..3000 {
+            let mut g = crate::Gfx::new(32, 24);
+            (g.zoom, g.cam) = (zooms[case % zooms.len()], (pick(), pick()));
+            let rect = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
+            let src = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
+            let xform = Transform { angle: pick(), sx: pick(), sy: pick() };
+            let paint = match case % 7 {
+                0 => Paint::Color(1),
+                1 => Paint::Alpha(0xff0000, 128),
+                2 => Paint::Sprite(sheet.clone()),
+                3 => Paint::Region { sheet: sheet.clone(), src, flip: false },
+                4 => Paint::Mask { sheet: sheet.clone(), src, color: 1 },
+                5 => Paint::Outline(2),
+                _ => Paint::Tiles { sheet: sheet.clone(), size: 4, tiles: vec![(0, 0, 1), (1, 1, 2)] },
+            };
+            let shown = format!("zoom {} cam {:?} {rect:?} {xform:?}", g.zoom, g.cam);
+            let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                g.draw([DrawCmd { layer: 0, rect, paint, debug_only: false, xform }]);
+                Soft::new(32, 24, 1).render(g.cmds());
+            }));
+            assert!(ok.is_ok(), "case {case} panicked: {shown}");
+        }
+    }
+
+    #[test]
     fn a_turned_or_scaled_sprite_beyond_the_right_or_bottom_edge_draws_nothing_and_does_not_panic() {
         let sheet = std::sync::Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
         for (x, y) in [(60.0, 30.0), (47.5, 40.0), (54.0, 40.0), (100.0, 100.0)] {

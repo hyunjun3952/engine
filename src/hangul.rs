@@ -221,4 +221,24 @@ mod tests {
         Hangul::default().backspace(&mut text);
         assert_eq!(text, "");
     }
+
+    #[test]
+    fn any_stream_of_jamo_letters_backspaces_and_other_characters_composes_without_panicking() {
+        let pool: Vec<char> =
+            "ㄱㄲㄳㄴㄵㄶㄷㄸㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅃㅄㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ가힣abcXYZ 1\u{3130}\u{3164}"
+                .chars()
+                .collect();
+        let mut rng = crate::Rng::new(2);
+        for _ in 0..300 {
+            let (mut text, mut h) = (String::new(), Hangul::default());
+            for _ in 0..200 {
+                match rng.f32() {
+                    r if r < 0.2 => h.backspace(&mut text),
+                    r if r < 0.25 => h.end(),
+                    _ => h.push(&mut text, pool[(rng.f32() * pool.len() as f32) as usize % pool.len()]),
+                }
+            }
+            assert!(text.chars().count() <= 200, "a stream of 200 keys cannot make more than 200 characters");
+        }
+    }
 }
