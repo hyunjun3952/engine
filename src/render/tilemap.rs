@@ -7,24 +7,32 @@ use std::sync::{
 static STAMPS: AtomicU64 = AtomicU64::new(1);
 const SOLID: u8 = 1;
 const FRONT: u8 = 2;
+const AUTO: u8 = 4;
 // Above entities (the debug outlines are on `i32::MAX`); tiles behind them sit at `i32::MIN`.
 const FRONT_LAYER: i32 = i32::MAX - 1;
 
 /// What a character in a level file means: the sheet tile it shows (ids start at 1, the sheet is a row of
 /// square tiles), whether bodies collide with it, and whether it is drawn over entities instead of behind them.
 /// The flags belong to the id, so two characters sharing an id share them.
+///
+/// With `auto` the id is the first of 16 consecutive sheet tiles that show how the tile joins its neighbours of the
+/// same id: tile `id + m` where `m` adds 1 for a joined tile above, 2 to the right, 4 below and 8 to the left (the
+/// edge of the map counts as joined). The other 15 ids belong to it and no other entry may use them.
 #[derive(Clone, Copy, Debug)]
 pub struct Tile {
     pub ch: u8,
     pub id: u8,
     pub solid: bool,
     pub front: bool,
+    pub auto: bool,
 }
 
 impl Tile {
     /// `#` ground and `+` brick, both solid and drawn behind entities: what `Tilemap::load` uses.
-    pub const DEFAULT: [Tile; 2] =
-        [Tile { ch: b'#', id: 1, solid: true, front: false }, Tile { ch: b'+', id: 2, solid: true, front: false }];
+    pub const DEFAULT: [Tile; 2] = [
+        Tile { ch: b'#', id: 1, solid: true, front: false, auto: false },
+        Tile { ch: b'+', id: 2, solid: true, front: false, auto: false },
+    ];
 }
 
 pub struct Tilemap {
@@ -66,9 +74,30 @@ impl Tilemap {
                 t.ch as char, t.id
             ));
         }
+        for t in legend.iter().filter(|t| t.auto) {
+            if t.id as usize + 15 > columns {
+                return Err(format!(
+                    "autotile {:?} needs tiles {}..={} but the sheet has {columns}",
+                    t.ch as char,
+                    t.id,
+                    t.id as usize + 15
+                ));
+            }
+            if let Some(o) = legend.iter().find(|o| o.id != t.id && (t.id..t.id + 16).contains(&o.id)) {
+                return Err(format!(
+                    "legend entry {:?} uses tile {}, which autotile {:?} owns",
+                    o.ch as char, o.id, t.ch as char
+                ));
+            }
+        }
         let mut flags = [SOLID; 256];
         for t in legend {
-            flags[t.id as usize] = if t.solid { SOLID } else { 0 } | if t.front { FRONT } else { 0 };
+            let own = if t.solid { SOLID } else { 0 } | if t.front { FRONT } else { 0 };
+            let span = if t.auto { 16 } else { 1 };
+            flags[t.id as usize..t.id as usize + span].fill(own);
+            if t.auto {
+                flags[t.id as usize] |= AUTO;
+            }
         }
         let w = rows.first().ok_or("empty tilemap")?.len();
         let mut tiles = Vec::with_capacity(w * rows.len());
@@ -180,6 +209,19 @@ impl Tilemap {
         out
     }
 
+    // Which neighbours of an autotile cell are the same tile: up 1, right 2, down 4, left 8; outside the map counts.
+    fn joins(&self, tx: usize, ty: usize, id: u8) -> u8 {
+        let same = |dx: i32, dy: i32| {
+            let (x, y) = (tx as i32 + dx, ty as i32 + dy);
+            x < 0
+                || y < 0
+                || x >= self.w as i32
+                || y >= self.h as i32
+                || self.tiles[y as usize * self.w + x as usize] == id
+        };
+        same(0, -1) as u8 | (same(1, 0) as u8) << 1 | (same(0, 1) as u8) << 2 | (same(-1, 0) as u8) << 3
+    }
+
     pub fn draw_list(&self, view: Rect) -> Vec<DrawCmd> {
         let s = self.size as f32;
         let (tx0, ty0) = ((view.x / s).floor().max(0.0) as usize, (view.y / s).floor().max(0.0) as usize);
@@ -190,7 +232,8 @@ impl Tilemap {
             for tx in tx0..tx1 {
                 let id = self.tiles[ty * self.w + tx];
                 if id > 0 {
-                    let cell = ((tx - tx0) as u32, (ty - ty0) as u32, id);
+                    let shown = if self.flags[id as usize] & AUTO != 0 { id + self.joins(tx, ty, id) } else { id };
+                    let cell = ((tx - tx0) as u32, (ty - ty0) as u32, shown);
                     if self.flags[id as usize] & FRONT != 0 { front.push(cell) } else { back.push(cell) }
                 }
             }
@@ -210,6 +253,49 @@ impl Tilemap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A sheet of 20 tiles of 2x2 pixels, enough for ids 1..=20.
+    fn wide_sheet() -> Arc<Sprite> {
+        Arc::new(Sprite::from_pixels(40, 2, vec![0xFFFF_FFFF; 80]))
+    }
+
+    fn shown(map: &Tilemap) -> Vec<Vec<u8>> {
+        let mut grid = vec![vec![0; map.w]; map.h];
+        for c in map.draw_list(Rect { x: 0.0, y: 0.0, w: (map.w * map.size) as f32, h: (map.h * map.size) as f32 }) {
+            if let Paint::Tiles { tiles, .. } = &c.paint {
+                tiles.iter().for_each(|&(x, y, id)| grid[y as usize][x as usize] = id);
+            }
+        }
+        grid
+    }
+
+    #[test]
+    fn an_autotile_shows_the_tile_that_matches_its_joined_neighbours() {
+        let legend = [Tile { ch: b'#', id: 3, solid: true, front: false, auto: true }];
+        let map = Tilemap::try_from_ascii_with(&["###", "#.#", "###", "..."], 2, wide_sheet(), &legend).unwrap();
+        // Masks, row by row: 15 11 15 / 13 - 7 / 11 10 11 (the map edge counts as joined, a gap or empty cell does not).
+        let want = [[18, 14, 18], [16, 0, 10], [14, 13, 14], [0, 0, 0]];
+        assert_eq!(shown(&map), want.map(|r| r.to_vec()).to_vec());
+    }
+
+    #[test]
+    fn an_autotile_must_fit_the_sheet_and_own_its_sixteen_ids() {
+        let auto = |id| Tile { ch: b'#', id, solid: true, front: false, auto: true };
+        let err = Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(6)]).err().unwrap();
+        assert!(err.contains("needs tiles 6..=21"), "{err}");
+        let other = Tile { ch: b'+', id: 9, solid: true, front: false, auto: false };
+        let err = Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(3), other]).err().unwrap();
+        assert!(err.contains("owns"), "{err}");
+        assert!(Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(5)]).is_ok());
+    }
+
+    #[test]
+    fn an_autotile_in_front_draws_all_its_variants_in_front() {
+        let front = Tile { ch: b'#', id: 3, solid: false, front: true, auto: true };
+        let map = Tilemap::try_from_ascii_with(&["#.#"], 2, wide_sheet(), &[front]).unwrap();
+        let cmds = map.draw_list(Rect { x: 0.0, y: 0.0, w: 6.0, h: 2.0 });
+        assert_eq!((cmds.len(), cmds[0].layer), (1, i32::MAX - 1));
+    }
 
     #[test]
     fn letters_become_markers_with_pixel_positions() {
@@ -280,8 +366,8 @@ mod tests {
     fn legend() -> [Tile; 3] {
         [
             Tile::DEFAULT[0],
-            Tile { ch: b':', id: 3, solid: false, front: false },
-            Tile { ch: b'v', id: 4, solid: false, front: true },
+            Tile { ch: b':', id: 3, solid: false, front: false, auto: false },
+            Tile { ch: b'v', id: 4, solid: false, front: true, auto: false },
         ]
     }
 
@@ -305,9 +391,9 @@ mod tests {
     #[test]
     fn a_legend_that_hides_empty_tiles_is_an_error() {
         let sheet = Sprite::test_tiles();
-        let bad = [Tile { ch: b'.', id: 1, solid: true, front: false }];
+        let bad = [Tile { ch: b'.', id: 1, solid: true, front: false, auto: false }];
         assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &bad).is_err());
-        let zero = [Tile { ch: b'#', id: 0, solid: true, front: false }];
+        let zero = [Tile { ch: b'#', id: 0, solid: true, front: false, auto: false }];
         assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet, &zero).is_err());
     }
 
@@ -315,7 +401,7 @@ mod tests {
     fn a_tile_the_sheet_does_not_have_is_refused_instead_of_crashing_the_renderer() {
         let sheet = Sprite::test_tiles();
         let columns = sheet.size().0 / 16;
-        let past = [Tile { ch: b'#', id: columns as u8 + 1, solid: true, front: false }];
+        let past = [Tile { ch: b'#', id: columns as u8 + 1, solid: true, front: false, auto: false }];
         let err = Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &past).err().unwrap();
         assert!(err.contains("the sheet has"), "{err}");
         let mut map = Tilemap::from_ascii(&["..", "##"], 16, sheet);
