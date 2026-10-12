@@ -42,7 +42,7 @@ impl Tilemap {
     }
 
     pub fn try_load(path: &str, size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        let text = crate::assets::read_text(path)?;
         let rows: Vec<&str> = text.trim_end().lines().collect();
         Tilemap::try_from_ascii(&rows, size, sheet).map_err(|e| format!("{path}: {e}"))
     }

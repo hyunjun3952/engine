@@ -7,6 +7,20 @@ use crate::{Font, Sprite};
 use std::{collections::HashMap, sync::Arc};
 pub(crate) use watch::Watcher;
 
+/// The text of a file, with the path in the error.
+pub(crate) fn read_text(path: &str) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
+}
+
+/// Like `read_text`, but a file that does not exist is `Ok(None)`.
+pub(crate) fn read_text_if_exists(path: &str) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{path}: {e}")),
+    }
+}
+
 #[derive(Default)]
 pub struct Assets {
     sprites: HashMap<String, Arc<Sprite>>,

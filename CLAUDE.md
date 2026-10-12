@@ -20,6 +20,7 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 - Comments are allowed but rare: add one only where the code cannot show *why* (a non-obvious constraint, workaround or invariant). Keep it to one short, plain line. Never restate what the code does, and skip doc comments on self-explanatory items. The owner dislikes comment-heavy code.
 - `rustfmt.toml` uses `max_width = 120` and `use_small_heuristics = "Max"`, so short bodies stay on one line. Run `cargo fmt` rather than formatting by hand.
 - Keep changes minimal; measure before optimizing (see `src/bench.rs`).
+- Reuse before writing: `Rect::center/contains/edges/penetration/overlaps`, `Sprite::bounds`, `DrawCmd::new`, `Paint::region` (sprite and region paints alike), `assets::read_text(_if_exists)` for files and the `sub/dot/apply/shove` helpers in `physics.rs` already exist; add to them rather than repeating the arithmetic.
 
 ## Architecture
 

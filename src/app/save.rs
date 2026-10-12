@@ -13,10 +13,9 @@ impl Save {
 
     /// A missing file is an empty save; a malformed one is an error so a hand-edited file is never silently dropped.
     pub fn load(path: &str) -> Result<Save, String> {
-        match std::fs::read_to_string(path) {
-            Ok(text) => Save::parse(&text).map_err(|e| format!("{path}: {e}")),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Save::new()),
-            Err(e) => Err(format!("{path}: {e}")),
+        match crate::assets::read_text_if_exists(path)? {
+            Some(text) => Save::parse(&text).map_err(|e| format!("{path}: {e}")),
+            None => Ok(Save::new()),
         }
     }
 

@@ -86,10 +86,9 @@ impl Ctx {
     pub fn load_bindings(&mut self, path: &str) -> Result<(), String> {
         self.bindings_path = Some(path.to_string());
         self.watch(path);
-        match std::fs::read_to_string(path) {
-            Ok(text) => self.input.load_text(&text).map_err(|e| format!("{path}: {e}")),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(format!("{path}: {e}")),
+        match crate::assets::read_text_if_exists(path)? {
+            Some(text) => self.input.load_text(&text).map_err(|e| format!("{path}: {e}")),
+            None => Ok(()),
         }
     }
 

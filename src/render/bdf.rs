@@ -20,7 +20,7 @@ const ATLAS_W: usize = 1024;
 
 impl Font {
     pub fn load(path: &str) -> Result<Font, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        let text = crate::assets::read_text(path)?;
         Font::parse(&text).map_err(|e| format!("{path}: {e}"))
     }
 
