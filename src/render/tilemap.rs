@@ -59,6 +59,13 @@ impl Tilemap {
         if let Some(t) = legend.iter().find(|t| t.id == 0 || matches!(t.ch, b'.' | b' ')) {
             return Err(format!("legend entry {:?} would hide an empty tile or the id 0", t.ch as char));
         }
+        let columns = sheet.size().0 / size;
+        if let Some(t) = legend.iter().find(|t| t.id as usize > columns) {
+            return Err(format!(
+                "legend entry {:?} shows tile {} but the sheet has {columns} tiles",
+                t.ch as char, t.id
+            ));
+        }
         let mut flags = [SOLID; 256];
         for t in legend {
             flags[t.id as usize] = if t.solid { SOLID } else { 0 } | if t.front { FRONT } else { 0 };
@@ -109,9 +116,12 @@ impl Tilemap {
         self.tiles[ty * self.w + tx]
     }
 
-    /// Replaces a tile, for digging or building. Physics notices and wakes the bodies resting on the map.
+    /// Replaces a tile, for digging or building (the id must be on the sheet, or 0 to empty the cell). Physics
+    /// notices and wakes the bodies resting on the map.
     pub fn set(&mut self, tx: usize, ty: usize, id: u8) {
         assert!(tx < self.w && ty < self.h, "tile ({tx}, {ty}) is outside the {}x{} map", self.w, self.h);
+        let columns = self.sheet.size().0 / self.size;
+        assert!(id as usize <= columns, "tile {id} does not exist: the sheet has {columns} tiles");
         self.tiles[ty * self.w + tx] = id;
         self.stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
     }
@@ -299,5 +309,26 @@ mod tests {
         assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &bad).is_err());
         let zero = [Tile { ch: b'#', id: 0, solid: true, front: false }];
         assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet, &zero).is_err());
+    }
+
+    #[test]
+    fn a_tile_the_sheet_does_not_have_is_refused_instead_of_crashing_the_renderer() {
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let columns = sheet.size().0 / 16;
+        let past = [Tile { ch: b'#', id: columns as u8 + 1, solid: true, front: false }];
+        let err = Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &past).err().unwrap();
+        assert!(err.contains("the sheet has"), "{err}");
+        let mut map = Tilemap::from_ascii(&["..", "##"], 16, sheet);
+        map.set(0, 0, columns as u8);
+        map.set(1, 0, 0);
+        assert_eq!(map.tile(0, 0), columns as u8);
+    }
+
+    #[test]
+    #[should_panic(expected = "does not exist")]
+    fn setting_a_tile_past_the_sheet_panics_at_the_call_not_when_drawn() {
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let mut map = Tilemap::from_ascii(&["."], 16, sheet);
+        map.set(0, 0, 200);
     }
 }
