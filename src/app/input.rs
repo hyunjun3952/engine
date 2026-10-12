@@ -176,7 +176,7 @@ impl Input {
     }
     /// A key that went down this step, for screens that wait for the player to press one.
     pub fn key_just_pressed(&self) -> Option<Key> {
-        self.down.iter().find(|k| !self.prev.contains(k)).copied()
+        self.down.iter().filter(|k| !self.prev.contains(k)).min_by_key(|k| **k as usize).copied()
     }
 
     pub fn key_down(&self, key: Key) -> bool {
