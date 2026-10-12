@@ -9,6 +9,9 @@ const CORRECTION_PASSES: usize = 4;
 const WARM_RANGE: f32 = 4.0;
 const SAME_NORMAL: f32 = 0.95;
 const MAX_SUBSTEPS: usize = 16;
+const SLEEP_SPEED: f32 = 5.0;
+const SLEEP_SPIN: f32 = 0.1;
+const SLEEP_TIME: f32 = 0.5;
 
 pub struct RigidBody {
     inv_mass: f32,
@@ -63,17 +66,31 @@ struct Joint {
     rope: bool,
 }
 
+// How long a body has been nearly still, and where it lies once it sleeps (a changed rect means the game moved it).
+#[derive(Default)]
+struct Rest {
+    calm: f32,
+    asleep: Option<Rect>,
+}
+
 pub struct Physics {
     pub gravity: (f32, f32),
     pub iterations: usize,
     // Last step's contact impulses per body pair, replayed first so resting piles start the solve near its answer.
     cache: HashMap<(u64, u64), Memory>,
     joints: Vec<Joint>,
+    rest: HashMap<Entity, Rest>,
 }
 
 impl Default for Physics {
     fn default() -> Self {
-        Physics { gravity: (0.0, 900.0), iterations: 10, cache: HashMap::new(), joints: Vec::new() }
+        Physics {
+            gravity: (0.0, 900.0),
+            iterations: 10,
+            cache: HashMap::new(),
+            joints: Vec::new(),
+            rest: HashMap::new(),
+        }
     }
 }
 
@@ -137,6 +154,14 @@ impl Node {
     }
 }
 
+fn speed(n: &Node) -> f32 {
+    n.vel.0.hypot(n.vel.1)
+}
+
+fn grow(r: Rect, by: f32) -> Rect {
+    Rect { x: r.x - by, y: r.y - by, w: r.w + by * 2.0, h: r.h + by * 2.0 }
+}
+
 fn cross(a: V2, b: V2) -> f32 {
     a.0 * b.1 - a.1 * b.0
 }
@@ -190,9 +215,21 @@ impl Physics {
         self.joints.clear();
     }
 
+    /// A body that stayed nearly still for half a second sleeps: it costs nothing and acts as a wall until something
+    /// fast touches it or the game changes its `Body` or `Vel`. Jointed bodies never sleep.
+    pub fn asleep(&self, e: Entity) -> bool {
+        self.rest.get(&e).is_some_and(|r| r.asleep.is_some())
+    }
+
+    /// Wakes a sleeping body, for when the game changes what it rests on (a tile removed, say).
+    pub fn wake(&mut self, e: Entity) {
+        self.rest.remove(&e);
+    }
+
     pub fn step(&mut self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();
+        self.freeze(&ents, &mut nodes, dt);
         let substeps = self.substeps(&nodes, dt);
         let at = |e| ents.iter().position(|&x| x == e);
         let links: Vec<Link> = self
@@ -204,7 +241,52 @@ impl Physics {
             nodes.truncate(bodies);
             self.substep(&ents, &mut nodes, &links, tiles, dt / substeps as f32);
         }
+        self.doze(&ents, &mut nodes, &links, dt);
         write_back(world, &ents, &nodes);
+    }
+
+    // Turns sleepers into walls for this step, after waking any the game touched or a fast body is about to hit.
+    fn freeze(&mut self, ents: &[Entity], nodes: &mut [Node], dt: f32) {
+        let live: HashSet<Entity> = ents.iter().copied().collect();
+        self.rest.retain(|e, _| live.contains(e));
+        self.rest.retain(|e, r| {
+            let i = ents.iter().position(|x| x == e).unwrap();
+            let n = &nodes[i];
+            r.asleep.is_none_or(|at| at == n.rect && n.vel == (0.0, 0.0) && n.spin == 0.0)
+        });
+        let movers: Vec<Rect> = ents
+            .iter()
+            .zip(nodes.iter())
+            .filter(|(e, n)| n.inv_mass > 0.0 && !self.asleep(**e) && speed(n) > SLEEP_SPEED)
+            .map(|(_, n)| grow(n.bounds(), speed(n) * dt + 1.0))
+            .collect();
+        for (e, n) in ents.iter().zip(nodes.iter_mut()) {
+            if self.asleep(*e) && movers.iter().any(|m| m.overlaps(&n.bounds())) {
+                self.rest.remove(e);
+            }
+            if self.asleep(*e) {
+                (n.inv_mass, n.inv_inertia) = (0.0, 0.0);
+            }
+        }
+    }
+
+    fn doze(&mut self, ents: &[Entity], nodes: &mut [Node], links: &[Link], dt: f32) {
+        let joined: HashSet<usize> = links.iter().flat_map(|l| [l.a, l.b]).collect();
+        for (i, (e, n)) in ents.iter().zip(nodes.iter_mut()).enumerate() {
+            if n.inv_mass == 0.0 {
+                continue;
+            }
+            let r = self.rest.entry(*e).or_default();
+            if joined.contains(&i) || speed(n) > SLEEP_SPEED || n.spin.abs() > SLEEP_SPIN {
+                r.calm = 0.0;
+                continue;
+            }
+            r.calm += dt;
+            if r.calm >= SLEEP_TIME {
+                (n.vel, n.spin) = ((0.0, 0.0), 0.0);
+                r.asleep = Some(n.rect);
+            }
+        }
     }
 
     // A body that crosses more than half its own size in one step can pass through a thin wall, so the whole
@@ -214,7 +296,7 @@ impl Physics {
         let worst = nodes
             .iter()
             .filter(|n| n.inv_mass > 0.0)
-            .map(|n| (n.vel.0.hypot(n.vel.1) + gravity) * dt / (n.rect.w.min(n.rect.h) / 2.0))
+            .map(|n| (speed(n) + gravity) * dt / (n.rect.w.min(n.rect.h) / 2.0))
             .fold(0.0, f32::max);
         (worst.ceil() as usize).clamp(1, MAX_SUBSTEPS)
     }
@@ -1062,6 +1144,47 @@ mod tests {
         run(&mut p, &mut w, None, 900);
         let speed: f32 = bodies.iter().map(|&e| state(&w, e).1.0.hypot(state(&w, e).1.1)).sum::<f32>() / 300.0;
         assert!(speed < 2.0, "mean speed after 20 s: {speed}");
+    }
+
+    #[test]
+    fn a_box_at_rest_falls_asleep_and_stays_exactly_where_it_is() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        floor(&mut w);
+        let e = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(&mut p, &mut w, None, 10);
+        assert!(!p.asleep(e), "asleep while still falling");
+        run(&mut p, &mut w, None, 170);
+        assert!(p.asleep(e));
+        let at = state(&w, e);
+        run(&mut p, &mut w, None, 60);
+        assert_eq!(state(&w, e), at);
+    }
+
+    #[test]
+    fn a_fast_body_wakes_a_sleeper_it_lands_on() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        floor(&mut w);
+        let low = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(&mut p, &mut w, None, 180);
+        assert!(p.asleep(low));
+        let top = boxed(&mut w, square(50.0, -200.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(&mut p, &mut w, None, 180);
+        assert!(!p.asleep(low) || p.asleep(top), "the faller stopped on a sleeper without waking it");
+        let (r, _) = state(&w, top);
+        assert!((r.y + r.h - 80.0).abs() < 1.0, "top rests on the lower box, bottom at {}", r.y + r.h);
+    }
+
+    #[test]
+    fn the_game_moving_a_sleeper_wakes_it() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        floor(&mut w);
+        let e = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(&mut p, &mut w, None, 180);
+        assert!(p.asleep(e));
+        w.get::<&mut Body>(e).unwrap().0.y -= 50.0;
+        run(&mut p, &mut w, None, 5);
+        assert!(!p.asleep(e));
+        assert!(state(&w, e).1.1 > 0.0, "gravity pulls it again");
     }
 
     #[test]
