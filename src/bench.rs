@@ -174,10 +174,11 @@ fn shake() {
     // Visible shaking in the physics example's scene (bodies start apart): over 8 seeds, how often an awake body's
     // centre moves more than 1.5 px (or 6 px) in one step after the first second, when the pile is asleep, how many
     // bodies end under the floor, and what a step costs.
+    let seeds: u32 = std::env::var("SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
     for n in [100, 200, 300] {
         let (mut small, mut big, mut calm, mut below, mut worst_ms, mut total_ms) =
             (0u32, 0u32, 0.0f32, 0, 0.0f64, 0.0f64);
-        for seed in 1..=8 {
+        for seed in 1..=seeds {
             let (mut rng, mut w, mut p) = (Rng::new(seed), World::new(), Physics::default());
             let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), RigidBody::fixed());
             w.spawn(wall(0.0, 340.0, 640.0, 20.0));
@@ -224,8 +225,8 @@ fn shake() {
         }
         println!(
             "  n={n}: jumps > 1.5 px {small}, > 6 px {big}; asleep after {:.1} s on average; under the floor {below}; step {:.3} ms on average, {worst_ms:.1} ms at worst",
-            calm / 8.0,
-            total_ms / (8.0 * 1200.0)
+            calm / seeds as f32,
+            total_ms / (seeds as f64 * 1200.0)
         );
     }
 }

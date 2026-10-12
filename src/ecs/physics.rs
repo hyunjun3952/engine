@@ -1,4 +1,4 @@
-use super::collision::overlapping_pairs;
+use super::collision::Sweep;
 use super::fx::{FxMap, FxSet};
 use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vel, World};
 
@@ -92,6 +92,7 @@ pub struct Physics {
     known: FxSet<Entity>,
     last_gravity: V2,
     last_tiles: Option<u64>,
+    sweep: Sweep,
 }
 
 impl Default for Physics {
@@ -105,6 +106,7 @@ impl Default for Physics {
             known: FxSet::default(),
             last_gravity: (0.0, 900.0),
             last_tiles: None,
+            sweep: Sweep::default(),
         }
     }
 }
@@ -355,7 +357,7 @@ impl Physics {
         if let Some(map) = tiles {
             add_tiles(nodes, bodies, map);
         }
-        let mut hits = find_hits(nodes, bodies, tiles);
+        let mut hits = find_hits(nodes, bodies, tiles, &mut self.sweep);
         for n in nodes.iter_mut() {
             n.at = n.center();
         }
@@ -463,10 +465,12 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
     }
 }
 
-fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>) -> Vec<Hit> {
+fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>, sweep: &mut Sweep) -> Vec<Hit> {
     let bounds: Vec<Rect> = nodes.iter().map(Node::bounds).collect();
-    overlapping_pairs(&bounds)
-        .into_iter()
+    sweep
+        .pairs(&bounds, |i| nodes[i].inv_mass == 0.0)
+        .iter()
+        .copied()
         .filter(|&(a, b, ..)| nodes[a].inv_mass + nodes[b].inv_mass > 0.0 && nodes[a].filter.meets(&nodes[b].filter))
         // A tile always goes second, which is where the seam filters below expect it.
         .map(|(a, b, ..)| if a >= bodies && b < bodies { (b, a) } else { (a, b) })

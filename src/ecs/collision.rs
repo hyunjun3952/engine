@@ -23,21 +23,70 @@ impl Contact {
     }
 }
 
-pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)> {
-    let mut order: Vec<usize> = (0..rects.len()).collect();
-    order.sort_unstable_by(|&a, &b| rects[a].x.total_cmp(&rects[b].x));
-    let mut out = Vec::new();
-    for (k, &a) in order.iter().enumerate() {
-        for &b in &order[k + 1..] {
-            if rects[b].x >= rects[a].x + rects[a].w {
-                break;
+/// Sweep and prune along x that remembers the order it found: bodies move a little between calls, so the next call
+/// finds the list nearly sorted and puts it right with an insertion sort in about one pass.
+#[derive(Default)]
+pub(crate) struct Sweep {
+    order: Vec<u32>,
+    found: Vec<(usize, usize, f32, f32)>,
+}
+
+impl Sweep {
+    fn sort(&mut self, rects: &[Rect]) {
+        let n = rects.len();
+        let have = self.order.len();
+        let by_x = |a: &u32, b: &u32| rects[*a as usize].x.total_cmp(&rects[*b as usize].x);
+        if have == 0 {
+            self.order = (0..n as u32).collect();
+            return self.order.sort_unstable_by(by_x);
+        }
+        self.order.retain(|&i| (i as usize) < n);
+        self.order.extend((have as u32..n as u32).filter(|_| have < n));
+        let (mut moved, order) = (0, &mut self.order);
+        for i in 1..n {
+            let (cur, key) = (order[i], rects[order[i] as usize].x);
+            let mut j = i;
+            while j > 0 && rects[order[j - 1] as usize].x > key {
+                order[j] = order[j - 1];
+                j -= 1;
             }
-            if let Some((ox, oy)) = rects[a].penetration(&rects[b]) {
-                out.push((a, b, ox, oy));
+            order[j] = cur;
+            moved += i - j;
+            // A list that was far from sorted (the first call, or a new set of bodies) is quicker to sort outright.
+            if moved > 8 * n + 64 {
+                order.sort_unstable_by(by_x);
+                return;
             }
         }
     }
-    out
+
+    /// Every pair of rects that overlap, as `(a, b, overlap in x, overlap in y)` with `a` the one that starts first,
+    /// except pairs where both are `inert` (two walls, or a wall and a sleeper, never move each other).
+    pub(crate) fn pairs(&mut self, rects: &[Rect], inert: impl Fn(usize) -> bool) -> &[(usize, usize, f32, f32)] {
+        self.sort(rects);
+        self.found.clear();
+        for (k, &a) in self.order.iter().enumerate() {
+            let (a, ra) = (a as usize, &rects[a as usize]);
+            let a_inert = inert(a);
+            for &b in &self.order[k + 1..] {
+                let (b, rb) = (b as usize, &rects[b as usize]);
+                if rb.x >= ra.x + ra.w {
+                    break;
+                }
+                if (a_inert && inert(b)) || rb.y + rb.h <= ra.y || ra.y + ra.h <= rb.y {
+                    continue;
+                }
+                if let Some((ox, oy)) = ra.penetration(rb) {
+                    self.found.push((a, b, ox, oy));
+                }
+            }
+        }
+        &self.found
+    }
+}
+
+pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)> {
+    Sweep::default().pairs(rects, |_| false).to_vec()
 }
 
 pub fn collisions(world: &World) -> Vec<Contact> {
@@ -69,6 +118,62 @@ mod tests {
             w.insert_one(e, Collider).unwrap();
         }
         e
+    }
+
+    // Every overlapping pair found the slow way, as (smaller index, larger index) with the overlap.
+    fn brute(rects: &[Rect], inert: &dyn Fn(usize) -> bool) -> Vec<(usize, usize, f32, f32)> {
+        let mut out = Vec::new();
+        for a in 0..rects.len() {
+            for b in a + 1..rects.len() {
+                if let Some((ox, oy)) = rects[a].penetration(&rects[b]).filter(|_| !(inert(a) && inert(b))) {
+                    out.push((a, b, ox, oy));
+                }
+            }
+        }
+        out
+    }
+
+    fn normalized(pairs: &[(usize, usize, f32, f32)]) -> Vec<(usize, usize, u32, u32)> {
+        let mut v: Vec<_> = pairs.iter().map(|&(a, b, x, y)| (a.min(b), a.max(b), x.to_bits(), y.to_bits())).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn a_remembered_sweep_finds_the_same_pairs_as_checking_every_pair_as_bodies_move_and_come_and_go() {
+        let mut rng = crate::Rng::new(3);
+        let mut rects: Vec<Rect> = (0..150)
+            .map(|_| Rect {
+                x: rng.range(0.0, 300.0),
+                y: rng.range(0.0, 200.0),
+                w: rng.range(2.0, 40.0),
+                h: rng.range(2.0, 40.0),
+            })
+            .collect();
+        let inert = |i: usize| i.is_multiple_of(3);
+        let mut sweep = Sweep::default();
+        for round in 0..40 {
+            let got = normalized(sweep.pairs(&rects, inert));
+            assert_eq!(got, normalized(&brute(&rects, &inert)), "round {round}");
+            for r in rects.iter_mut() {
+                if rng.f32() < 0.5 {
+                    (r.x, r.y) = (r.x + rng.range(-3.0, 3.0), r.y + rng.range(-3.0, 3.0));
+                }
+            }
+            match round % 10 {
+                3 => rects.truncate(100),
+                6 => rects.extend((0..30).map(|_| Rect {
+                    x: rng.range(0.0, 300.0),
+                    y: rng.range(0.0, 200.0),
+                    w: 10.0,
+                    h: 10.0,
+                })),
+                8 => rects.iter_mut().for_each(|r| r.x = 300.0 - r.x),
+                _ => {}
+            }
+        }
+        assert!(!sweep.pairs(&rects, |_| false).is_empty(), "the test world has overlaps to find");
+        assert_eq!(normalized(&overlapping_pairs(&rects)), normalized(&brute(&rects, &|_| false)));
     }
 
     #[test]
