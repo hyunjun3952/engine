@@ -1,4 +1,4 @@
-use crate::{Body, Collider, Entity, Rect, World};
+use crate::{Body, Collider, Entity, Filter, Rect, World};
 
 pub struct Contact {
     pub a: Entity,
@@ -41,9 +41,18 @@ pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)>
 }
 
 pub fn collisions(world: &World) -> Vec<Contact> {
-    let (ents, rects): (Vec<Entity>, Vec<Rect>) =
-        world.query::<(Entity, &Body, &Collider)>().iter().map(|(e, b, _)| (e, b.0)).unzip();
-    overlapping_pairs(&rects).into_iter().map(|(a, b, ox, oy)| Contact { a: ents[a], b: ents[b], ox, oy }).collect()
+    let mut ents = Vec::new();
+    let (mut rects, mut filters) = (Vec::new(), Vec::new());
+    for (e, b, f, _) in world.query::<(Entity, &Body, Option<&Filter>, &Collider)>().iter() {
+        ents.push(e);
+        rects.push(b.0);
+        filters.push(f.copied().unwrap_or_default());
+    }
+    overlapping_pairs(&rects)
+        .into_iter()
+        .filter(|&(a, b, ..)| filters[a].meets(&filters[b]))
+        .map(|(a, b, ox, oy)| Contact { a: ents[a], b: ents[b], ox, oy })
+        .collect()
 }
 
 #[cfg(test)]
@@ -70,5 +79,25 @@ mod tests {
         assert_eq!(c[0].other(a), Some(b));
         assert_eq!((c[0].ox, c[0].oy), (2.0, 10.0));
         assert!(c[0].x_axis());
+    }
+
+    #[test]
+    fn a_filter_needs_both_sides_to_agree() {
+        let mut w = World::new();
+        let (a, b, c) = (boxed(&mut w, 0.0, true), boxed(&mut w, 2.0, true), boxed(&mut w, 4.0, true));
+        w.insert_one(a, Filter { group: 1, mask: 2 }).unwrap();
+        w.insert_one(b, Filter { group: 2, mask: 1 }).unwrap();
+        w.insert_one(c, Filter { group: 4, mask: 1 }).unwrap();
+        let pairs: Vec<_> = collisions(&w).iter().map(|k| (k.a, k.b)).collect();
+        assert_eq!(pairs.len(), 1);
+        assert!(pairs.contains(&(a, b)) || pairs.contains(&(b, a)));
+    }
+
+    #[test]
+    fn a_collider_without_a_rigid_body_is_a_trigger_that_still_reports_overlaps() {
+        let mut w = World::new();
+        let body = w.spawn((Body(Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }), Collider, crate::RigidBody::fixed()));
+        let zone = boxed(&mut w, 5.0, true);
+        assert_eq!(collisions(&w)[0].other(body), Some(zone));
     }
 }

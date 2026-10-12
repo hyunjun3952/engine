@@ -13,6 +13,25 @@ pub struct Collider;
 
 pub struct Layer(pub i32);
 
+// Two entities meet only if each one's mask holds a bit of the other's group; no Filter means every group and mask.
+#[derive(Clone, Copy)]
+pub struct Filter {
+    pub group: u32,
+    pub mask: u32,
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Filter { group: u32::MAX, mask: u32::MAX }
+    }
+}
+
+impl Filter {
+    pub fn meets(&self, other: &Filter) -> bool {
+        self.group & other.mask != 0 && other.group & self.mask != 0
+    }
+}
+
 pub enum Look {
     Color(u32),
     Alpha(u32, u8),

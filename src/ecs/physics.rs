@@ -1,5 +1,5 @@
 use super::collision::overlapping_pairs;
-use crate::{Body, Entity, Rect, Tilemap, Transform, Vel, World};
+use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vel, World};
 use std::collections::{HashMap, HashSet};
 
 const REST_SPEED: f32 = 30.0;
@@ -118,6 +118,7 @@ struct Node {
     circle: bool,
     restitution: f32,
     friction: f32,
+    filter: Filter,
 }
 
 impl Node {
@@ -134,6 +135,7 @@ impl Node {
             circle: false,
             restitution: 0.0,
             friction: 0.4,
+            filter: Filter::default(),
         }
     }
 
@@ -412,10 +414,10 @@ impl Physics {
 }
 
 fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
-    let mut query = world.query::<(Entity, &Body, Option<&Vel>, &RigidBody, Option<&Transform>)>();
+    let mut query = world.query::<(Entity, &Body, Option<&Vel>, &RigidBody, Option<&Transform>, Option<&Filter>)>();
     query
         .iter()
-        .map(|(e, body, vel, rb, xform)| {
+        .map(|(e, body, vel, rb, xform, filter)| {
             let movable = vel.is_some() && rb.inv_mass > 0.0;
             let inv_mass = if movable { rb.inv_mass } else { 0.0 };
             let (w, h) = (body.0.w, body.0.h);
@@ -433,6 +435,7 @@ fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
                 circle: rb.circle,
                 restitution: rb.restitution,
                 friction: rb.friction,
+                filter: filter.copied().unwrap_or_default(),
             };
             (e, node)
         })
@@ -459,7 +462,7 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>) -> Vec<Hit>
     let bounds: Vec<Rect> = nodes.iter().map(Node::bounds).collect();
     overlapping_pairs(&bounds)
         .into_iter()
-        .filter(|&(a, b, ..)| nodes[a].inv_mass + nodes[b].inv_mass > 0.0)
+        .filter(|&(a, b, ..)| nodes[a].inv_mass + nodes[b].inv_mass > 0.0 && nodes[a].filter.meets(&nodes[b].filter))
         // A tile always goes second, which is where the seam filters below expect it.
         .map(|(a, b, ..)| if a >= bodies && b < bodies { (b, a) } else { (a, b) })
         .filter_map(|(a, b)| {
@@ -877,6 +880,20 @@ mod tests {
         let (r, v) = state(&w, e);
         assert!((r.y + r.h - 100.0).abs() < 0.2, "bottom at {}", r.y + r.h);
         assert!(v.1.abs() < 1.0, "still moving at {}", v.1);
+    }
+
+    #[test]
+    fn a_box_whose_mask_leaves_out_the_floors_group_falls_through_it() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        w.spawn((
+            Body(Rect { x: -500.0, y: 100.0, w: 2000.0, h: 50.0 }),
+            RigidBody::fixed(),
+            Filter { group: 1, mask: 1 },
+        ));
+        let e = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        w.insert_one(e, Filter { group: 2, mask: 2 }).unwrap();
+        run(&mut p, &mut w, None, 120);
+        assert!(state(&w, e).0.y > 150.0);
     }
 
     #[test]

@@ -11,7 +11,7 @@ pub use app::{
 };
 pub use assets::{Assets, Audio};
 pub use ecs::{
-    Anim, Body, Burst, Collider, Contact, Entity, Layer, Look, Physics, RigidBody, Vel, World, animate, burst,
+    Anim, Body, Burst, Collider, Contact, Entity, Filter, Layer, Look, Physics, RigidBody, Vel, World, animate, burst,
     collisions, draw_list, movement, particles,
 };
 pub use render::{Camera, DrawCmd, Font, Gfx, Paint, Rect, Sprite, Tile, Tilemap, Transform};
