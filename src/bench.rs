@@ -160,50 +160,61 @@ fn bench() {
 #[test]
 #[ignore]
 fn shake() {
-    // Visible shaking: how often an awake body's centre moves more than 1.5 px (or 6 px) in one step after the
-    // first second, in the physics example's scene with bodies starting apart.
-    for (n, seed) in [(100, 5), (100, 23), (200, 5), (300, 5)] {
-        let (mut rng, mut w, mut p) = (Rng::new(seed), World::new(), Physics::default());
-        let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), RigidBody::fixed());
-        w.spawn(wall(0.0, 340.0, 640.0, 20.0));
-        w.spawn(wall(0.0, 0.0, 10.0, 360.0));
-        w.spawn(wall(630.0, 0.0, 10.0, 360.0));
-        let mut ents = Vec::new();
-        for i in 0..n {
-            let size = rng.range(14.0, 34.0);
-            let (x, y) = (20.0 + (i % 16) as f32 * 37.0, -((i / 16) as f32) * 40.0);
-            let body = RigidBody::dynamic(size * size / 100.0)
-                .with_bounce(rng.range(0.0, 0.7))
-                .with_friction(0.5)
-                .with_spin(rng.range(-4.0, 4.0));
-            let turn = Transform { angle: rng.range(0.0, 3.0), ..Transform::IDENTITY };
-            ents.push(w.spawn((Body(Rect { x, y, w: size, h: size }), Vel::default(), body, turn)));
-        }
-        let (mut small, mut big, mut calm_at) = (0u32, 0u32, None);
-        let mut last: Vec<(f32, f32)> = ents.iter().map(|&e| w.get::<&Body>(e).unwrap().0.center()).collect();
-        for step in 0..1200 {
-            p.step(&mut w, None, 1.0 / 60.0);
-            let mut awake = 0;
-            for (i, &e) in ents.iter().enumerate() {
-                let c = w.get::<&Body>(e).unwrap().0.center();
-                let moved = (c.0 - last[i].0).hypot(c.1 - last[i].1);
-                last[i] = c;
-                if p.asleep(e) || c.1 > 360.0 {
-                    continue;
+    // Visible shaking in the physics example's scene (bodies start apart): over 8 seeds, how often an awake body's
+    // centre moves more than 1.5 px (or 6 px) in one step after the first second, when the pile is asleep, how many
+    // bodies end under the floor, and what a step costs.
+    for n in [100, 200, 300] {
+        let (mut small, mut big, mut calm, mut below, mut worst_ms, mut total_ms) =
+            (0u32, 0u32, 0.0f32, 0, 0.0f64, 0.0f64);
+        for seed in 1..=8 {
+            let (mut rng, mut w, mut p) = (Rng::new(seed), World::new(), Physics::default());
+            let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), RigidBody::fixed());
+            w.spawn(wall(0.0, 340.0, 640.0, 20.0));
+            w.spawn(wall(0.0, 0.0, 10.0, 360.0));
+            w.spawn(wall(630.0, 0.0, 10.0, 360.0));
+            let mut ents = Vec::new();
+            for i in 0..n {
+                let size = rng.range(14.0, 34.0);
+                let (x, y) = (20.0 + (i % 16) as f32 * 37.0, -((i / 16) as f32) * 40.0);
+                let body = RigidBody::dynamic(size * size / 100.0)
+                    .with_bounce(rng.range(0.0, 0.7))
+                    .with_friction(0.5)
+                    .with_spin(rng.range(-4.0, 4.0));
+                let turn = Transform { angle: rng.range(0.0, 3.0), ..Transform::IDENTITY };
+                ents.push(w.spawn((Body(Rect { x, y, w: size, h: size }), Vel::default(), body, turn)));
+            }
+            let mut last: Vec<(f32, f32)> = ents.iter().map(|&e| w.get::<&Body>(e).unwrap().0.center()).collect();
+            let mut calm_at = 20.0;
+            for step in 0..1200 {
+                let t = Instant::now();
+                p.step(&mut w, None, 1.0 / 60.0);
+                let ms = t.elapsed().as_secs_f64() * 1000.0;
+                (worst_ms, total_ms) = (worst_ms.max(ms), total_ms + ms);
+                let mut awake = 0;
+                for (i, &e) in ents.iter().enumerate() {
+                    let c = w.get::<&Body>(e).unwrap().0.center();
+                    let moved = (c.0 - last[i].0).hypot(c.1 - last[i].1);
+                    last[i] = c;
+                    if p.asleep(e) || c.1 > 360.0 {
+                        continue;
+                    }
+                    awake += 1;
+                    if step >= 60 {
+                        small += (moved > 1.5) as u32;
+                        big += (moved > 6.0) as u32;
+                    }
                 }
-                awake += 1;
-                if step >= 60 {
-                    small += (moved > 1.5) as u32;
-                    big += (moved > 6.0) as u32;
+                if awake == 0 && calm_at == 20.0 {
+                    calm_at = step as f32 / 60.0;
                 }
             }
-            if awake == 0 && calm_at.is_none() {
-                calm_at = Some(step as f32 / 60.0);
-            }
+            calm += calm_at;
+            below += ents.iter().filter(|&&e| w.get::<&Body>(e).unwrap().0.center().1 > 360.0).count();
         }
-        let below = ents.iter().filter(|&&e| w.get::<&Body>(e).unwrap().0.center().1 > 360.0).count();
         println!(
-            "  n={n}: steps with a jump > 1.5 px {small}, > 6 px {big}, all asleep at {calm_at:?} s, below the floor {below}"
+            "  n={n}: jumps > 1.5 px {small}, > 6 px {big}; asleep after {:.1} s on average; under the floor {below}; step {:.3} ms on average, {worst_ms:.1} ms at worst",
+            calm / 8.0,
+            total_ms / (8.0 * 1200.0)
         );
     }
 }
