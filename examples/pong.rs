@@ -104,14 +104,20 @@ impl Scene for Pong {
         particles(&mut self.world, ctx.dt());
 
         let mut spark = None;
-        let hit = collisions(&self.world).iter().any(|c| c.other(self.ball).is_some());
+        let paddle = collisions(&self.world).iter().find_map(|c| c.other(self.ball));
+        let paddle = paddle.map(|e| self.world.get::<&Body>(e).unwrap().0);
         let (b, v) = self.world.query_one_mut::<(&mut Body, &mut Vel)>(self.ball).unwrap();
-        if b.0.y < 0.0 || b.0.y + b.0.h > H {
-            v.y = -v.y;
+        // Set the direction instead of flipping it: a ball still overlapping next tick would flip back and get stuck.
+        if b.0.y < 0.0 {
+            (b.0.y, v.y) = (0.0, v.y.abs());
+        } else if b.0.y + b.0.h > H {
+            (b.0.y, v.y) = (H - b.0.h, -v.y.abs());
         }
-        if hit {
+        if let Some(p) = paddle {
             ctx.audio().play("assets/hit.wav");
-            v.x = -v.x * 1.05;
+            let away = if b.0.x + b.0.w / 2.0 < p.x + p.w / 2.0 { -1.0 } else { 1.0 };
+            b.0.x = if away < 0.0 { p.x - b.0.w } else { p.x + p.w };
+            v.x = away * v.x.abs() * 1.05;
             spark = Some((b.0.x + b.0.w / 2.0, b.0.y + b.0.h / 2.0));
         }
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
