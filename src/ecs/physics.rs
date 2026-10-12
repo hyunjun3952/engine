@@ -111,6 +111,22 @@ struct Node {
 }
 
 impl Node {
+    fn wall(rect: Rect) -> Self {
+        Node {
+            rect,
+            before: rect,
+            at: (0.0, 0.0),
+            vel: (0.0, 0.0),
+            spin: 0.0,
+            angle: 0.0,
+            inv_mass: 0.0,
+            inv_inertia: 0.0,
+            circle: false,
+            restitution: 0.0,
+            friction: 0.4,
+        }
+    }
+
     fn center(&self) -> V2 {
         self.rect.center()
     }
@@ -164,6 +180,10 @@ fn grow(r: Rect, by: f32) -> Rect {
 
 fn cross(a: V2, b: V2) -> f32 {
     a.0 * b.1 - a.1 * b.0
+}
+
+fn sub(a: V2, b: V2) -> V2 {
+    (a.0 - b.0, a.1 - b.1)
 }
 
 fn dot(a: V2, b: V2) -> f32 {
@@ -400,19 +420,7 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
         let near = Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 };
         for tile in map.solid_in(near) {
             if seen.insert((tile.x as i32, tile.y as i32)) {
-                nodes.push(Node {
-                    rect: tile,
-                    before: tile,
-                    at: (0.0, 0.0),
-                    vel: (0.0, 0.0),
-                    spin: 0.0,
-                    angle: 0.0,
-                    inv_mass: 0.0,
-                    inv_inertia: 0.0,
-                    circle: false,
-                    restitution: 0.0,
-                    friction: 0.4,
-                });
+                nodes.push(Node::wall(tile));
             }
         }
     }
@@ -481,7 +489,7 @@ fn touch(a: &Node, b: &Node, tile_axes_only: bool) -> Option<Touch> {
         (false, false) => tilted_boxes(a, b, tile_axes_only),
         (true, true) => {
             let (ca, cb) = (a.center(), b.center());
-            let (dx, dy) = (cb.0 - ca.0, cb.1 - ca.1);
+            let (dx, dy) = sub(cb, ca);
             let reach = a.radius() + b.radius();
             let dist = (dx * dx + dy * dy).sqrt();
             if dist >= reach {
@@ -517,7 +525,7 @@ fn axis_aligned(a: &Node, b: &Node) -> Option<Touch> {
 // Separating axis test over the four face normals, then clipping the incident edge against the reference face.
 fn tilted_boxes(a: &Node, b: &Node, only_b_axes: bool) -> Option<Touch> {
     let (ca, cb) = (a.center(), b.center());
-    let d = (cb.0 - ca.0, cb.1 - ca.1);
+    let d = sub(cb, ca);
     let (aa, ab) = (a.axes(), b.axes());
     let (ha, hb) = (a.half(), b.half());
     let reach = |axes: (V2, V2), h: V2, n: V2| h.0 * dot(axes.0, n).abs() + h.1 * dot(axes.1, n).abs();
@@ -583,7 +591,7 @@ fn tilted_boxes(a: &Node, b: &Node, only_b_axes: bool) -> Option<Touch> {
 fn circle_box(circle: &Node, boxed: &Node) -> Option<Touch> {
     let (cc, bc, r) = (circle.center(), boxed.center(), circle.radius());
     let (ux, uy) = boxed.axes();
-    let w = (cc.0 - bc.0, cc.1 - bc.1);
+    let w = sub(cc, bc);
     let (lx, ly) = (dot(w, ux), dot(w, uy));
     let (hw, hh) = boxed.half();
     let (qx, qy) = (lx.clamp(-hw, hw), ly.clamp(-hh, hh));
@@ -644,7 +652,18 @@ fn pair_mut(nodes: &mut [Node], a: usize, b: usize) -> (&mut Node, &mut Node) {
 
 fn arms(a: &Node, b: &Node, at: V2) -> (V2, V2) {
     let (ca, cb) = (a.center(), b.center());
-    ((at.0 - ca.0, at.1 - ca.1), (at.0 - cb.0, at.1 - cb.1))
+    (sub(at, ca), sub(at, cb))
+}
+
+// Velocity of b's contact point relative to a's.
+fn rel_vel(a: &Node, b: &Node, ra: V2, rb: V2) -> V2 {
+    sub(b.velocity_at(rb), a.velocity_at(ra))
+}
+
+// Pushes b along `impulse` and a against it, at their contact arms.
+fn apply(a: &mut Node, b: &mut Node, ra: V2, rb: V2, impulse: V2) {
+    a.push(impulse, ra, -1.0);
+    b.push(impulse, rb, 1.0);
 }
 
 // Effective mass of a contact along `dir`: both linear masses plus how much each body's spin resists.
@@ -657,8 +676,7 @@ fn prepare(a: &Node, b: &Node, hit: &mut Hit) {
     let bounce = a.restitution.min(b.restitution);
     for pt in &mut hit.pts {
         let (ra, rb) = arms(a, b, pt.at);
-        let (va, vb) = (a.velocity_at(ra), b.velocity_at(rb));
-        let closing = -dot((vb.0 - va.0, vb.1 - va.1), hit.normal);
+        let closing = -dot(rel_vel(a, b, ra, rb), hit.normal);
         pt.bounce = if closing < REST_SPEED { 0.0 } else { bounce * closing };
     }
 }
@@ -675,9 +693,7 @@ fn warm_start(a: &mut Node, b: &mut Node, hit: &mut Hit, old: Option<&Memory>) {
             continue;
         };
         let (ra, rb) = arms(a, b, pt.at);
-        let impulse = (jn * n.0 + jt * t.0, jn * n.1 + jt * t.1);
-        a.push(impulse, ra, -1.0);
-        b.push(impulse, rb, 1.0);
+        apply(a, b, ra, rb, (jn * n.0 + jt * t.0, jn * n.1 + jt * t.1));
         (pt.jn, pt.jt) = (jn, jt);
     }
 }
@@ -688,23 +704,15 @@ fn solve(a: &mut Node, b: &mut Node, hit: &mut Hit) {
     let grip = (a.friction * b.friction).sqrt();
     for pt in &mut hit.pts {
         let (ra, rb) = arms(a, b, pt.at);
-        let rel = |a: &Node, b: &Node| {
-            let (va, vb) = (a.velocity_at(ra), b.velocity_at(rb));
-            (vb.0 - va.0, vb.1 - va.1)
-        };
-        let lambda = (pt.bounce - dot(rel(a, b), n)) / stiffness(a, b, ra, rb, n);
+        let lambda = (pt.bounce - dot(rel_vel(a, b, ra, rb), n)) / stiffness(a, b, ra, rb, n);
         let total = (pt.jn + lambda).max(0.0);
-        let impulse = ((total - pt.jn) * n.0, (total - pt.jn) * n.1);
+        apply(a, b, ra, rb, ((total - pt.jn) * n.0, (total - pt.jn) * n.1));
         pt.jn = total;
-        a.push(impulse, ra, -1.0);
-        b.push(impulse, rb, 1.0);
 
-        let lambda = -dot(rel(a, b), t) / stiffness(a, b, ra, rb, t);
+        let lambda = -dot(rel_vel(a, b, ra, rb), t) / stiffness(a, b, ra, rb, t);
         let total = (pt.jt + lambda).clamp(-grip * pt.jn, grip * pt.jn);
-        let impulse = ((total - pt.jt) * t.0, (total - pt.jt) * t.1);
+        apply(a, b, ra, rb, ((total - pt.jt) * t.0, (total - pt.jt) * t.1));
         pt.jt = total;
-        a.push(impulse, ra, -1.0);
-        b.push(impulse, rb, 1.0);
     }
 }
 
@@ -718,7 +726,7 @@ struct Link {
 
 fn link_axis(a: &Node, b: &Node) -> Option<(V2, f32)> {
     let (ca, cb) = (a.center(), b.center());
-    let (dx, dy) = (cb.0 - ca.0, cb.1 - ca.1);
+    let (dx, dy) = sub(cb, ca);
     let dist = dx.hypot(dy);
     (dist > 1e-4).then_some(((dx / dist, dy / dist), dist))
 }
@@ -729,7 +737,7 @@ fn pull(a: &mut Node, b: &mut Node, l: &Link) {
     let Some((n, dist)) = link_axis(a, b).filter(|_| inv > 0.0) else {
         return;
     };
-    let along = dot((b.vel.0 - a.vel.0, b.vel.1 - a.vel.1), n);
+    let along = dot(sub(b.vel, a.vel), n);
     if l.rope && (dist <= l.length || along <= 0.0) {
         return;
     }
@@ -738,33 +746,32 @@ fn pull(a: &mut Node, b: &mut Node, l: &Link) {
     b.vel = (b.vel.0 + j * n.0 * b.inv_mass, b.vel.1 + j * n.1 * b.inv_mass);
 }
 
+// Moves b along `dir` and a against it, each by its share of `shift`.
+fn shove(a: &mut Node, b: &mut Node, dir: V2, shift: f32) {
+    a.rect.x -= dir.0 * shift * a.inv_mass;
+    a.rect.y -= dir.1 * shift * a.inv_mass;
+    b.rect.x += dir.0 * shift * b.inv_mass;
+    b.rect.y += dir.1 * shift * b.inv_mass;
+}
+
 fn keep_length(a: &mut Node, b: &mut Node, l: &Link) {
     let inv = a.inv_mass + b.inv_mass;
     let Some((n, dist)) = link_axis(a, b).filter(|_| inv > 0.0) else {
         return;
     };
     let error = if l.rope { (dist - l.length).max(0.0) } else { dist - l.length };
-    let shift = error * CORRECTION / inv;
-    a.rect.x += n.0 * shift * a.inv_mass;
-    a.rect.y += n.1 * shift * a.inv_mass;
-    b.rect.x -= n.0 * shift * b.inv_mass;
-    b.rect.y -= n.1 * shift * b.inv_mass;
+    shove(a, b, (-n.0, -n.1), error * CORRECTION / inv);
 }
 
 // Positional correction only moves bodies, not their angle; the contact's depth shrinks by how far they have
 // moved together along the normal since it was found.
 fn separate(a: &mut Node, b: &mut Node, hit: &Hit) {
     let (ca, cb) = (a.center(), b.center());
-    let moved = (cb.0 - b.at.0 - (ca.0 - a.at.0), cb.1 - b.at.1 - (ca.1 - a.at.1));
+    let moved = sub(sub(cb, b.at), sub(ca, a.at));
     let closed = dot(moved, hit.normal);
     let depth = hit.pts.iter().map(|p| p.depth).fold(0.0, f32::max) - closed;
     let inv_sum = a.inv_mass + b.inv_mass;
-    let shift = (depth - SLOP).max(0.0) * CORRECTION / inv_sum;
-    let (nx, ny) = hit.normal;
-    a.rect.x -= nx * shift * a.inv_mass;
-    a.rect.y -= ny * shift * a.inv_mass;
-    b.rect.x += nx * shift * b.inv_mass;
-    b.rect.y += ny * shift * b.inv_mass;
+    shove(a, b, hit.normal, (depth - SLOP).max(0.0) * CORRECTION / inv_sum);
 }
 
 fn write_back(world: &mut World, ents: &[Entity], nodes: &[Node]) {
