@@ -172,10 +172,17 @@ impl Rebind {
     }
 
     fn show(&mut self, input: &Input) {
+        let keys = |a: &String| -> Vec<String> {
+            input.describe(a).split_whitespace().filter(|w| !w.starts_with("pad.")).map(String::from).collect()
+        };
+        let all: Vec<Vec<String>> = self.actions.iter().map(keys).collect();
         for (i, action) in self.actions.iter().enumerate() {
-            let keys =
+            let text =
                 if self.waiting && i == self.menu.selected() { "press a key".into() } else { input.describe(action) };
-            self.menu.set_item(i, format!("{action}: {keys}"));
+            // Sharing a key is allowed (a menu and a game can use Enter for different things); it is only pointed out.
+            let clash = (0..all.len()).find(|&j| j != i && all[j].iter().any(|k| all[i].contains(k)));
+            let note = clash.map_or(String::new(), |j| format!("  (also {})", self.actions[j]));
+            self.menu.set_item(i, format!("{action}: {text}{note}"));
         }
     }
 
@@ -328,5 +335,20 @@ mod tests {
         assert!(screen.waiting());
         assert!(!step(&mut ctx, &mut screen, Some(Key::Escape)) && !screen.waiting());
         assert_eq!(ctx.input().describe("jump"), "K", "cancelled, so unchanged");
+    }
+
+    #[test]
+    fn a_row_says_which_other_action_shares_one_of_its_keys() {
+        let mut ctx = Ctx::new(64, 64, 1.0 / 60.0, crate::Audio::disabled());
+        ctx.bind("jump", &[Key::Space]);
+        ctx.bind("left", &[Key::Left, Key::A]);
+        ctx.bind("fire", &[Key::Z]);
+        let mut screen = Rebind::new(ctx.input());
+        assert!(screen.menu.items.iter().all(|row| !row.contains("also")), "{:?}", screen.menu.items);
+        ctx.bind("jump", &[Key::A]);
+        screen.show(ctx.input());
+        let rows = &screen.menu.items;
+        assert_eq!((rows[0].as_str(), rows[1].as_str()), ("fire: Z", "jump: A  (also left)"), "{rows:?}");
+        assert_eq!(rows[2], "left: Left A  (also jump)");
     }
 }
