@@ -27,6 +27,9 @@ impl Default for Filter {
 }
 
 impl Filter {
+    /// The group of every tile; clear this bit in a mask to pass through the map.
+    pub const TERRAIN: u32 = 1 << 31;
+
     pub fn meets(&self, other: &Filter) -> bool {
         self.group & other.mask != 0 && other.group & self.mask != 0
     }

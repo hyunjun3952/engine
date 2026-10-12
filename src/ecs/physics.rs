@@ -135,7 +135,7 @@ impl Node {
             circle: false,
             restitution: 0.0,
             friction: 0.4,
-            filter: Filter::default(),
+            filter: Filter { group: Filter::TERRAIN, mask: u32::MAX },
         }
     }
 
@@ -894,6 +894,18 @@ mod tests {
         w.insert_one(e, Filter { group: 2, mask: 2 }).unwrap();
         run(&mut p, &mut w, None, 120);
         assert!(state(&w, e).0.y > 150.0);
+    }
+
+    #[test]
+    fn clearing_the_terrain_bit_lets_a_body_through_the_map_but_not_other_bodies() {
+        let tiles = Tilemap::from_ascii(&["....", "....", "####"], 20, Sprite::test_tiles());
+        let (mut p, mut w) = (Physics::default(), World::new());
+        let ghost = boxed(&mut w, square(10.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        w.insert_one(ghost, Filter { group: 1, mask: !Filter::TERRAIN }).unwrap();
+        let solid = boxed(&mut w, square(50.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(&mut p, &mut w, Some(&tiles), 120);
+        assert!(state(&w, ghost).0.y > 60.0, "stopped at {}", state(&w, ghost).0.y);
+        assert!(state(&w, solid).0.y < 60.0, "fell to {}", state(&w, solid).0.y);
     }
 
     #[test]
