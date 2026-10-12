@@ -1,11 +1,13 @@
 use super::collision::overlapping_pairs;
 use crate::{Body, Entity, Rect, Tilemap, Transform, Vel, World};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const REST_SPEED: f32 = 30.0;
 const SLOP: f32 = 0.02;
 const CORRECTION: f32 = 0.8;
 const CORRECTION_PASSES: usize = 4;
+const WARM_RANGE: f32 = 4.0;
+const SAME_NORMAL: f32 = 0.95;
 
 pub struct RigidBody {
     inv_mass: f32,
@@ -46,14 +48,22 @@ impl RigidBody {
     }
 }
 
+// A contact's normal and, per point, where it was and the impulses it ended with.
+struct Memory {
+    normal: V2,
+    pts: Vec<(V2, f32, f32)>,
+}
+
 pub struct Physics {
     pub gravity: (f32, f32),
     pub iterations: usize,
+    // Last step's contact impulses per body pair, replayed first so resting piles start the solve near its answer.
+    cache: HashMap<(u64, u64), Memory>,
 }
 
 impl Default for Physics {
     fn default() -> Self {
-        Physics { gravity: (0.0, 900.0), iterations: 10 }
+        Physics { gravity: (0.0, 900.0), iterations: 10, cache: HashMap::new() }
     }
 }
 
@@ -144,10 +154,19 @@ struct Hit {
     b: usize,
     normal: V2,
     pts: Vec<Pt>,
+    key: (u64, u64),
+}
+
+// Tiles have no entity, so they are named by where they are; the top bit keeps the two kinds apart.
+fn node_id(ents: &[Entity], nodes: &[Node], i: usize) -> u64 {
+    ents.get(i).map_or_else(
+        || 1 << 63 | (nodes[i].rect.x as i32 as u32 as u64) << 32 | nodes[i].rect.y as i32 as u32 as u64,
+        |e| e.to_bits().get(),
+    )
 }
 
 impl Physics {
-    pub fn step(&self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
+    pub fn step(&mut self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();
         self.integrate(&mut nodes, dt);
@@ -159,7 +178,14 @@ impl Physics {
             n.at = n.center();
         }
         for hit in &mut hits {
-            prepare(&nodes[hit.a], &nodes[hit.b], hit);
+            hit.key = (node_id(&ents, &nodes, hit.a), node_id(&ents, &nodes, hit.b));
+            let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
+            prepare(a, b, hit);
+        }
+        // After every contact has measured its bounce: replayed impulses change the velocities it reads.
+        for hit in &mut hits {
+            let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
+            warm_start(a, b, hit, self.cache.get(&hit.key));
         }
         for _ in 0..self.iterations {
             for hit in &mut hits {
@@ -173,6 +199,10 @@ impl Physics {
                 separate(a, b, hit);
             }
         }
+        self.cache = hits
+            .iter()
+            .map(|h| (h.key, Memory { normal: h.normal, pts: h.pts.iter().map(|p| (p.at, p.jn, p.jt)).collect() }))
+            .collect();
         write_back(world, &ents, &nodes);
     }
 
@@ -274,7 +304,7 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>) -> Vec<Hit>
                     }
                 }
             }
-            (!touch.pts.is_empty()).then_some(Hit { a, b, normal: touch.normal, pts: touch.pts })
+            (!touch.pts.is_empty()).then_some(Hit { a, b, normal: touch.normal, pts: touch.pts, key: (0, 0) })
         })
         .collect()
 }
@@ -492,6 +522,25 @@ fn prepare(a: &Node, b: &Node, hit: &mut Hit) {
     }
 }
 
+// A point inherits the impulses of the nearest point this pair had last step, if one is still close.
+fn warm_start(a: &mut Node, b: &mut Node, hit: &mut Hit, old: Option<&Memory>) {
+    let n = hit.normal;
+    let old = old.filter(|o| dot(o.normal, n) > SAME_NORMAL).map(|o| &o.pts);
+    let t = (-n.1, n.0);
+    for pt in &mut hit.pts {
+        let dist = |o: &&(V2, f32, f32)| (o.0.0 - pt.at.0).hypot(o.0.1 - pt.at.1);
+        let nearest = old.into_iter().flatten().min_by(|x, y| dist(x).total_cmp(&dist(y)));
+        let Some(&(_, jn, jt)) = nearest.filter(|o| dist(o) < WARM_RANGE) else {
+            continue;
+        };
+        let (ra, rb) = arms(a, b, pt.at);
+        let impulse = (jn * n.0 + jt * t.0, jn * n.1 + jt * t.1);
+        a.push(impulse, ra, -1.0);
+        b.push(impulse, rb, 1.0);
+        (pt.jn, pt.jt) = (jn, jt);
+    }
+}
+
 fn solve(a: &mut Node, b: &mut Node, hit: &mut Hit) {
     let n = hit.normal;
     let t = (-n.1, n.0);
@@ -575,7 +624,7 @@ mod tests {
         (body, (v.x, v.y))
     }
 
-    fn run(p: &Physics, w: &mut World, tiles: Option<&Tilemap>, steps: usize) {
+    fn run(p: &mut Physics, w: &mut World, tiles: Option<&Tilemap>, steps: usize) {
         for _ in 0..steps {
             p.step(w, tiles, DT);
         }
@@ -583,19 +632,19 @@ mod tests {
 
     #[test]
     fn free_fall_follows_semi_implicit_euler() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let e = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
-        run(&p, &mut w, None, 60);
+        run(&mut p, &mut w, None, 60);
         let expected = 900.0 * DT * DT * (60.0 * 61.0 / 2.0);
         assert!((state(&w, e).0.y - expected).abs() < 0.01, "{}", state(&w, e).0.y);
     }
 
     #[test]
     fn a_box_dropped_on_the_floor_comes_to_rest_exactly_on_top_of_it() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         floor(&mut w);
         let e = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
-        run(&p, &mut w, None, 120);
+        run(&mut p, &mut w, None, 120);
         let (r, v) = state(&w, e);
         assert!((r.y + r.h - 100.0).abs() < 0.2, "bottom at {}", r.y + r.h);
         assert!(v.1.abs() < 1.0, "still moving at {}", v.1);
@@ -604,7 +653,7 @@ mod tests {
     #[test]
     fn restitution_decides_how_much_speed_comes_back() {
         for bounce in [0.25_f32, 0.5, 0.9] {
-            let (p, mut w) = (Physics::default(), World::new());
+            let (mut p, mut w) = (Physics::default(), World::new());
             w.spawn((Body(Rect { x: -500.0, y: 500.0, w: 2000.0, h: 50.0 }), RigidBody::fixed().with_bounce(bounce)));
             let e = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0).with_bounce(bounce), (0.0, 0.0));
             let mut result = None;
@@ -624,11 +673,11 @@ mod tests {
 
     #[test]
     fn friction_stops_a_sliding_box_in_the_distance_coulomb_predicts() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let rb = || RigidBody::dynamic(1.0).with_friction(0.5);
         w.spawn((Body(Rect { x: -500.0, y: 100.0, w: 2000.0, h: 50.0 }), RigidBody::fixed().with_friction(0.5)));
         let slow = boxed(&mut w, square(0.0, 80.0, 20.0), rb(), (100.0, 0.0));
-        run(&p, &mut w, None, 90);
+        run(&mut p, &mut w, None, 90);
         let (r, v) = state(&w, slow);
         let expected = 100.0_f32.powi(2) / (2.0 * 0.5 * 900.0);
         assert!(v.0.abs() < 0.5, "still sliding at {}", v.0);
@@ -637,24 +686,24 @@ mod tests {
         let mut slick = World::new();
         slick.spawn((Body(Rect { x: -500.0, y: 100.0, w: 2000.0, h: 50.0 }), RigidBody::fixed().with_friction(0.0)));
         let e = boxed(&mut slick, square(0.0, 80.0, 20.0), RigidBody::dynamic(1.0).with_friction(0.0), (100.0, 0.0));
-        run(&p, &mut slick, None, 90);
+        run(&mut p, &mut slick, None, 90);
         assert!((state(&slick, e).1.0 - 100.0).abs() < 0.5);
     }
 
     #[test]
     fn a_hard_drop_onto_a_thin_floor_does_not_tunnel_through_it() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         w.spawn((Body(Rect { x: -500.0, y: 100.0, w: 2000.0, h: 20.0 }), RigidBody::fixed()));
         let plank = Rect { x: 0.0, y: -900.0, w: 6.0, h: 20.0 };
         let e = boxed(&mut w, plank, RigidBody::dynamic(1.0), (0.0, 0.0));
-        run(&p, &mut w, None, 300);
+        run(&mut p, &mut w, None, 300);
         let (r, _) = state(&w, e);
         assert!((r.y + r.h - 100.0).abs() < 0.5, "ended at y {} (floor top is 100)", r.y);
     }
 
     #[test]
     fn a_pile_of_boxes_dropped_from_high_up_stays_inside_the_arena() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let mut rng = crate::Rng::new(7);
         let wall = |x, y, w_, h| (Body(Rect { x, y, w: w_, h }), RigidBody::fixed());
         w.spawn(wall(0.0, 340.0, 640.0, 20.0));
@@ -668,7 +717,7 @@ mod tests {
                 boxed(&mut w, rect, rb, (0.0, 0.0))
             })
             .collect();
-        run(&p, &mut w, None, 600);
+        run(&mut p, &mut w, None, 600);
         for e in boxes {
             let (r, _) = state(&w, e);
             assert!(r.x >= 9.0 && r.x + r.w <= 631.0, "left the arena sideways: {r:?}");
@@ -683,7 +732,7 @@ mod tests {
             16,
             std::sync::Arc::new(crate::Sprite::load("assets/tiles.png")),
         );
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let e = boxed(
             &mut w,
             Rect { x: 20.0, y: 0.0, w: 12.0, h: 24.0 },
@@ -700,14 +749,14 @@ mod tests {
 
     #[test]
     fn a_stack_of_boxes_settles_without_sinking_or_jittering() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         floor(&mut w);
         let stack: Vec<Entity> = (0..4)
             .map(|i| boxed(&mut w, square(50.0, 78.0 - 21.0 * i as f32, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0)))
             .collect();
-        run(&p, &mut w, None, 240);
+        run(&mut p, &mut w, None, 240);
         let settled: Vec<f32> = stack.iter().map(|e| state(&w, *e).0.y).collect();
-        run(&p, &mut w, None, 60);
+        run(&mut p, &mut w, None, 60);
         for (i, e) in stack.iter().enumerate() {
             let (r, v) = state(&w, *e);
             let ideal = 80.0 - 20.0 * i as f32;
@@ -719,13 +768,13 @@ mod tests {
 
     #[test]
     fn an_elastic_collision_conserves_momentum_and_energy_for_unequal_masses() {
-        let p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
         let mut w = World::new();
         let rb = |m| RigidBody::dynamic(m).with_bounce(1.0).with_friction(0.0);
         let heavy = boxed(&mut w, square(0.0, 0.0, 20.0), rb(3.0), (100.0, 0.0));
         let light = boxed(&mut w, square(60.0, 0.0, 20.0), rb(1.0), (-100.0, 0.0));
         let (momentum, energy) = (3.0 * 100.0 - 100.0, 0.5 * 3.0 * 100.0_f32.powi(2) + 0.5 * 100.0_f32.powi(2));
-        run(&p, &mut w, None, 90);
+        run(&mut p, &mut w, None, 90);
         let (a, b) = (state(&w, heavy).1.0, state(&w, light).1.0);
         assert!((3.0 * a + b - momentum).abs() < 1.0, "momentum {}", 3.0 * a + b);
         assert!((0.5 * 3.0 * a * a + 0.5 * b * b - energy).abs() < energy * 0.01, "energy");
@@ -734,11 +783,11 @@ mod tests {
 
     #[test]
     fn a_heavy_box_drags_a_light_one_along_in_an_inelastic_hit() {
-        let p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
         let mut w = World::new();
         let heavy = boxed(&mut w, square(0.0, 0.0, 20.0), RigidBody::dynamic(10.0), (100.0, 0.0));
         let light = boxed(&mut w, square(30.0, 0.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
-        run(&p, &mut w, None, 20);
+        run(&mut p, &mut w, None, 20);
         let common = 1000.0 / 11.0;
         for e in [heavy, light] {
             let v = state(&w, e).1.0;
@@ -748,11 +797,11 @@ mod tests {
 
     #[test]
     fn a_fixed_box_never_moves_however_hard_it_is_hit() {
-        let p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
         let mut w = World::new();
         let wall = w.spawn((Body(square(100.0, 0.0, 20.0)), RigidBody::fixed()));
         let ram = boxed(&mut w, square(0.0, 0.0, 20.0), RigidBody::dynamic(1000.0), (500.0, 0.0));
-        run(&p, &mut w, None, 60);
+        run(&mut p, &mut w, None, 60);
         assert_eq!(w.get::<&Body>(wall).unwrap().0.x, 100.0);
         let (r, v) = state(&w, ram);
         assert!(r.x + r.w <= 100.2 && v.0.abs() < 1.0, "{r:?} {v:?}");
@@ -762,24 +811,24 @@ mod tests {
     fn tiles_act_as_floor_and_walls_for_dynamic_bodies() {
         let sheet = Arc::new(Sprite::load("assets/tiles.png"));
         let map = Tilemap::from_ascii(&["....", "....", "####"], 16, sheet);
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let e = boxed(&mut w, square(20.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
-        run(&p, &mut w, Some(&map), 120);
+        run(&mut p, &mut w, Some(&map), 120);
         let (r, v) = state(&w, e);
         assert!((r.y + r.h - 32.0).abs() < 0.2 && v.1.abs() < 1.0, "{r:?} {v:?}");
 
         let mut side = World::new();
-        let q = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let mut q = Physics { gravity: (0.0, 0.0), ..Physics::default() };
         let b = boxed(&mut side, square(20.0, 5.0, 10.0), RigidBody::dynamic(1.0), (-100.0, 0.0));
-        run(&q, &mut side, Some(&map), 60);
+        run(&mut q, &mut side, Some(&map), 60);
         assert!(state(&side, b).0.x >= -0.2, "left the map: {}", state(&side, b).0.x);
     }
 
     #[test]
     fn bodies_without_velocity_stay_where_they_are() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let e = w.spawn((Body(square(0.0, 0.0, 10.0)), RigidBody::dynamic(1.0)));
-        run(&p, &mut w, None, 30);
+        run(&mut p, &mut w, None, 30);
         assert_eq!(w.get::<&Body>(e).unwrap().0.y, 0.0);
     }
 
@@ -791,7 +840,7 @@ mod tests {
     #[test]
     fn a_body_walks_left_along_a_tile_floor_without_catching_on_the_seams() {
         let map = tile_floor();
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let rb = RigidBody::dynamic(1.0).with_friction(0.0);
         let e = boxed(&mut w, Rect { x: 280.0, y: 0.0, w: 12.0, h: 24.0 }, rb, (0.0, 0.0));
         for _ in 0..120 {
@@ -805,10 +854,10 @@ mod tests {
     fn a_ball_rolls_over_tile_seams_either_way_without_bumping() {
         let map = tile_floor();
         for (start, speed) in [(20.0, 120.0), (280.0, -120.0)] {
-            let (p, mut w) = (Physics::default(), World::new());
+            let (mut p, mut w) = (Physics::default(), World::new());
             let rb = RigidBody::dynamic(1.0).with_friction(0.0).circle();
             let e = boxed(&mut w, square(start, 8.0, 16.0), rb, (0.0, 0.0));
-            run(&p, &mut w, Some(&map), 30);
+            run(&mut p, &mut w, Some(&map), 30);
             let rest = state(&w, e).0.y;
             let mut worst: f32 = 0.0;
             for _ in 0..120 {
@@ -823,10 +872,10 @@ mod tests {
 
     #[test]
     fn a_ball_dropped_on_the_floor_rests_on_top_and_bounces_by_its_restitution() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         floor(&mut w);
         let e = boxed(&mut w, square(50.0, 40.0, 20.0), RigidBody::dynamic(1.0).circle(), (0.0, 0.0));
-        run(&p, &mut w, None, 120);
+        run(&mut p, &mut w, None, 120);
         let (r, v) = state(&w, e);
         assert!((r.y + r.h - 100.0).abs() < 0.2 && v.1.abs() < 1.0, "{r:?} {v:?}");
 
@@ -849,18 +898,18 @@ mod tests {
 
     #[test]
     fn equal_balls_meeting_head_on_swap_velocities_and_off_centre_ones_deflect() {
-        let p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
         let rb = || RigidBody::dynamic(1.0).with_bounce(1.0).with_friction(0.0).circle();
         let mut w = World::new();
         let a = boxed(&mut w, square(0.0, 0.0, 20.0), rb(), (100.0, 0.0));
         let b = boxed(&mut w, square(80.0, 0.0, 20.0), rb(), (-100.0, 0.0));
-        run(&p, &mut w, None, 60);
+        run(&mut p, &mut w, None, 60);
         assert!((state(&w, a).1.0 + 100.0).abs() < 1.0 && (state(&w, b).1.0 - 100.0).abs() < 1.0);
 
         let mut w = World::new();
         let a = boxed(&mut w, square(0.0, 0.0, 20.0), rb(), (100.0, 0.0));
         let b = boxed(&mut w, square(50.0, 14.0, 20.0), rb(), (0.0, 0.0));
-        run(&p, &mut w, None, 40);
+        run(&mut p, &mut w, None, 40);
         let (va, vb) = (state(&w, a).1, state(&w, b).1);
         assert!(va.1 < -5.0 && vb.1 > 5.0, "no sideways deflection: {va:?} {vb:?}");
         assert!((va.0 + vb.0 - 100.0).abs() < 1.0 && (va.1 + vb.1).abs() < 1.0, "momentum: {va:?} {vb:?}");
@@ -868,7 +917,7 @@ mod tests {
 
     #[test]
     fn balls_and_boxes_piled_into_an_arena_stay_inside_it() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let mut rng = crate::Rng::new(11);
         let wall = |x, y, w_, h| (Body(Rect { x, y, w: w_, h }), RigidBody::fixed());
         w.spawn(wall(0.0, 340.0, 640.0, 20.0));
@@ -882,11 +931,32 @@ mod tests {
                 boxed(&mut w, rect, if i % 2 == 0 { rb.circle() } else { rb }, (0.0, 0.0))
             })
             .collect();
-        run(&p, &mut w, None, 600);
+        run(&mut p, &mut w, None, 600);
         for e in bodies {
             let (r, _) = state(&w, e);
             assert!(r.x >= 9.0 && r.x + r.w <= 631.0 && r.y + r.h <= 341.0, "escaped or sank: {r:?}");
         }
+    }
+
+    #[test]
+    fn a_dense_pile_comes_to_rest_instead_of_jittering() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        let mut rng = crate::Rng::new(5);
+        let wall = |x, y, w_, h| (Body(Rect { x, y, w: w_, h }), RigidBody::fixed());
+        w.spawn(wall(0.0, 300.0, 640.0, 60.0));
+        w.spawn(wall(0.0, 0.0, 10.0, 360.0));
+        w.spawn(wall(630.0, 0.0, 10.0, 360.0));
+        let bodies: Vec<Entity> = (0..300)
+            .map(|i| {
+                let rect = Rect { x: rng.range(20.0, 600.0), y: -(i as f32) * 0.5, w: 8.0, h: 8.0 };
+                let rb = RigidBody::dynamic(1.0).with_bounce(0.2);
+                let rb = if i % 2 == 0 { rb.circle() } else { rb };
+                w.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, rb, Transform::IDENTITY))
+            })
+            .collect();
+        run(&mut p, &mut w, None, 900);
+        let speed: f32 = bodies.iter().map(|&e| state(&w, e).1.0.hypot(state(&w, e).1.1)).sum::<f32>() / 300.0;
+        assert!(speed < 2.0, "mean speed after 20 s: {speed}");
     }
 
     fn turning(w: &mut World, rect: Rect, rb: RigidBody, angle: f32) -> Entity {
@@ -900,10 +970,10 @@ mod tests {
     #[test]
     fn a_tilted_box_dropped_on_the_floor_ends_up_flat_and_still() {
         for tilt in [0.3_f32, -0.6, 0.78] {
-            let (p, mut w) = (Physics::default(), World::new());
+            let (mut p, mut w) = (Physics::default(), World::new());
             floor(&mut w);
             let e = turning(&mut w, Rect { x: 50.0, y: 20.0, w: 30.0, h: 20.0 }, RigidBody::dynamic(1.0), tilt);
-            run(&p, &mut w, None, 400);
+            run(&mut p, &mut w, None, 400);
             let (r, v) = state(&w, e);
             let off = angle_of(&w, e).rem_euclid(std::f32::consts::FRAC_PI_2);
             let off = off.min(std::f32::consts::FRAC_PI_2 - off);
@@ -916,10 +986,10 @@ mod tests {
 
     #[test]
     fn a_resting_box_that_can_turn_does_not_creep_or_spin_up() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         floor(&mut w);
         let e = turning(&mut w, Rect { x: 50.0, y: 79.0, w: 30.0, h: 20.0 }, RigidBody::dynamic(1.0), 0.0);
-        run(&p, &mut w, None, 600);
+        run(&mut p, &mut w, None, 600);
         let (r, _) = state(&w, e);
         assert!((r.x - 50.0).abs() < 0.5 && (r.y + r.h - 100.0).abs() < 0.3, "{r:?}");
         assert!(angle_of(&w, e).abs() < 0.01, "turned to {}", angle_of(&w, e));
@@ -928,7 +998,7 @@ mod tests {
 
     #[test]
     fn a_ball_rolls_down_a_slope_at_two_thirds_of_the_slide_acceleration() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let angle = 30.0_f32.to_radians();
         let plank = Rect { x: -400.0, y: 100.0, w: 800.0, h: 20.0 };
         w.spawn((Body(plank), RigidBody::fixed().with_friction(1.0), Transform { angle, sx: 1.0, sy: 1.0 }));
@@ -940,9 +1010,9 @@ mod tests {
         );
         let rect = Rect { x: cx - 10.0, y: cy - 10.0, w: 20.0, h: 20.0 };
         let ball = turning(&mut w, rect, RigidBody::dynamic(1.0).with_friction(1.0).circle(), 0.0);
-        run(&p, &mut w, None, 30);
+        run(&mut p, &mut w, None, 30);
         let (v0, t0) = (state(&w, ball).1, 30.0 * DT);
-        run(&p, &mut w, None, 30);
+        run(&mut p, &mut w, None, 30);
         let v1 = state(&w, ball).1;
         let (s0, s1) = ((v0.0.powi(2) + v0.1.powi(2)).sqrt(), (v1.0.powi(2) + v1.1.powi(2)).sqrt());
         let accel = (s1 - s0) / (30.0 * DT);
@@ -954,7 +1024,7 @@ mod tests {
 
     #[test]
     fn an_off_centre_hit_spins_the_box_and_conserves_both_momenta() {
-        let p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
         let mut w = World::new();
         let rb = |m: f32| RigidBody::dynamic(m).with_friction(0.0).with_bounce(0.5);
         let ball = turning(&mut w, Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }, rb(1.0).circle(), 0.0);
@@ -971,7 +1041,7 @@ mod tests {
             (lin, ang)
         };
         let (lin0, ang0) = momentum(&w);
-        run(&p, &mut w, None, 120);
+        run(&mut p, &mut w, None, 120);
         let (lin1, ang1) = momentum(&w);
         assert!(w.get::<&RigidBody>(boxed_).unwrap().spin.abs() > 0.1, "the box did not start turning");
         assert!((lin1.0 - lin0.0).abs() < 2.0 && (lin1.1 - lin0.1).abs() < 2.0, "linear {lin0:?} -> {lin1:?}");
@@ -982,9 +1052,9 @@ mod tests {
     fn tilted_boxes_land_flat_on_a_tile_floor_across_its_seams() {
         let map = tile_floor();
         for x in [16.0_f32, 29.0, 100.0] {
-            let (p, mut w) = (Physics::default(), World::new());
+            let (mut p, mut w) = (Physics::default(), World::new());
             let e = turning(&mut w, Rect { x, y: 0.0, w: 24.0, h: 14.0 }, RigidBody::dynamic(1.0), 0.5);
-            run(&p, &mut w, Some(&map), 300);
+            run(&mut p, &mut w, Some(&map), 300);
             let r = state(&w, e).0;
             let centre = r.y + r.h / 2.0;
             assert!(
@@ -997,7 +1067,7 @@ mod tests {
 
     #[test]
     fn spinning_boxes_and_balls_piled_into_an_arena_stay_inside_it() {
-        let (p, mut w) = (Physics::default(), World::new());
+        let (mut p, mut w) = (Physics::default(), World::new());
         let mut rng = crate::Rng::new(5);
         let wall = |x, y, w_, h| (Body(Rect { x, y, w: w_, h }), RigidBody::fixed());
         w.spawn(wall(0.0, 340.0, 640.0, 20.0));
@@ -1016,7 +1086,7 @@ mod tests {
                 }
             })
             .collect();
-        run(&p, &mut w, None, 900);
+        run(&mut p, &mut w, None, 900);
         for e in bodies {
             let (r, v) = state(&w, e);
             // The rect is the unturned box, so judge the centre against the smallest half-size.

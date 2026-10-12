@@ -108,13 +108,13 @@ fn bench() {
     time("soft: 2000 sprites, rotated", 50, || soft.render(black_box(&turned)));
 
     for n in [100, 300, 1000] {
-        let (mut arena, physics) = (World::new(), Physics::default());
+        let (mut arena, mut physics) = (World::new(), Physics::default());
         let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), RigidBody::fixed());
-        arena.spawn(wall(0.0, 350.0, 640.0, 10.0));
+        arena.spawn(wall(0.0, 300.0, 640.0, 60.0));
         arena.spawn(wall(0.0, 0.0, 10.0, 360.0));
         arena.spawn(wall(630.0, 0.0, 10.0, 360.0));
         for i in 0..n {
-            let rect = Rect { x: 20.0 + rng(&mut seed) * 590.0, y: -(i as f32) * 6.0, w: 8.0, h: 8.0 };
+            let rect = Rect { x: 20.0 + rng(&mut seed) * 590.0, y: -(i as f32) * 0.5, w: 8.0, h: 8.0 };
             let body = RigidBody::dynamic(1.0).with_bounce(0.2);
             let body = if i % 2 == 0 { body.circle() } else { body };
             arena.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, body, Transform::IDENTITY));
@@ -122,6 +122,16 @@ fn bench() {
         for _ in 0..600 {
             physics.step(&mut arena, None, 1.0 / 60.0);
         }
+        for _ in 0..600 {
+            physics.step(&mut arena, None, 1.0 / 60.0);
+        }
+        let (mut fast, mut out, mut sum) = (0, 0, 0.0f32);
+        for (v, b, _) in arena.query::<(&Vel, &Body, &RigidBody)>().iter() {
+            sum += v.x.hypot(v.y);
+            fast += (v.x.hypot(v.y) > 5.0) as u32;
+            out += (b.0.y > 360.0 || b.0.x < 0.0 || b.0.x > 640.0) as u32;
+        }
+        println!("  {n}: mean speed {:.1}, over 5px/s: {fast}, outside the arena: {out}", sum / n as f32);
         time(&format!("physics step, {n} settled bodies"), 60, || physics.step(&mut arena, None, 1.0 / 60.0));
     }
 }
