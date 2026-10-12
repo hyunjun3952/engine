@@ -1,9 +1,11 @@
 mod input;
+mod pad;
 mod rng;
 mod save;
 mod time;
 
 pub use input::{Input, Key};
+pub use pad::Pad;
 pub use rng::Rng;
 pub use save::Save;
 pub use time::{Ease, Timer, Tween};
@@ -75,6 +77,10 @@ impl Ctx {
 
     pub fn bind(&mut self, action: &str, keys: &[Key]) {
         self.input.bind(action, keys);
+    }
+
+    pub fn bind_pad(&mut self, action: &str, pads: &[Pad]) {
+        self.input.bind_pad(action, pads);
     }
 
     pub fn load_bindings(&mut self, path: &str) -> Result<(), String> {

@@ -6,7 +6,7 @@ mod ecs;
 mod render;
 mod ui;
 
-pub use app::{Config, Ctx, Ease, Input, Key, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run};
+pub use app::{Config, Ctx, Ease, Input, Key, Pad, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run};
 pub use assets::{Assets, Audio};
 pub use ecs::{
     Anim, Body, Burst, Collider, Contact, Entity, Layer, Look, Physics, RigidBody, Vel, World, animate, burst,

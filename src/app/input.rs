@@ -1,3 +1,4 @@
+use super::pad::{PADS, Pad, PadState};
 pub use minifb::Key;
 use std::collections::{HashMap, HashSet};
 
@@ -6,11 +7,16 @@ pub struct Input {
     down: HashSet<Key>,
     prev: HashSet<Key>,
     actions: HashMap<String, Vec<Key>>,
+    pad: PadState,
+    pad_down: HashSet<Pad>,
+    pad_prev: HashSet<Pad>,
+    pad_actions: HashMap<String, Vec<Pad>>,
 }
 
 impl Input {
     pub(crate) fn poll(&mut self, win: &minifb::Window) {
         self.down = win.get_keys().into_iter().collect();
+        self.pad_down = self.pad.poll();
     }
     #[cfg(test)]
     pub(crate) fn hold(&mut self, keys: &[Key]) {
@@ -18,14 +24,21 @@ impl Input {
     }
     pub(crate) fn end_step(&mut self) {
         self.prev = self.down.clone();
+        self.pad_prev = self.pad_down.clone();
     }
     pub(crate) fn bind(&mut self, action: &str, keys: &[Key]) {
         self.actions.insert(action.to_string(), keys.to_vec());
     }
 
+    pub(crate) fn bind_pad(&mut self, action: &str, pads: &[Pad]) {
+        self.actions.entry(action.to_string()).or_default();
+        self.pad_actions.insert(action.to_string(), pads.to_vec());
+    }
+
     pub(crate) fn load_text(&mut self, text: &str) -> Result<(), String> {
-        for (action, keys) in parse(text)? {
+        for (action, keys, pads) in parse(text)? {
             self.bind(&action, &keys);
+            self.bind_pad(&action, &pads);
         }
         Ok(())
     }
@@ -34,8 +47,9 @@ impl Input {
         let mut actions: Vec<_> = self.actions.iter().collect();
         actions.sort();
         let line = |(name, keys): &(&String, &Vec<Key>)| {
-            let keys: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-            format!("{name} = {}\n", keys.join(" "))
+            let pads = self.pad_actions.get(*name).into_iter().flatten().map(|p| format!("pad.{p:?}"));
+            let words: Vec<String> = keys.iter().map(|k| format!("{k:?}")).chain(pads).collect();
+            format!("{name} = {}\n", words.join(" "))
         };
         actions.iter().map(line).collect()
     }
@@ -44,11 +58,18 @@ impl Input {
         self.actions.get(action).unwrap_or_else(|| panic!("unknown input action {action:?}"))
     }
 
+    fn pads(&self, action: &str) -> &[Pad] {
+        self.pad_actions.get(action).map_or(&[], Vec::as_slice)
+    }
+
     pub fn down(&self, action: &str) -> bool {
         self.keys(action).iter().any(|k| self.down.contains(k))
+            || self.pads(action).iter().any(|p| self.pad_down.contains(p))
     }
     pub fn pressed(&self, action: &str) -> bool {
-        self.down(action) && !self.keys(action).iter().any(|k| self.prev.contains(k))
+        let before = self.keys(action).iter().any(|k| self.prev.contains(k))
+            || self.pads(action).iter().any(|p| self.pad_prev.contains(p));
+        self.down(action) && !before
     }
     pub fn axis(&self, neg: &str, pos: &str) -> f32 {
         self.down(pos) as i32 as f32 - self.down(neg) as i32 as f32
@@ -173,7 +194,9 @@ key_names!(
     RightSuper,
 );
 
-fn parse(text: &str) -> Result<Vec<(String, Vec<Key>)>, String> {
+type Parsed = Vec<(String, Vec<Key>, Vec<Pad>)>;
+
+fn parse(text: &str) -> Result<Parsed, String> {
     let mut out = Vec::new();
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
@@ -181,22 +204,26 @@ fn parse(text: &str) -> Result<Vec<(String, Vec<Key>)>, String> {
         if line.is_empty() {
             continue;
         }
-        let (name, keys) = line.split_once('=').ok_or(format!("line {n}: expected `action = keys`"))?;
+        let (name, words) = line.split_once('=').ok_or(format!("line {n}: expected `action = keys`"))?;
         let name = name.trim();
         if name.is_empty() || name.contains(char::is_whitespace) {
             return Err(format!("line {n}: bad action name {name:?}"));
         }
-        let keys = keys
-            .split_whitespace()
-            .map(|k| {
-                let found = KEYS.iter().find(|(known, _)| known.eq_ignore_ascii_case(k));
-                found.map(|&(_, key)| key).ok_or(format!("line {n}: unknown key {k:?}"))
-            })
-            .collect::<Result<Vec<Key>, String>>()?;
-        if keys.is_empty() {
+        let (mut keys, mut pads) = (Vec::new(), Vec::new());
+        for word in words.split_whitespace() {
+            let pad = word.get(..4).filter(|p| p.eq_ignore_ascii_case("pad.")).map(|_| &word[4..]);
+            if let Some(pad) = pad {
+                let found = PADS.iter().find(|(known, _)| known.eq_ignore_ascii_case(pad));
+                pads.push(found.map(|&(_, p)| p).ok_or(format!("line {n}: unknown pad button {word:?}"))?);
+            } else {
+                let found = KEYS.iter().find(|(known, _)| known.eq_ignore_ascii_case(word));
+                keys.push(found.map(|&(_, key)| key).ok_or(format!("line {n}: unknown key {word:?}"))?);
+            }
+        }
+        if keys.is_empty() && pads.is_empty() {
             return Err(format!("line {n}: action {name:?} has no keys"));
         }
-        out.push((name.to_string(), keys));
+        out.push((name.to_string(), keys, pads));
     }
     Ok(out)
 }
@@ -285,5 +312,20 @@ mod tests {
             assert!(err.starts_with(expect), "{err}");
             assert_eq!(i.to_text(), before);
         }
+    }
+
+    #[test]
+    fn pad_buttons_work_beside_keys_and_roundtrip_through_text() {
+        let mut i = Input::default();
+        i.load_text("jump = Space pad.a\nfire = pad.RB\n").unwrap();
+        assert_eq!(i.to_text(), "fire = pad.RB\njump = Space pad.A\n");
+        assert!(!i.down("fire"));
+        i.pad_down = [Pad::RB].into_iter().collect();
+        assert!(i.down("fire") && i.pressed("fire") && !i.down("jump"));
+        i.end_step();
+        assert!(i.down("fire") && !i.pressed("fire"));
+        i.bind("jump", &[Key::X]);
+        assert_eq!(i.to_text(), "fire = pad.RB\njump = X pad.A\n", "bind replaces keys, not pad buttons");
+        assert!(i.load_text("jump = pad.Z\n").unwrap_err().starts_with("line 1: unknown pad button"));
     }
 }
