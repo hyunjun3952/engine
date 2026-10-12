@@ -1,4 +1,4 @@
-use crate::{Font, Gfx, Input, Key, MouseButton, Rect};
+use crate::{Ctx, Font, Gfx, Input, Key, MouseButton, Rect};
 
 pub fn draw_panel(gfx: &mut Gfx, r: &Rect, fill: u32, border: u32) {
     gfx.fill(r, fill);
@@ -88,16 +88,24 @@ impl Menu {
         self.sel
     }
 
+    pub fn set_item(&mut self, i: usize, text: String) {
+        self.items[i] = text;
+    }
+
     /// Moves the highlight (wrapping) on `up`/`down` presses and returns the chosen index on `accept`.
     pub fn update(&mut self, input: &Input, up: &str, down: &str, accept: &str) -> Option<usize> {
-        let n = self.items.len();
         if input.pressed(up) {
-            self.sel = (self.sel + n - 1) % n;
+            self.select(-1);
         }
         if input.pressed(down) {
-            self.sel = (self.sel + 1) % n;
+            self.select(1);
         }
         input.pressed(accept).then_some(self.sel)
+    }
+
+    /// Moves the highlight by `delta` rows, wrapping.
+    pub fn select(&mut self, delta: isize) {
+        self.sel = (self.sel as isize + delta).rem_euclid(self.items.len() as isize) as usize;
     }
 
     /// Hovering a row highlights it and a left click on it returns its index; `x` and `y` must match `draw`.
@@ -129,6 +137,64 @@ impl Menu {
                 gfx.text_font(font, item, x + indent, row, color);
             }
         }
+    }
+}
+
+/// A key remapping screen: one row per bound action. Up and Down move and Enter on a row waits for a key and binds
+/// it (keys of that action are replaced, pad buttons stay). These screen keys are fixed, not actions, so remapping
+/// cannot lock the player out of it. Escape cancels the wait, so the caller should leave its own Escape handling
+/// alone while `waiting()` is true, and save with `ctx.save_bindings` when `update` returns true.
+pub struct Rebind {
+    menu: Menu,
+    actions: Vec<String>,
+    waiting: bool,
+}
+
+impl Rebind {
+    pub fn new(input: &Input) -> Self {
+        let actions: Vec<String> = input.actions().into_iter().map(String::from).collect();
+        let mut screen = Rebind {
+            menu: Menu::new(&actions.iter().map(String::as_str).collect::<Vec<_>>()),
+            actions,
+            waiting: false,
+        };
+        screen.show(input);
+        screen
+    }
+
+    pub fn waiting(&self) -> bool {
+        self.waiting
+    }
+
+    fn show(&mut self, input: &Input) {
+        for (i, action) in self.actions.iter().enumerate() {
+            let keys =
+                if self.waiting && i == self.menu.selected() { "press a key".into() } else { input.describe(action) };
+            self.menu.set_item(i, format!("{action}: {keys}"));
+        }
+    }
+
+    /// Returns true on the step a binding changed.
+    pub fn update(&mut self, ctx: &mut Ctx) -> bool {
+        let mut changed = false;
+        if self.waiting {
+            if ctx.input().key_pressed(Key::Escape) {
+                self.waiting = false;
+            } else if let Some(key) = ctx.input().key_just_pressed() {
+                ctx.bind(&self.actions[self.menu.selected()], &[key]);
+                (self.waiting, changed) = (false, true);
+            }
+        } else {
+            let input = ctx.input();
+            self.menu.select(input.key_pressed(Key::Down) as isize - input.key_pressed(Key::Up) as isize);
+            self.waiting = input.key_pressed(Key::Enter);
+        }
+        self.show(ctx.input());
+        changed
+    }
+
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, active: u32) {
+        self.menu.draw(gfx, font, x, y, color, active);
     }
 }
 
@@ -236,5 +302,26 @@ mod tests {
         let mut g = Gfx::new(100, 50);
         Menu::new(&["시작", "끝"]).draw(&mut g, &font, 0, 0, 1, 2);
         assert_eq!(g.cmds().len(), 1 + 2 + 1);
+    }
+
+    #[test]
+    fn a_rebind_row_waits_for_a_key_binds_it_and_escape_cancels() {
+        let mut ctx = Ctx::new(64, 64, 1.0 / 60.0, crate::Audio::disabled());
+        ctx.bind("jump", &[Key::Space]);
+        let mut screen = Rebind::new(ctx.input());
+        let step = |ctx: &mut Ctx, screen: &mut Rebind, key: Option<Key>| {
+            ctx.input.end_step();
+            ctx.input.hold(key.as_slice());
+            screen.update(ctx)
+        };
+        assert!(!step(&mut ctx, &mut screen, Some(Key::Enter)) && screen.waiting(), "Accept on `jump` starts waiting");
+        assert!(!step(&mut ctx, &mut screen, Some(Key::Enter)), "the held Accept key is not the new binding");
+        assert!(step(&mut ctx, &mut screen, Some(Key::K)) && !screen.waiting());
+        assert_eq!(ctx.input().describe("jump"), "K");
+        step(&mut ctx, &mut screen, None);
+        step(&mut ctx, &mut screen, Some(Key::Enter));
+        assert!(screen.waiting());
+        assert!(!step(&mut ctx, &mut screen, Some(Key::Escape)) && !screen.waiting());
+        assert_eq!(ctx.input().describe("jump"), "K", "cancelled, so unchanged");
     }
 }

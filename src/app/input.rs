@@ -99,14 +99,21 @@ impl Input {
     }
 
     pub(crate) fn to_text(&self) -> String {
-        let mut actions: Vec<_> = self.actions.iter().collect();
-        actions.sort();
-        let line = |(name, keys): &(&String, &Vec<Key>)| {
-            let pads = self.pad_actions.get(*name).into_iter().flatten().map(|p| format!("pad.{p:?}"));
-            let words: Vec<String> = keys.iter().map(|k| format!("{k:?}")).chain(pads).collect();
-            format!("{name} = {}\n", words.join(" "))
-        };
-        actions.iter().map(line).collect()
+        self.actions().iter().map(|a| format!("{a} = {}\n", self.describe(a))).collect()
+    }
+
+    /// Every bound action, sorted by name.
+    pub fn actions(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.actions.keys().map(String::as_str).collect();
+        names.sort();
+        names
+    }
+
+    /// The keys and pad buttons of `action` as the bindings file spells them, like `Space Up pad.A`.
+    pub fn describe(&self, action: &str) -> String {
+        let pads = self.pads(action).iter().map(|p| format!("pad.{p:?}"));
+        let words: Vec<String> = self.keys(action).iter().map(|k| format!("{k:?}")).chain(pads).collect();
+        words.join(" ")
     }
 
     fn keys(&self, action: &str) -> &[Key] {
@@ -167,6 +174,11 @@ impl Input {
     pub(crate) fn type_chars(&mut self, s: &str) {
         self.typed = s.chars().collect();
     }
+    /// A key that went down this step, for screens that wait for the player to press one.
+    pub fn key_just_pressed(&self) -> Option<Key> {
+        self.down.iter().find(|k| !self.prev.contains(k)).copied()
+    }
+
     pub fn key_down(&self, key: Key) -> bool {
         self.down.contains(&key)
     }

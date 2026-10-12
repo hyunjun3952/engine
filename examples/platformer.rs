@@ -1,10 +1,36 @@
 use engine::{
-    Anim, Body, Burst, Config, Ctx, Entity, Gfx, Key, Physics, Rect, RigidBody, Scene, Tilemap, Trans, Vel, World,
-    animate, burst, draw_list, particles,
+    Anim, Body, Burst, Config, Ctx, Entity, Font, Gfx, Key, Physics, Rebind, Rect, RigidBody, Scene, Tilemap, Trans,
+    Vel, World, animate, burst, draw_list, particles,
 };
+use std::sync::Arc;
 
 const TILE: usize = 16;
 const DUST: Burst = Burst { count: 6, color: 0xdddddd, speed: 50.0, life: 0.3, size: 3.0, gravity: 0.0 };
+
+struct Remap {
+    screen: Rebind,
+    font: Arc<Font>,
+}
+
+impl Scene for Remap {
+    fn update(&mut self, ctx: &mut Ctx) -> Trans {
+        if !self.screen.waiting() && ctx.input().pressed("back") {
+            return Trans::Pop;
+        }
+        if self.screen.update(ctx)
+            && let Err(e) = ctx.save_bindings("input.txt")
+        {
+            eprintln!("input.txt: {e}");
+        }
+        Trans::None
+    }
+
+    fn draw(&self, g: &mut Gfx) {
+        g.fill_alpha(&Rect { x: 0.0, y: 0.0, w: g.w as f32, h: g.h as f32 }, 0x000000, 200);
+        self.screen.draw(g, &self.font, 40, 40, 0xaaaaaa, 0xffff66);
+        g.text_font(&self.font, "UP/DOWN: move   ENTER: change   ESC: back", 40, 320, 0xffffff);
+    }
+}
 
 struct Platformer {
     world: World,
@@ -52,6 +78,10 @@ impl Scene for Platformer {
             return Trans::Quit;
         }
 
+        if ctx.input().pressed("remap") {
+            let (screen, font) = (Rebind::new(ctx.input()), ctx.assets().font("assets/fonts/galmuri9.bdf"));
+            return Trans::Push(Box::new(Remap { screen, font }));
+        }
         if ctx.changed(&self.level) {
             match load_level(ctx, &self.level) {
                 Ok((map, start)) => (self.map, self.start) = (map, start),
@@ -110,7 +140,7 @@ impl Scene for Platformer {
         let mut cmds = self.map.draw_list(g.view());
         cmds.extend(draw_list(&self.world));
         g.draw(cmds);
-        g.text("ARROWS or A/D: move   SPACE: jump   F3: debug", 8, 340, 1, 0xffffff);
+        g.text("ARROWS or A/D: move   SPACE: jump   TAB: keys   F3: debug", 8, 340, 1, 0xffffff);
     }
 }
 
@@ -121,6 +151,7 @@ fn main() {
         ctx.bind("right", &[Key::Right, Key::D]);
         ctx.bind("jump", &[Key::Space, Key::Up, Key::W]);
         ctx.bind("back", &[Key::Escape]);
+        ctx.bind("remap", &[Key::Tab]);
         if let Err(e) = ctx.load_bindings("input.txt") {
             eprintln!("{e}");
         }
