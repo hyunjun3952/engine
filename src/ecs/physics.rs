@@ -267,10 +267,9 @@ impl Physics {
 
     // Turns sleepers into walls for this step, after waking any the game touched or a fast body is about to hit.
     fn freeze(&mut self, ents: &[Entity], nodes: &mut [Node], dt: f32) {
-        let live: HashSet<Entity> = ents.iter().copied().collect();
-        self.rest.retain(|e, _| live.contains(e));
+        let index: HashMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
         self.rest.retain(|e, r| {
-            let i = ents.iter().position(|x| x == e).unwrap();
+            let Some(&i) = index.get(e) else { return false };
             let n = &nodes[i];
             r.asleep.is_none_or(|at| at == n.rect && n.vel == (0.0, 0.0) && n.spin == 0.0)
         });
