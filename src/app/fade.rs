@@ -30,7 +30,9 @@ impl Fade {
         match &mut self.0 {
             Phase::Idle => None,
             Phase::Out(t, ..) => {
-                if !t.tick(dt) {
+                // `tick` never reports a zero-length timer finishing, so ask `done` (a fade of 0 s would never end).
+                t.tick(dt);
+                if !t.done() {
                     return None;
                 }
                 let Phase::Out(_, trans, half) = std::mem::replace(&mut self.0, Phase::Idle) else { unreachable!() };
@@ -38,7 +40,8 @@ impl Fade {
                 Some(*trans)
             }
             Phase::Back(t) => {
-                if t.tick(dt) {
+                t.tick(dt);
+                if t.done() {
                     self.0 = Phase::Idle;
                 }
                 None
@@ -59,6 +62,16 @@ impl Fade {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fade_of_no_time_still_hands_over_the_change_and_ends() {
+        let mut f = Fade::new();
+        f.start(Trans::Pop, 0.0);
+        assert!(f.blocking());
+        assert!(matches!(f.tick(1.0 / 60.0), Some(Trans::Pop)), "the change comes on the first step");
+        assert!(f.tick(1.0 / 60.0).is_none());
+        assert_eq!((f.alpha(), f.blocking()), (0, false), "and the fade is over a step later");
+    }
 
     #[test]
     fn a_fade_goes_dark_hands_over_the_change_once_then_comes_back() {
