@@ -149,7 +149,7 @@ impl Gfx {
             Paint::Tiles { sheet, size, tiles } => {
                 let k = *size as f32;
                 for &(gx, gy, id) in tiles {
-                    let src = Rect { x: ((id as u32 - 1) * size) as f32, y: 0.0, w: k, h: k };
+                    let src = Paint::tile_src(id, *size);
                     let at = Rect { x: c.rect.x + gx as f32 * k, y: c.rect.y + gy as f32 * k, w: k, h: k };
                     let paint = Paint::Region { sheet: sheet.clone(), src, flip: false };
                     self.push_zoomed(DrawCmd {

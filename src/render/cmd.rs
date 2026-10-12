@@ -20,6 +20,11 @@ pub enum Paint {
 }
 
 impl Paint {
+    /// Where tile `id` (the sheet column plus one) is on a sheet that is a row of `size` pixel squares.
+    pub(crate) fn tile_src(id: u8, size: u32) -> Rect {
+        Rect { x: ((id as u32 - 1) * size) as f32, y: 0.0, w: size as f32, h: size as f32 }
+    }
+
     /// The sheet, source area and mirroring of a paint that copies pixels from a sprite as they are.
     pub(crate) fn region(&self) -> Option<(&Arc<Sprite>, Rect, bool)> {
         match self {
@@ -64,5 +69,16 @@ impl DrawCmd {
     /// A command on layer 0, always drawn, without rotation or scale.
     pub fn new(rect: Rect, paint: Paint) -> Self {
         DrawCmd { layer: 0, rect, paint, debug_only: false, xform: Transform::IDENTITY }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tile_ids_start_at_one_and_walk_along_the_sheet() {
+        assert_eq!(Paint::tile_src(1, 16), Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 });
+        assert_eq!(Paint::tile_src(4, 8), Rect { x: 24.0, y: 0.0, w: 8.0, h: 8.0 });
     }
 }

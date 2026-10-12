@@ -478,7 +478,8 @@ impl Gpu {
                     let sz = *size as f32;
                     for &(gx, gy, id) in tiles {
                         let (x, y) = (r.x.trunc() + (gx * size) as f32, r.y.trunc() + (gy * size) as f32);
-                        let u0 = (id as f32 - 1.0) * sz / sw;
+                        let src = Paint::tile_src(id, *size);
+                        let u0 = src.x / sw;
                         self.quad(tex, (x, y, x + sz, y + sz), (u0, 0.0, u0 + sz / sw, 1.0), [1.0; 4]);
                     }
                 }
