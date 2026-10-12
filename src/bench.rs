@@ -1,7 +1,7 @@
 use crate::render::Soft;
 use crate::{
-    Body, Burst, Collider, DrawCmd, Gfx, Look, Paint, Rect, Rng, Sprite, Tilemap, Transform, World, burst, collisions,
-    draw_list, particles,
+    Body, Burst, Collider, DrawCmd, Gfx, Look, Paint, Physics, Rect, RigidBody, Rng, Sprite, Tilemap, Transform, Vel,
+    World, burst, collisions, draw_list, particles,
 };
 use std::hint::black_box;
 use std::sync::Arc;
@@ -106,4 +106,22 @@ fn bench() {
         .collect();
     time("soft: 2000 sprites, plain", 50, || soft.render(black_box(&sprites[..2000])));
     time("soft: 2000 sprites, rotated", 50, || soft.render(black_box(&turned)));
+
+    for n in [100, 300, 1000] {
+        let (mut arena, physics) = (World::new(), Physics::default());
+        let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), RigidBody::fixed());
+        arena.spawn(wall(0.0, 350.0, 640.0, 10.0));
+        arena.spawn(wall(0.0, 0.0, 10.0, 360.0));
+        arena.spawn(wall(630.0, 0.0, 10.0, 360.0));
+        for i in 0..n {
+            let rect = Rect { x: 20.0 + rng(&mut seed) * 590.0, y: -(i as f32) * 6.0, w: 8.0, h: 8.0 };
+            let body = RigidBody::dynamic(1.0).with_bounce(0.2);
+            let body = if i % 2 == 0 { body.circle() } else { body };
+            arena.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, body, Transform::IDENTITY));
+        }
+        for _ in 0..600 {
+            physics.step(&mut arena, None, 1.0 / 60.0);
+        }
+        time(&format!("physics step, {n} settled bodies"), 60, || physics.step(&mut arena, None, 1.0 / 60.0));
+    }
 }
