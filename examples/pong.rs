@@ -4,6 +4,8 @@ use engine::{
 };
 
 const SPARK: Burst = Burst { count: 6, color: 0xffffff, speed: 120.0, life: 0.3, size: 3.0, gravity: 0.0 };
+// Faster than a ball plus a paddle per tick and the ball would skip through the paddle.
+const MAX_SPEED: f32 = 900.0;
 const W: f32 = 640.0;
 const H: f32 = 360.0;
 
@@ -117,7 +119,7 @@ impl Scene for Pong {
             ctx.audio().play("assets/hit.wav");
             let away = if b.0.x + b.0.w / 2.0 < p.x + p.w / 2.0 { -1.0 } else { 1.0 };
             b.0.x = if away < 0.0 { p.x - b.0.w } else { p.x + p.w };
-            v.x = away * v.x.abs() * 1.05;
+            v.x = away * (v.x.abs() * 1.05).min(MAX_SPEED);
             spark = Some((b.0.x + b.0.w / 2.0, b.0.y + b.0.h / 2.0));
         }
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
