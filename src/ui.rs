@@ -1,4 +1,4 @@
-use crate::{Font, Gfx, Input, MouseButton, Rect};
+use crate::{Font, Gfx, Input, Key, MouseButton, Rect};
 
 pub fn draw_panel(gfx: &mut Gfx, r: &Rect, fill: u32, border: u32) {
     gfx.fill(r, fill);
@@ -28,6 +28,48 @@ pub fn slider(input: &Input, r: &Rect, value: f32) -> f32 {
             ((x.floor() - r.x) / (r.w - 1.0).max(1.0)).clamp(0.0, 1.0)
         }
         _ => value,
+    }
+}
+
+/// A single-line text box: call `update` once per fixed step with the typed characters and Backspace.
+pub struct TextField {
+    text: String,
+    max: usize,
+}
+
+impl TextField {
+    /// Holds at most `max` characters (not bytes).
+    pub fn new(max: usize) -> Self {
+        TextField { text: String::new(), max }
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn clear(&mut self) {
+        self.text.clear();
+    }
+
+    /// Returns true when Enter was pressed this step.
+    pub fn update(&mut self, input: &Input) -> bool {
+        if input.key_pressed(Key::Backspace) {
+            self.text.pop();
+        }
+        for &c in input.typed() {
+            if self.text.chars().count() < self.max {
+                self.text.push(c);
+            }
+        }
+        input.key_pressed(Key::Enter)
+    }
+
+    /// Draws the text and, while `caret` is true, a `|` after it; callers blink it with a `Timer`.
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, caret: bool) {
+        gfx.text_font(font, &self.text, x, y, color);
+        if caret {
+            gfx.text_font(font, "|", x + font.width(&self.text), y, color);
+        }
     }
 }
 
@@ -168,6 +210,21 @@ mod tests {
         assert_eq!(menu.selected(), 0, "a cursor that did not move leaves the keyboard choice");
         at(&mut input, 5.0, second_row, true);
         assert_eq!(menu.mouse(&input, &font, 0, 0), Some(1));
+    }
+
+    #[test]
+    fn a_text_field_takes_typed_characters_up_to_its_limit_and_backspace_removes_one() {
+        let (mut input, mut field) = (Input::default(), TextField::new(3));
+        input.type_chars("가a나다");
+        assert!(!field.update(&input));
+        assert_eq!(field.text(), "가a나");
+        press(&mut input, Key::Backspace);
+        field.update(&input);
+        assert_eq!(field.text(), "가a");
+        press(&mut input, Key::Enter);
+        assert!(field.update(&input));
+        field.clear();
+        assert_eq!(field.text(), "");
     }
 
     #[test]

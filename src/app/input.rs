@@ -1,6 +1,7 @@
 use super::pad::{PADS, Pad, PadAxis, PadState};
 pub use minifb::{Key, MouseButton};
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 pub struct Input {
@@ -16,6 +17,18 @@ pub struct Input {
     buttons: [bool; 5],
     buttons_prev: [bool; 5],
     wheel: f32,
+    typed: Vec<char>,
+    typing: Arc<Mutex<Vec<char>>>,
+}
+
+struct Typing(Arc<Mutex<Vec<char>>>);
+
+impl minifb::InputCallback for Typing {
+    fn add_char(&mut self, c: u32) {
+        if let (Some(c), Ok(mut chars)) = (char::from_u32(c), self.0.lock()) {
+            chars.push(c);
+        }
+    }
 }
 
 fn slot(b: MouseButton) -> usize {
@@ -29,6 +42,10 @@ fn slot(b: MouseButton) -> usize {
 }
 
 impl Input {
+    pub(crate) fn listen(&self, win: &mut minifb::Window) {
+        win.set_input_callback(Box::new(Typing(self.typing.clone())));
+    }
+
     pub(crate) fn poll(&mut self, win: &minifb::Window, scale: usize) {
         self.down = win.get_keys().into_iter().collect();
         self.pad_down = self.pad.poll();
@@ -38,6 +55,9 @@ impl Input {
             self.buttons[slot(b)] = win.get_mouse_down(b);
         }
         self.wheel += win.get_scroll_wheel().map_or(0.0, |(_, y)| y);
+        if let Ok(mut chars) = self.typing.lock() {
+            self.typed.extend(chars.drain(..).filter(|c| !c.is_control()));
+        }
     }
     #[cfg(test)]
     pub(crate) fn hold(&mut self, keys: &[Key]) {
@@ -54,6 +74,7 @@ impl Input {
         self.buttons_prev = self.buttons;
         self.mouse_prev = self.mouse;
         self.wheel = 0.0;
+        self.typed.clear();
     }
     pub(crate) fn bind(&mut self, action: &str, keys: &[Key]) {
         self.actions.insert(action.to_string(), keys.to_vec());
@@ -127,6 +148,17 @@ impl Input {
     /// Analog stick (-1..=1, dead zone removed) or trigger (0..=1) of the pad; 0 with no pad plugged in.
     pub fn pad_axis(&self, axis: PadAxis) -> f32 {
         self.pad.axis(axis)
+    }
+    /// Printable characters typed since the last tick, as the window system delivers them.
+    pub fn typed(&self) -> &[char] {
+        &self.typed
+    }
+    pub fn key_pressed(&self, key: Key) -> bool {
+        self.down.contains(&key) && !self.prev.contains(&key)
+    }
+    #[cfg(test)]
+    pub(crate) fn type_chars(&mut self, s: &str) {
+        self.typed = s.chars().collect();
     }
     pub fn key_down(&self, key: Key) -> bool {
         self.down.contains(&key)

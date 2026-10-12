@@ -266,6 +266,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let dt = 1.0 / cfg.tick_hz;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
     let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
+    ctx.input.listen(&mut win);
     ctx.rng = Rng::new(seed);
     let mut stack = Stack::new();
     let scene = first(&mut ctx);
