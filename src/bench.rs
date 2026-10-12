@@ -1,6 +1,6 @@
 use crate::render::Soft;
 use crate::{
-    Body, Burst, Collider, DrawCmd, Gfx, Look, Paint, Physics, RayIndex, Rect, RigidBody, Rng, Sprite, Tilemap,
+    Body, Burst, Collider, DrawCmd, Font, Gfx, Look, Paint, Physics, RayIndex, Rect, RigidBody, Rng, Sprite, Tilemap,
     Transform, Vel, World, burst, collisions, draw_list, particles, raycast,
 };
 use std::hint::black_box;
@@ -52,6 +52,10 @@ fn bench() {
             let a = i as f32 * 0.0628;
             black_box(index.cast((320.0, 180.0), (a.cos(), a.sin()), 400.0, u32::MAX));
         }
+    });
+
+    time("font load, 11324 glyphs", 5, || {
+        black_box(Font::load("assets/fonts/galmuri9.bdf").unwrap());
     });
 
     let mut soft = Soft::new(640, 360, 1);
