@@ -9,12 +9,15 @@ pub(crate) struct Soft {
     scale: usize,
     pub(crate) buf: Vec<u32>,
     scaled: Vec<u32>,
+    // Scratch for `scaled_blit`: the source column of each destination column and the source row of each row.
+    cols: Vec<u32>,
+    rows: Vec<u32>,
 }
 
 impl Soft {
     pub(crate) fn new(w: usize, h: usize, scale: usize) -> Self {
         let scaled = if scale > 1 { vec![0; w * h * scale * scale] } else { Vec::new() };
-        Soft { w, h, scale, buf: vec![0; w * h], scaled }
+        Soft { w, h, scale, buf: vec![0; w * h], scaled, cols: Vec::new(), rows: Vec::new() }
     }
 
     pub(crate) fn present(&mut self) -> &[u32] {
@@ -68,6 +71,10 @@ impl Soft {
                 let img = sheet.image();
                 let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
                 let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
+                if t.angle == 0.0 && t.sx != 0.0 && t.sy != 0.0 {
+                    self.scaled_blit(&img, src, flip, quad, t);
+                    return true;
+                }
                 self.warp(quad, t, |d, u, v| {
                     let u = if flip { src.w - u } else { u } + SAMPLE_BIAS;
                     let (u, v) = ((u as usize).min(w - 1), ((v + SAMPLE_BIAS) as usize).min(h - 1));
@@ -76,6 +83,50 @@ impl Soft {
             }
         }
         true
+    }
+
+    // A sprite scaled about its centre without turning, the common case of a zoom. It picks the same texel for every
+    // pixel as `warp` does, but works out the column of each destination column and the row of each row once, so the
+    // loop over pixels is only a table look-up and a copy.
+    fn scaled_blit(&mut self, img: &super::gfx::Image, src: Rect, flip: bool, quad: Rect, t: &Transform) {
+        const NONE: u32 = u32::MAX;
+        let (cx, cy) = quad.center();
+        let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
+        let (x0, x1) = ((cx - hw).floor().max(0.0) as usize, ((cx + hw).ceil().max(0.0) as usize).min(self.w));
+        let (y0, y1) = ((cy - hh).floor().max(0.0) as usize, ((cy + hh).ceil().max(0.0) as usize).min(self.h));
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
+        let (iu, iv) = (1.0 / t.sx, 1.0 / t.sy);
+        let (mut cols, mut rows) = (std::mem::take(&mut self.cols), std::mem::take(&mut self.rows));
+        cols.clear();
+        rows.clear();
+        cols.extend((x0..x1).map(|px| {
+            let u = (px as f32 + 0.5 - cx) * iu + quad.w / 2.0;
+            if u < 0.0 || u >= quad.w {
+                return NONE;
+            }
+            let u = if flip { src.w - u } else { u } + SAMPLE_BIAS;
+            (u as usize).min(w - 1) as u32
+        }));
+        rows.extend((y0..y1).map(|py| {
+            let v = (py as f32 + 0.5 - cy) * iv + quad.h / 2.0;
+            if v < 0.0 || v >= quad.h { NONE } else { ((v + SAMPLE_BIAS) as usize).min(h - 1) as u32 }
+        }));
+        for (py, &v) in (y0..y1).zip(&rows) {
+            if v == NONE {
+                continue;
+            }
+            let from = (sy0 + v as usize) * img.w + sx0;
+            let (line, dst) = (&img.px[from..from + w], &mut self.buf[py * self.w + x0..py * self.w + x1]);
+            for (d, &u) in dst.iter_mut().zip(&cols) {
+                if u != NONE {
+                    put(d, line[u as usize]);
+                }
+            }
+        }
+        (self.cols, self.rows) = (cols, rows);
     }
 
     fn warp(&mut self, quad: Rect, t: &Transform, mut shade: impl FnMut(&mut u32, f32, f32)) {
@@ -352,6 +403,24 @@ mod tests {
                 let s = drawn(48, 36, at, Paint::Sprite(sheet.clone()), Transform { angle, sx: 2.0, sy: 2.0 });
                 assert!(s.buf.iter().all(|&p| p == 0), "nothing is on the screen at ({x}, {y}), angle {angle}");
             }
+        }
+    }
+
+    #[test]
+    fn the_unturned_scaling_path_picks_the_same_texel_as_the_general_one_for_every_pixel() {
+        // An angle of 1e-30 is zero as far as the maths goes but sends the sprite down the general path.
+        let mut rng = crate::Rng::new(5);
+        let texels: Vec<u32> = (0..7 * 5).map(|i| 0xFF00_0000 | (i as u32 * 0x0003_1713 + 1)).collect();
+        let sheet = std::sync::Arc::new(Sprite::from_pixels(7, 5, texels));
+        for case in 0..300 {
+            let (sx, sy) =
+                (rng.range(0.3, 5.0) * [1.0, -1.0][case % 2], rng.range(0.3, 5.0) * [1.0, -1.0][case / 2 % 2]);
+            let rect = Rect { x: rng.range(-30.0, 50.0), y: rng.range(-30.0, 40.0), w: 7.0, h: 5.0 };
+            let flip = case % 3 == 0;
+            let paint = Paint::Region { sheet: sheet.clone(), src: Rect { x: 1.0, y: 0.0, w: 5.0, h: 5.0 }, flip };
+            let fast = drawn(48, 36, rect, paint.clone(), Transform { angle: 0.0, sx, sy });
+            let slow = drawn(48, 36, rect, paint, Transform { angle: 1e-30, sx, sy });
+            assert!(fast.buf == slow.buf, "case {case}: scale {sx} x {sy} at {rect:?}, flip {flip}");
         }
     }
 
