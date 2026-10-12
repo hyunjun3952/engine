@@ -61,6 +61,11 @@ impl Camera {
         self.jitter = (self.rng.range(-strength, strength), self.rng.range(-strength, strength));
     }
 
+    /// A screen position as a world position, ignoring shake so a pointer does not jitter with it.
+    pub fn to_world(&self, (x, y): (f32, f32)) -> (f32, f32) {
+        (x + self.pos.0.floor(), y + self.pos.1.floor())
+    }
+
     pub(crate) fn offset(&self) -> (f32, f32) {
         ((self.pos.0 + self.jitter.0).floor(), (self.pos.1 + self.jitter.1).floor())
     }
@@ -85,6 +90,15 @@ mod tests {
             c.follow(&at(600.0), (1000.0, 1000.0), 1.0 / 60.0);
         }
         assert!((c.offset().0 - 550.0).abs() <= 1.0);
+    }
+
+    #[test]
+    fn screen_points_map_to_world_without_shake() {
+        let mut c = Camera::new(100.0, 100.0);
+        c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        c.shake(5.0, 1.0);
+        c.tick(0.1);
+        assert_eq!(c.to_world((10.0, 4.0)), (460.0, 4.0));
     }
 
     #[test]

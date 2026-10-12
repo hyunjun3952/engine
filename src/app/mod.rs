@@ -127,6 +127,11 @@ impl Ctx {
         &self.input
     }
 
+    /// The mouse in world coordinates under the current camera (`input().mouse()` is in screen pixels).
+    pub fn mouse_world(&self) -> Option<(f32, f32)> {
+        self.input.mouse().map(|p| self.cam.to_world(p))
+    }
+
     pub fn assets(&mut self) -> &mut Assets {
         &mut self.assets
     }
