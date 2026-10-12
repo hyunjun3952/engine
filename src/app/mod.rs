@@ -273,6 +273,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     enter(&mut stack, scene, &mut ctx);
     let mut last_poll = Instant::now();
     let (mut last, mut acc) = (Instant::now(), 0.0f32);
+    let mut drawn = false;
     let (mut stats, mut since, mut f3) = (Stats::default(), Instant::now(), false);
     while win.is_open() && !stack.is_empty() {
         let now = Instant::now();
@@ -288,7 +289,9 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             gfx.debug = !gfx.debug;
         }
         f3 = f3_down;
+        let mut ticked = false;
         while acc >= dt && !stack.is_empty() {
+            ticked = true;
             let trans = stack.last_mut().unwrap().update(&mut ctx);
             apply(&mut stack, trans, &mut ctx);
             ctx.input.end_step();
@@ -299,6 +302,14 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         if stack.is_empty() {
             break;
         }
+        // Nothing moves between ticks, so drawing and presenting again would only burn CPU (and, over a remote
+        // display, bandwidth) on an identical picture.
+        if !ticked && drawn {
+            win.update();
+            std::thread::sleep(std::time::Duration::from_secs_f32((dt - acc).clamp(0.001, dt)));
+            continue;
+        }
+        drawn = true;
         gfx.cam = ctx.cam.offset();
         for s in &stack {
             s.draw(&mut gfx);
