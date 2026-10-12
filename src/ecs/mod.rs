@@ -6,7 +6,7 @@ mod particles;
 mod physics;
 
 pub use anim::{Anim, animate};
-pub use collision::{Contact, collisions};
+pub use collision::{Contact, collisions, query_rect, raycast};
 pub use components::{Body, Collider, Filter, Layer, Look, Vel, movement};
 pub use draw::draw_list;
 pub use hecs::{Entity, World};

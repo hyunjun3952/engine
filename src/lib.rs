@@ -12,7 +12,7 @@ pub use app::{
 pub use assets::{Assets, Audio};
 pub use ecs::{
     Anim, Body, Burst, Collider, Contact, Entity, Filter, Layer, Look, Physics, RigidBody, Vel, World, animate, burst,
-    collisions, draw_list, movement, particles,
+    collisions, draw_list, movement, particles, query_rect, raycast,
 };
 pub use render::{Camera, DrawCmd, Font, Gfx, Paint, Rect, Sprite, Tile, Tilemap, Transform};
 pub use ui::{Menu, Rebind, TextField, clicked, draw_bar, draw_panel, hovered, slider};

@@ -55,6 +55,34 @@ pub fn collisions(world: &World) -> Vec<Contact> {
         .collect()
 }
 
+// First collider hit by the ray `from + t * dir`, 0 <= t <= max, with its t; `dir` need not be a unit vector.
+pub fn raycast(world: &World, from: (f32, f32), dir: (f32, f32), max: f32) -> Option<(Entity, f32)> {
+    let mut best: Option<(Entity, f32)> = None;
+    for (e, b, _) in world.query::<(Entity, &Body, &Collider)>().iter() {
+        let r = &b.0;
+        let (mut t0, mut t1) = (0.0_f32, max);
+        for (o, d, lo, hi) in [(from.0, dir.0, r.x, r.x + r.w), (from.1, dir.1, r.y, r.y + r.h)] {
+            if d == 0.0 {
+                if o < lo || o > hi {
+                    t1 = -1.0;
+                }
+                continue;
+            }
+            let (a, b) = ((lo - o) / d, (hi - o) / d);
+            t0 = t0.max(a.min(b));
+            t1 = t1.min(a.max(b));
+        }
+        if t0 <= t1 && best.is_none_or(|(_, t)| t0 < t) {
+            best = Some((e, t0));
+        }
+    }
+    best
+}
+
+pub fn query_rect(world: &World, area: &Rect) -> Vec<Entity> {
+    world.query::<(Entity, &Body, &Collider)>().iter().filter(|(_, b, _)| b.0.overlaps(area)).map(|(e, ..)| e).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,6 +107,29 @@ mod tests {
         assert_eq!(c[0].other(a), Some(b));
         assert_eq!((c[0].ox, c[0].oy), (2.0, 10.0));
         assert!(c[0].x_axis());
+    }
+
+    #[test]
+    fn a_ray_hits_the_nearest_collider_in_front_and_stops_at_max() {
+        let mut w = World::new();
+        let near = boxed(&mut w, 20.0, true);
+        boxed(&mut w, 50.0, true);
+        boxed(&mut w, -30.0, true);
+        boxed(&mut w, 80.0, false);
+        let (e, t) = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0).unwrap();
+        assert_eq!((e, t), (near, 20.0));
+        assert!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 10.0).is_none());
+        assert!(raycast(&w, (0.0, 50.0), (1.0, 0.0), 100.0).is_none());
+        assert_eq!(raycast(&w, (25.0, 5.0), (0.0, 1.0), 5.0).map(|h| h.1), Some(0.0));
+    }
+
+    #[test]
+    fn query_rect_lists_the_colliders_inside_an_area() {
+        let mut w = World::new();
+        let a = boxed(&mut w, 0.0, true);
+        boxed(&mut w, 5.0, false);
+        boxed(&mut w, 50.0, true);
+        assert_eq!(query_rect(&w, &Rect { x: -5.0, y: 0.0, w: 10.0, h: 10.0 }), vec![a]);
     }
 
     #[test]
