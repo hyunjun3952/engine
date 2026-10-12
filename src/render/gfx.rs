@@ -245,10 +245,10 @@ pub(crate) struct Image {
 }
 
 impl Image {
-    /// Whether a source rectangle lies wholly inside the picture. A sheet swapped for a smaller one by hot reload
-    /// leaves frames and tiles pointing outside it.
+    /// Whether a source rectangle is at least a pixel big and lies wholly inside the picture. A sheet swapped for a smaller one
+    /// by hot reload leaves frames and tiles pointing outside it; a rectangle that is not a number holds nothing.
     pub(crate) fn holds(&self, r: &Rect) -> bool {
-        r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= self.w as f32 && r.y + r.h <= self.h as f32
+        r.w >= 1.0 && r.h >= 1.0 && r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= self.w as f32 && r.y + r.h <= self.h as f32
     }
 }
 

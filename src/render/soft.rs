@@ -160,17 +160,22 @@ impl Soft {
         }
     }
 
+    // The part of a rectangle inside the buffer as (x0, y0, x1, y1), with x0 <= x1 <= width and y0 <= y1 <= height
+    // whatever the rectangle is (far off screen, backwards, not a number), so that slicing a row with it cannot fail.
     fn clip(&self, r: &Rect) -> (usize, usize, usize, usize) {
-        let (x0, y0) = (r.x.max(0.0) as usize, r.y.max(0.0) as usize);
-        let (x1, y1) = (((r.x + r.w) as usize).min(self.w), ((r.y + r.h) as usize).min(self.h));
-        (x0, y0, x1.max(x0), y1)
+        let (x0, y0) = ((r.x.max(0.0) as usize).min(self.w), (r.y.max(0.0) as usize).min(self.h));
+        let (x1, y1) = (((r.x + r.w) as usize).min(self.w).max(x0), ((r.y + r.h) as usize).min(self.h).max(y0));
+        (x0, y0, x1, y1)
     }
 
     // The columns and rows of a `w` by `h` picture drawn at (`x`, `y`) that land inside the buffer.
     fn visible(&self, x: i32, y: i32, w: usize, h: usize) -> (Range<usize>, Range<usize>) {
-        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
-        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
-        (cols, rows)
+        // In i64 so that a position saturated to i32::MIN or MAX (from infinity) cannot overflow.
+        let span = |at: i32, len: usize, limit: usize| {
+            let at = at as i64;
+            (-at).max(0) as usize..((limit as i64 - at).max(0) as usize).min(len)
+        };
+        (span(x, w, self.w), span(y, h, self.h))
     }
 
     fn fill_with(&mut self, r: &Rect, f: impl Fn(u32) -> u32) {
@@ -428,6 +433,33 @@ mod tests {
             drawn(32, 32, at, inside, Transform::IDENTITY).buf.iter().any(|&p| p != 0),
             "a rect inside still draws"
         );
+    }
+
+    #[test]
+    fn rectangles_and_numbers_of_any_kind_never_panic_the_renderer() {
+        // What a physics blow-up or a divide by zero hands the renderer: not a number, infinite, huge, backwards.
+        let sheet = std::sync::Arc::new(Sprite::from_pixels(6, 4, (0..24).map(|i| 0xFF00_0000 | (i * 977)).collect()));
+        let odd = [0.0, -1.0, 1e-9, 0.5, 1.0, 7.5, 31.9, 1e9, -1e9, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+        let mut rng = crate::Rng::new(9);
+        let mut pick = move || odd[(rng.f32() * odd.len() as f32) as usize % odd.len()];
+        for case in 0..8000 {
+            let rect = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
+            let xform = Transform { angle: pick(), sx: pick(), sy: pick() };
+            let src = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
+            let paint = match case % 8 {
+                0 => Paint::Color(1),
+                1 => Paint::Alpha(0xff0000, 128),
+                2 => Paint::Sprite(sheet.clone()),
+                3 => Paint::Region { sheet: sheet.clone(), src, flip: case % 2 == 0 },
+                4 => Paint::Mask { sheet: sheet.clone(), src, color: 0xffffff },
+                5 => Paint::Outline(2),
+                6 => Paint::Glyph { ch: b'A', color: 3, scale: (case % 5) as u32 },
+                _ => Paint::Tiles { sheet: sheet.clone(), size: 2, tiles: vec![(0, 0, 1), (1, 1, 3)] },
+            };
+            let shown = format!("{rect:?} {xform:?} {src:?}");
+            let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drawn(32, 24, rect, paint, xform)));
+            assert!(ok.is_ok(), "case {case} panicked: {shown}");
+        }
     }
 
     #[test]
