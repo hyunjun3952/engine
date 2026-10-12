@@ -1,5 +1,5 @@
 use super::collision::overlapping_pairs;
-use crate::{Body, Entity, Rect, Tilemap, Vel, World};
+use crate::{Body, Entity, Rect, Tilemap, Transform, Vel, World};
 use std::collections::HashSet;
 
 const REST_SPEED: f32 = 30.0;
@@ -12,16 +12,17 @@ pub struct RigidBody {
     circle: bool,
     pub restitution: f32,
     pub friction: f32,
+    pub spin: f32,
 }
 
 impl RigidBody {
     pub fn dynamic(mass: f32) -> Self {
         assert!(mass > 0.0, "a dynamic body needs a positive mass");
-        RigidBody { inv_mass: 1.0 / mass, circle: false, restitution: 0.0, friction: 0.4 }
+        RigidBody { inv_mass: 1.0 / mass, circle: false, restitution: 0.0, friction: 0.4, spin: 0.0 }
     }
 
     pub fn fixed() -> Self {
-        RigidBody { inv_mass: 0.0, circle: false, restitution: 0.0, friction: 0.4 }
+        RigidBody { inv_mass: 0.0, circle: false, restitution: 0.0, friction: 0.4, spin: 0.0 }
     }
 
     pub fn circle(mut self) -> Self {
@@ -38,6 +39,11 @@ impl RigidBody {
         self.friction = friction;
         self
     }
+
+    pub fn with_spin(mut self, radians_per_sec: f32) -> Self {
+        self.spin = radians_per_sec;
+        self
+    }
 }
 
 pub struct Physics {
@@ -51,34 +57,93 @@ impl Default for Physics {
     }
 }
 
+type V2 = (f32, f32);
+
 struct Node {
     rect: Rect,
     before: Rect,
-    vel: (f32, f32),
+    at: V2,
+    vel: V2,
+    spin: f32,
+    angle: f32,
     inv_mass: f32,
+    inv_inertia: f32,
     circle: bool,
     restitution: f32,
     friction: f32,
 }
 
 impl Node {
-    fn center(&self) -> (f32, f32) {
+    fn center(&self) -> V2 {
         (self.rect.x + self.rect.w / 2.0, self.rect.y + self.rect.h / 2.0)
     }
 
-    fn before_center(&self) -> (f32, f32) {
+    fn before_center(&self) -> V2 {
         (self.before.x + self.before.w / 2.0, self.before.y + self.before.h / 2.0)
     }
 
     fn radius(&self) -> f32 {
         self.rect.w.min(self.rect.h) / 2.0
     }
+
+    fn half(&self) -> V2 {
+        (self.rect.w / 2.0, self.rect.h / 2.0)
+    }
+
+    // Local x and y axes in world space.
+    fn axes(&self) -> (V2, V2) {
+        let (s, c) = self.angle.sin_cos();
+        ((c, s), (-s, c))
+    }
+
+    fn bounds(&self) -> Rect {
+        if self.angle == 0.0 || self.circle {
+            return self.rect;
+        }
+        let ((ux, uy), _) = self.axes();
+        let (hw, hh) = self.half();
+        let (ex, ey) = (hw * ux.abs() + hh * uy.abs(), hw * uy.abs() + hh * ux.abs());
+        let (cx, cy) = self.center();
+        Rect { x: cx - ex, y: cy - ey, w: ex * 2.0, h: ey * 2.0 }
+    }
+
+    fn velocity_at(&self, r: V2) -> V2 {
+        (self.vel.0 - self.spin * r.1, self.vel.1 + self.spin * r.0)
+    }
+
+    fn push(&mut self, impulse: V2, r: V2, sign: f32) {
+        self.vel = (self.vel.0 + sign * impulse.0 * self.inv_mass, self.vel.1 + sign * impulse.1 * self.inv_mass);
+        self.spin += sign * cross(r, impulse) * self.inv_inertia;
+    }
+}
+
+fn cross(a: V2, b: V2) -> f32 {
+    a.0 * b.1 - a.1 * b.0
+}
+
+fn dot(a: V2, b: V2) -> f32 {
+    a.0 * b.0 + a.1 * b.1
+}
+
+struct Pt {
+    at: V2,
+    depth: f32,
+    jn: f32,
+    jt: f32,
+    bounce: f32,
+}
+
+impl Pt {
+    fn new(at: V2, depth: f32) -> Self {
+        Pt { at, depth, jn: 0.0, jt: 0.0, bounce: 0.0 }
+    }
 }
 
 struct Hit {
     a: usize,
     b: usize,
-    normal: (f32, f32),
+    normal: V2,
+    pts: Vec<Pt>,
 }
 
 impl Physics {
@@ -89,17 +154,23 @@ impl Physics {
         if let Some(map) = tiles {
             add_tiles(&mut nodes, bodies, map);
         }
-        let hits = find_hits(&nodes, bodies, tiles);
+        let mut hits = find_hits(&nodes, bodies, tiles);
+        for n in &mut nodes {
+            n.at = n.center();
+        }
+        for hit in &mut hits {
+            prepare(&nodes[hit.a], &nodes[hit.b], hit);
+        }
         for _ in 0..self.iterations {
-            for hit in &hits {
+            for hit in &mut hits {
                 let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
-                push_apart(a, b, hit.normal);
+                solve(a, b, hit);
             }
         }
         for _ in 0..CORRECTION_PASSES {
             for hit in &hits {
                 let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
-                separate(a, b, hit.normal);
+                separate(a, b, hit);
             }
         }
         write_back(world, &ents, &nodes);
@@ -112,21 +183,30 @@ impl Physics {
             n.vel.1 += self.gravity.1 * dt;
             n.rect.x += n.vel.0 * dt;
             n.rect.y += n.vel.1 * dt;
+            n.angle += n.spin * dt;
         }
     }
 }
 
 fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
-    let mut query = world.query::<(Entity, &Body, Option<&Vel>, &RigidBody)>();
+    let mut query = world.query::<(Entity, &Body, Option<&Vel>, &RigidBody, Option<&Transform>)>();
     query
         .iter()
-        .map(|(e, body, vel, rb)| {
+        .map(|(e, body, vel, rb, xform)| {
             let movable = vel.is_some() && rb.inv_mass > 0.0;
+            let inv_mass = if movable { rb.inv_mass } else { 0.0 };
+            let (w, h) = (body.0.w, body.0.h);
+            let inertia = if rb.circle { 0.5 * w.min(h).powi(2) / 4.0 } else { (w * w + h * h) / 12.0 } / inv_mass;
+            let rotates = movable && xform.is_some();
             let node = Node {
                 rect: body.0,
                 before: body.0,
+                at: (0.0, 0.0),
                 vel: vel.map_or((0.0, 0.0), |v| (v.x, v.y)),
-                inv_mass: if movable { rb.inv_mass } else { 0.0 },
+                spin: if rotates { rb.spin } else { 0.0 },
+                angle: xform.map_or(0.0, |t| t.angle),
+                inv_mass,
+                inv_inertia: if rotates { 1.0 / inertia } else { 0.0 },
                 circle: rb.circle,
                 restitution: rb.restitution,
                 friction: rb.friction,
@@ -142,15 +222,19 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
         if nodes[i].inv_mass == 0.0 {
             continue;
         }
-        let r = nodes[i].rect;
+        let r = nodes[i].bounds();
         let near = Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 };
         for tile in map.solid_in(near) {
             if seen.insert((tile.x as i32, tile.y as i32)) {
                 nodes.push(Node {
                     rect: tile,
                     before: tile,
+                    at: (0.0, 0.0),
                     vel: (0.0, 0.0),
+                    spin: 0.0,
+                    angle: 0.0,
                     inv_mass: 0.0,
+                    inv_inertia: 0.0,
                     circle: false,
                     restitution: 0.0,
                     friction: 0.4,
@@ -161,42 +245,69 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
 }
 
 fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>) -> Vec<Hit> {
-    let rects: Vec<Rect> = nodes.iter().map(|n| n.rect).collect();
-    overlapping_pairs(&rects)
+    let bounds: Vec<Rect> = nodes.iter().map(Node::bounds).collect();
+    overlapping_pairs(&bounds)
         .into_iter()
         .filter(|&(a, b, ..)| nodes[a].inv_mass + nodes[b].inv_mass > 0.0)
-        // A tile always goes second, which is where the seam filter below expects it.
+        // A tile always goes second, which is where the seam filters below expect it.
         .map(|(a, b, ..)| if a >= bodies && b < bodies { (b, a) } else { (a, b) })
         .filter_map(|(a, b)| {
-            let touch = touch(&nodes[a], &nodes[b])?;
-            let ghost = tiles.is_some_and(|map| b >= bodies && is_ghost(map, &nodes[b].rect, &touch));
-            (!ghost).then_some(Hit { a, b, normal: touch.normal })
+            let mut touch = touch(&nodes[a], &nodes[b], false)?;
+            if let Some(map) = tiles.filter(|_| b >= bodies) {
+                let tile = &nodes[b].rect;
+                if touch.whole_face {
+                    let (nx, ny) = touch.normal;
+                    let behind = Rect {
+                        x: tile.x + tile.w / 2.0 - nx * tile.w,
+                        y: tile.y + tile.h / 2.0 - ny * tile.h,
+                        ..*tile
+                    };
+                    if is_solid(map, behind.x, behind.y) {
+                        return None;
+                    }
+                } else {
+                    touch.pts.retain(|p| !is_hidden(map, tile, p.at, touch.normal));
+                    if touch.pts.is_empty() && !nodes[a].circle {
+                        // The body's face met a seam corner of the floor; its vertex hitting the tile's face is the real contact.
+                        touch = self::touch(&nodes[a], &nodes[b], true)?;
+                        touch.pts.retain(|p| !is_hidden(map, tile, p.at, touch.normal));
+                    }
+                }
+            }
+            (!touch.pts.is_empty()).then_some(Hit { a, b, normal: touch.normal, pts: touch.pts })
         })
         .collect()
 }
 
-struct Touch {
-    normal: (f32, f32),
-    depth: f32,
-    // Which side of a box's corner a circle touches, as signs; None for a face contact.
-    corner: Option<(f32, f32)>,
+fn is_solid(map: &Tilemap, x: f32, y: f32) -> bool {
+    !map.solid_in(Rect { x, y, w: 0.1, h: 0.1 }).is_empty()
 }
 
-// Normal points from a to b. Boxes use where they were before the step (see `hit_along_x`); circles only
-// have their current positions, so a fast circle can still tunnel.
-fn touch(a: &Node, b: &Node) -> Option<Touch> {
+// A tile face or corner that a neighbouring solid tile hides cannot be touched; a body sliding along the
+// floor would otherwise catch on the seam, because the resting overlap of 0.02 px makes the seam look like a wall.
+// A neighbour only hides the point when the body is on that neighbour's side of it (`toward` is tile to body).
+fn is_hidden(map: &Tilemap, tile: &Rect, (px, py): V2, normal: V2) -> bool {
+    let (mx, my) = (tile.x + tile.w / 2.0, tile.y + tile.h / 2.0);
+    let (dx, dy) = (px - mx, py - my);
+    let toward = (-normal.0, -normal.1);
+    let blocked = |d: f32, t: f32, half: f32| d.abs() >= half - 0.05 && d.signum() * t > 1e-6;
+    (blocked(dx, toward.0, tile.w / 2.0) && is_solid(map, mx + dx.signum() * tile.w, my))
+        || (blocked(dy, toward.1, tile.h / 2.0) && is_solid(map, mx, my + dy.signum() * tile.h))
+}
+
+struct Touch {
+    normal: V2,
+    pts: Vec<Pt>,
+    // Axis-aligned boxes: the normal alone says which tile face is touched.
+    whole_face: bool,
+}
+
+// Normal points from a to b. Untilted boxes use where they were before the step (see `hit_along_x`);
+// everything else only has current positions, so a fast circle or tilted box can still tunnel.
+fn touch(a: &Node, b: &Node, tile_axes_only: bool) -> Option<Touch> {
     match (a.circle, b.circle) {
-        (false, false) => {
-            let (ox, oy) = a.rect.penetration(&b.rect)?;
-            let normal = if hit_along_x(&a.before, &b.before, ox, oy) {
-                let side = (a.before.x, a.before.x + a.before.w, b.before.x, b.before.x + b.before.w);
-                (push_direction(side, a.center().0, b.center().0), 0.0)
-            } else {
-                let side = (a.before.y, a.before.y + a.before.h, b.before.y, b.before.y + b.before.h);
-                (0.0, push_direction(side, a.center().1, b.center().1))
-            };
-            Some(Touch { normal, depth: if normal.0 != 0.0 { ox } else { oy }, corner: None })
-        }
+        (false, false) if a.angle == 0.0 && b.angle == 0.0 => axis_aligned(a, b),
+        (false, false) => tilted_boxes(a, b, tile_axes_only),
         (true, true) => {
             let (ca, cb) = (a.center(), b.center());
             let (dx, dy) = (cb.0 - ca.0, cb.1 - ca.1);
@@ -206,54 +317,130 @@ fn touch(a: &Node, b: &Node) -> Option<Touch> {
                 return None;
             }
             let normal = if dist > 1e-6 { (dx / dist, dy / dist) } else { (0.0, 1.0) };
-            Some(Touch { normal, depth: reach - dist, corner: None })
+            let depth = reach - dist;
+            let at = (ca.0 + normal.0 * (a.radius() - depth / 2.0), ca.1 + normal.1 * (a.radius() - depth / 2.0));
+            Some(Touch { normal, pts: vec![Pt::new(at, depth)], whole_face: false })
         }
         (true, false) => circle_box(a, b).map(|t| Touch { normal: (-t.normal.0, -t.normal.1), ..t }),
         (false, true) => circle_box(b, a),
     }
 }
 
-// Normal points from the box to the circle.
+fn axis_aligned(a: &Node, b: &Node) -> Option<Touch> {
+    let (ox, oy) = a.rect.penetration(&b.rect)?;
+    let along_x = hit_along_x(&a.before, &b.before, ox, oy);
+    let (x0, x1) = (a.rect.x.max(b.rect.x), (a.rect.x + a.rect.w).min(b.rect.x + b.rect.w));
+    let (y0, y1) = (a.rect.y.max(b.rect.y), (a.rect.y + a.rect.h).min(b.rect.y + b.rect.h));
+    let (normal, depth, pts) = if along_x {
+        let side = (a.before.x, a.before.x + a.before.w, b.before.x, b.before.x + b.before.w);
+        let at = (x0 + x1) / 2.0;
+        ((push_direction(side, a.center().0, b.center().0), 0.0), ox, [(at, y0), (at, y1)])
+    } else {
+        let side = (a.before.y, a.before.y + a.before.h, b.before.y, b.before.y + b.before.h);
+        let at = (y0 + y1) / 2.0;
+        ((0.0, push_direction(side, a.center().1, b.center().1)), oy, [(x0, at), (x1, at)])
+    };
+    Some(Touch { normal, pts: pts.map(|at| Pt::new(at, depth)).into(), whole_face: true })
+}
+
+// Separating axis test over the four face normals, then clipping the incident edge against the reference face.
+fn tilted_boxes(a: &Node, b: &Node, only_b_axes: bool) -> Option<Touch> {
+    let (ca, cb) = (a.center(), b.center());
+    let d = (cb.0 - ca.0, cb.1 - ca.1);
+    let (aa, ab) = (a.axes(), b.axes());
+    let (ha, hb) = (a.half(), b.half());
+    let reach = |axes: (V2, V2), h: V2, n: V2| h.0 * dot(axes.0, n).abs() + h.1 * dot(axes.1, n).abs();
+    let mut best = [(f32::MAX, 0usize); 2];
+    for (owner, axes) in [aa, ab].into_iter().enumerate() {
+        for (i, n) in [axes.0, axes.1].into_iter().enumerate() {
+            let pen = reach(aa, ha, n) + reach(ab, hb, n) - dot(d, n).abs();
+            if pen <= 0.0 {
+                return None;
+            }
+            if pen < best[owner].0 {
+                best[owner] = (pen, i);
+            }
+        }
+    }
+    let ref_is_b = only_b_axes || best[1].0 < 0.95 * best[0].0 - 0.01;
+    let (rn, inc, axes_r, axes_i, half_r) = if ref_is_b { (&b, &a, ab, aa, hb) } else { (&a, &b, aa, ab, ha) };
+    let pick = |axes: (V2, V2), i: usize| if i == 0 { axes.0 } else { axes.1 };
+    let i = best[ref_is_b as usize].1;
+    let axis = pick(axes_r, i);
+    let toward_inc = if ref_is_b { (-d.0, -d.1) } else { d };
+    // Outward normal of the reference face, pointing at the incident box.
+    let nr = if dot(axis, toward_inc) < 0.0 { (-axis.0, -axis.1) } else { axis };
+    let normal = if ref_is_b { (-nr.0, -nr.1) } else { nr };
+    let (face_half, side_half) = if i == 0 { (half_r.0, half_r.1) } else { (half_r.1, half_r.0) };
+    let (cr, ci) = (rn.center(), inc.center());
+    let t = (-nr.1, nr.0);
+
+    let faces = [(axes_i.0, 0), (axes_i.1, 1)];
+    let (fi, k) = faces
+        .into_iter()
+        .flat_map(|(n, k)| [(n, k), ((-n.0, -n.1), k)])
+        .min_by(|x, y| dot(x.0, nr).total_cmp(&dot(y.0, nr)))
+        .unwrap();
+    let half_i = inc.half();
+    let (along, across) = if k == 0 { (half_i.0, half_i.1) } else { (half_i.1, half_i.0) };
+    let edge = (-fi.1, fi.0);
+    let mid = (ci.0 + fi.0 * along, ci.1 + fi.1 * along);
+    let mut seg =
+        [(mid.0 + edge.0 * across, mid.1 + edge.1 * across), (mid.0 - edge.0 * across, mid.1 - edge.1 * across)];
+    for sign in [1.0, -1.0] {
+        let dist = |p: V2| side_half - sign * dot((p.0 - cr.0, p.1 - cr.1), t);
+        let (d0, d1) = (dist(seg[0]), dist(seg[1]));
+        if d0 < 0.0 && d1 < 0.0 {
+            return None;
+        }
+        if d0 < 0.0 || d1 < 0.0 {
+            let (keep, cut, dk, dc) = if d0 < 0.0 { (1, 0, d1, d0) } else { (0, 1, d0, d1) };
+            let f = dk / (dk - dc);
+            let (pk, pc) = (seg[keep], seg[cut]);
+            seg[cut] = (pk.0 + (pc.0 - pk.0) * f, pk.1 + (pc.1 - pk.1) * f);
+        }
+    }
+    let pts: Vec<Pt> = seg
+        .into_iter()
+        .map(|p| Pt::new(p, face_half - dot((p.0 - cr.0, p.1 - cr.1), nr)))
+        .filter(|p| p.depth > 0.0)
+        .collect();
+    (!pts.is_empty()).then_some(Touch { normal, pts, whole_face: false })
+}
+
+// Normal points from the box to the circle; works in the box's own frame so a tilted box needs no special case.
 fn circle_box(circle: &Node, boxed: &Node) -> Option<Touch> {
-    let ((cx, cy), r, b) = (circle.center(), circle.radius(), boxed.rect);
-    let (qx, qy) = (cx.clamp(b.x, b.x + b.w), cy.clamp(b.y, b.y + b.h));
-    let (dx, dy) = (cx - qx, cy - qy);
+    let (cc, bc, r) = (circle.center(), boxed.center(), circle.radius());
+    let (ux, uy) = boxed.axes();
+    let w = (cc.0 - bc.0, cc.1 - bc.1);
+    let (lx, ly) = (dot(w, ux), dot(w, uy));
+    let (hw, hh) = boxed.half();
+    let (qx, qy) = (lx.clamp(-hw, hw), ly.clamp(-hh, hh));
+    let (dx, dy) = (lx - qx, ly - qy);
     let d2 = dx * dx + dy * dy;
-    if d2 > 0.0 {
+    let (n, depth, q) = if d2 > 0.0 {
         if d2 >= r * r {
             return None;
         }
         let dist = d2.sqrt();
-        let corner = (dx != 0.0 && dy != 0.0).then(|| (dx.signum(), dy.signum()));
-        return Some(Touch { normal: (dx / dist, dy / dist), depth: r - dist, corner });
-    }
-    // A centre that ended up inside came from outside: leave by the side it was on before the step.
-    let ((px, py), was) = (circle.before_center(), boxed.before);
-    let exits = [
-        (cx - b.x, (-1.0, 0.0), px < was.x),
-        (b.x + b.w - cx, (1.0, 0.0), px > was.x + was.w),
-        (cy - b.y, (0.0, -1.0), py < was.y),
-        (b.y + b.h - cy, (0.0, 1.0), py > was.y + was.h),
-    ];
-    let nearest = exits.iter().min_by(|x, y| x.0.total_cmp(&y.0)).unwrap();
-    let (inside, normal, _) = *exits.iter().find(|e| e.2).unwrap_or(nearest);
-    Some(Touch { normal, depth: r + inside, corner: None })
-}
-
-// A tile face or corner that a neighbouring solid tile hides cannot be touched; a body sliding along the
-// floor would otherwise catch on the seam, because the resting overlap of 0.02 px makes the seam look like a wall.
-fn is_ghost(map: &Tilemap, tile: &Rect, touch: &Touch) -> bool {
-    let solid_at = |x: f32, y: f32| !map.solid_in(Rect { x, y, w: 0.1, h: 0.1 }).is_empty();
-    match touch.corner {
-        None => {
-            let (nx, ny) = touch.normal;
-            solid_at(tile.x + tile.w / 2.0 - nx * tile.w, tile.y + tile.h / 2.0 - ny * tile.h)
-        }
-        Some((sx, sy)) => {
-            let (mx, my) = (tile.x + tile.w / 2.0, tile.y + tile.h / 2.0);
-            solid_at(mx + sx * tile.w, my) || solid_at(mx, my + sy * tile.h)
-        }
-    }
+        ((dx / dist, dy / dist), r - dist, (qx, qy))
+    } else {
+        // A centre that ended up inside came from outside: leave by the side it was on before the step.
+        let ((px, py), was) = (circle.before_center(), boxed.before);
+        let flat = boxed.angle == 0.0;
+        let exits = [
+            (lx + hw, (-1.0, 0.0), (-hw, ly), flat && px < was.x),
+            (hw - lx, (1.0, 0.0), (hw, ly), flat && px > was.x + was.w),
+            (ly + hh, (0.0, -1.0), (lx, -hh), flat && py < was.y),
+            (hh - ly, (0.0, 1.0), (lx, hh), flat && py > was.y + was.h),
+        ];
+        let nearest = exits.iter().min_by(|x, y| x.0.total_cmp(&y.0)).unwrap();
+        let &(inside, n, q, _) = exits.iter().find(|e| e.3).unwrap_or(nearest);
+        (n, r + inside, q)
+    };
+    let world = |v: V2| (v.0 * ux.0 + v.1 * uy.0, v.0 * ux.1 + v.1 * uy.1);
+    let (nw, qw) = (world(n), world(q));
+    Some(Touch { normal: nw, pts: vec![Pt::new((bc.0 + qw.0, bc.1 + qw.1), depth)], whole_face: false })
 }
 
 fn hit_along_x(a: &Rect, b: &Rect, ox: f32, oy: f32) -> bool {
@@ -284,35 +471,63 @@ fn pair_mut(nodes: &mut [Node], a: usize, b: usize) -> (&mut Node, &mut Node) {
     }
 }
 
-fn push_apart(a: &mut Node, b: &mut Node, (nx, ny): (f32, f32)) {
-    let inv_sum = a.inv_mass + b.inv_mass;
-    let closing = (b.vel.0 - a.vel.0) * nx + (b.vel.1 - a.vel.1) * ny;
-    if closing > 0.0 {
-        return;
-    }
-    let bounce = if -closing < REST_SPEED { 0.0 } else { a.restitution.min(b.restitution) };
-    let j = -(1.0 + bounce) * closing / inv_sum;
-    a.vel = (a.vel.0 - j * a.inv_mass * nx, a.vel.1 - j * a.inv_mass * ny);
-    b.vel = (b.vel.0 + j * b.inv_mass * nx, b.vel.1 + j * b.inv_mass * ny);
-
-    let (tx, ty) = (-ny, nx);
-    let sliding = (b.vel.0 - a.vel.0) * tx + (b.vel.1 - a.vel.1) * ty;
-    let grip = (a.friction * b.friction).sqrt() * j;
-    let jt = (-sliding / inv_sum).clamp(-grip, grip);
-    a.vel = (a.vel.0 - jt * a.inv_mass * tx, a.vel.1 - jt * a.inv_mass * ty);
-    b.vel = (b.vel.0 + jt * b.inv_mass * tx, b.vel.1 + jt * b.inv_mass * ty);
+fn arms(a: &Node, b: &Node, at: V2) -> (V2, V2) {
+    let (ca, cb) = (a.center(), b.center());
+    ((at.0 - ca.0, at.1 - ca.1), (at.0 - cb.0, at.1 - cb.1))
 }
 
-fn separate(a: &mut Node, b: &mut Node, normal: (f32, f32)) {
-    let (nx, ny, depth) = if a.circle || b.circle {
-        let Some(t) = touch(a, b) else { return };
-        (t.normal.0, t.normal.1, t.depth)
-    } else {
-        let Some((ox, oy)) = a.rect.penetration(&b.rect) else { return };
-        (normal.0, normal.1, if normal.0 != 0.0 { ox } else { oy })
-    };
+// Effective mass of a contact along `dir`: both linear masses plus how much each body's spin resists.
+fn stiffness(a: &Node, b: &Node, ra: V2, rb: V2, dir: V2) -> f32 {
+    a.inv_mass + b.inv_mass + cross(ra, dir).powi(2) * a.inv_inertia + cross(rb, dir).powi(2) * b.inv_inertia
+}
+
+// How fast the bodies close along the normal when contact starts decides the bounce, once, before any impulse.
+fn prepare(a: &Node, b: &Node, hit: &mut Hit) {
+    let bounce = a.restitution.min(b.restitution);
+    for pt in &mut hit.pts {
+        let (ra, rb) = arms(a, b, pt.at);
+        let (va, vb) = (a.velocity_at(ra), b.velocity_at(rb));
+        let closing = -dot((vb.0 - va.0, vb.1 - va.1), hit.normal);
+        pt.bounce = if closing < REST_SPEED { 0.0 } else { bounce * closing };
+    }
+}
+
+fn solve(a: &mut Node, b: &mut Node, hit: &mut Hit) {
+    let n = hit.normal;
+    let t = (-n.1, n.0);
+    let grip = (a.friction * b.friction).sqrt();
+    for pt in &mut hit.pts {
+        let (ra, rb) = arms(a, b, pt.at);
+        let rel = |a: &Node, b: &Node| {
+            let (va, vb) = (a.velocity_at(ra), b.velocity_at(rb));
+            (vb.0 - va.0, vb.1 - va.1)
+        };
+        let lambda = (pt.bounce - dot(rel(a, b), n)) / stiffness(a, b, ra, rb, n);
+        let total = (pt.jn + lambda).max(0.0);
+        let impulse = ((total - pt.jn) * n.0, (total - pt.jn) * n.1);
+        pt.jn = total;
+        a.push(impulse, ra, -1.0);
+        b.push(impulse, rb, 1.0);
+
+        let lambda = -dot(rel(a, b), t) / stiffness(a, b, ra, rb, t);
+        let total = (pt.jt + lambda).clamp(-grip * pt.jn, grip * pt.jn);
+        let impulse = ((total - pt.jt) * t.0, (total - pt.jt) * t.1);
+        pt.jt = total;
+        a.push(impulse, ra, -1.0);
+        b.push(impulse, rb, 1.0);
+    }
+}
+
+// Positional correction only moves bodies, not their angle; the contact's depth shrinks by how far they have
+// moved together along the normal since it was found.
+fn separate(a: &mut Node, b: &mut Node, hit: &Hit) {
+    let (ca, cb) = (a.center(), b.center());
+    let moved = (cb.0 - b.at.0 - (ca.0 - a.at.0), cb.1 - b.at.1 - (ca.1 - a.at.1));
+    let closed = dot(moved, hit.normal);
+    let depth = hit.pts.iter().map(|p| p.depth).fold(0.0, f32::max) - closed;
     let inv_sum = a.inv_mass + b.inv_mass;
     let shift = (depth - SLOP).max(0.0) * CORRECTION / inv_sum;
+    let (nx, ny) = hit.normal;
     a.rect.x -= nx * shift * a.inv_mass;
     a.rect.y -= ny * shift * a.inv_mass;
     b.rect.x += nx * shift * b.inv_mass;
@@ -321,9 +536,15 @@ fn separate(a: &mut Node, b: &mut Node, normal: (f32, f32)) {
 
 fn write_back(world: &mut World, ents: &[Entity], nodes: &[Node]) {
     for (e, node) in ents.iter().zip(nodes).filter(|(_, n)| n.inv_mass > 0.0) {
-        if let Ok((body, Some(vel))) = world.query_one_mut::<(&mut Body, Option<&mut Vel>)>(*e) {
+        if let Ok((body, Some(vel), rb, xform)) =
+            world.query_one_mut::<(&mut Body, Option<&mut Vel>, &mut RigidBody, Option<&mut Transform>)>(*e)
+        {
             body.0 = node.rect;
             (vel.x, vel.y) = node.vel;
+            if let Some(xform) = xform {
+                xform.angle = node.angle;
+                rb.spin = node.spin;
+            }
         }
     }
 }
@@ -665,6 +886,143 @@ mod tests {
         for e in bodies {
             let (r, _) = state(&w, e);
             assert!(r.x >= 9.0 && r.x + r.w <= 631.0 && r.y + r.h <= 341.0, "escaped or sank: {r:?}");
+        }
+    }
+
+    fn turning(w: &mut World, rect: Rect, rb: RigidBody, angle: f32) -> Entity {
+        w.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, rb, Transform { angle, sx: 1.0, sy: 1.0 }))
+    }
+
+    fn angle_of(w: &World, e: Entity) -> f32 {
+        w.get::<&Transform>(e).unwrap().angle
+    }
+
+    #[test]
+    fn a_tilted_box_dropped_on_the_floor_ends_up_flat_and_still() {
+        for tilt in [0.3_f32, -0.6, 0.78] {
+            let (p, mut w) = (Physics::default(), World::new());
+            floor(&mut w);
+            let e = turning(&mut w, Rect { x: 50.0, y: 20.0, w: 30.0, h: 20.0 }, RigidBody::dynamic(1.0), tilt);
+            run(&p, &mut w, None, 400);
+            let (r, v) = state(&w, e);
+            let off = angle_of(&w, e).rem_euclid(std::f32::consts::FRAC_PI_2);
+            let off = off.min(std::f32::consts::FRAC_PI_2 - off);
+            assert!(off < 0.03, "tilt {tilt}: rests at {} rad", angle_of(&w, e));
+            assert!(v.0.abs() < 1.0 && v.1.abs() < 2.0, "tilt {tilt}: still moving {v:?}");
+            let centre = r.y + r.h / 2.0;
+            assert!((centre - 90.0).abs() < 0.6 || (centre - 85.0).abs() < 0.6, "tilt {tilt}: centre at {centre}");
+        }
+    }
+
+    #[test]
+    fn a_resting_box_that_can_turn_does_not_creep_or_spin_up() {
+        let (p, mut w) = (Physics::default(), World::new());
+        floor(&mut w);
+        let e = turning(&mut w, Rect { x: 50.0, y: 79.0, w: 30.0, h: 20.0 }, RigidBody::dynamic(1.0), 0.0);
+        run(&p, &mut w, None, 600);
+        let (r, _) = state(&w, e);
+        assert!((r.x - 50.0).abs() < 0.5 && (r.y + r.h - 100.0).abs() < 0.3, "{r:?}");
+        assert!(angle_of(&w, e).abs() < 0.01, "turned to {}", angle_of(&w, e));
+        assert!(w.get::<&RigidBody>(e).unwrap().spin.abs() < 0.05);
+    }
+
+    #[test]
+    fn a_ball_rolls_down_a_slope_at_two_thirds_of_the_slide_acceleration() {
+        let (p, mut w) = (Physics::default(), World::new());
+        let angle = 30.0_f32.to_radians();
+        let plank = Rect { x: -400.0, y: 100.0, w: 800.0, h: 20.0 };
+        w.spawn((Body(plank), RigidBody::fixed().with_friction(1.0), Transform { angle, sx: 1.0, sy: 1.0 }));
+        // On the slope's surface: along the plank's normal, clear of it by the radius.
+        let (nx, ny) = (angle.sin(), -angle.cos());
+        let (cx, cy) = (
+            plank.x + 400.0 + 10.0 * nx - 150.0 * angle.cos(),
+            plank.y + 10.0 + (10.0 + 10.0) * ny - 150.0 * angle.sin(),
+        );
+        let rect = Rect { x: cx - 10.0, y: cy - 10.0, w: 20.0, h: 20.0 };
+        let ball = turning(&mut w, rect, RigidBody::dynamic(1.0).with_friction(1.0).circle(), 0.0);
+        run(&p, &mut w, None, 30);
+        let (v0, t0) = (state(&w, ball).1, 30.0 * DT);
+        run(&p, &mut w, None, 30);
+        let v1 = state(&w, ball).1;
+        let (s0, s1) = ((v0.0.powi(2) + v0.1.powi(2)).sqrt(), (v1.0.powi(2) + v1.1.powi(2)).sqrt());
+        let accel = (s1 - s0) / (30.0 * DT);
+        let expected = 900.0 * angle.sin() / 1.5;
+        assert!(t0 > 0.0 && (accel / expected - 1.0).abs() < 0.15, "accel {accel}, rolling should give {expected}");
+        let spin = w.get::<&RigidBody>(ball).unwrap().spin;
+        assert!((spin * 10.0 / s1 - 1.0).abs() < 0.15, "spin {spin} does not match rolling at speed {s1}");
+    }
+
+    #[test]
+    fn an_off_centre_hit_spins_the_box_and_conserves_both_momenta() {
+        let p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let mut w = World::new();
+        let rb = |m: f32| RigidBody::dynamic(m).with_friction(0.0).with_bounce(0.5);
+        let ball = turning(&mut w, Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }, rb(1.0).circle(), 0.0);
+        let boxed_ = turning(&mut w, Rect { x: 40.0, y: 6.0, w: 30.0, h: 30.0 }, rb(4.0), 0.0);
+        w.query_one_mut::<&mut Vel>(ball).unwrap().x = 25.0;
+        let momentum = |w: &World| {
+            let (mut lin, mut ang) = ((0.0, 0.0), 0.0);
+            for (e, m, i) in [(ball, 1.0, 0.5 * 25.0), (boxed_, 4.0, 4.0 * 1800.0 / 12.0)] {
+                let (r, v) = state(w, e);
+                let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+                lin = (lin.0 + m * v.0, lin.1 + m * v.1);
+                ang += m * (cx * v.1 - cy * v.0) + i * w.get::<&RigidBody>(e).unwrap().spin;
+            }
+            (lin, ang)
+        };
+        let (lin0, ang0) = momentum(&w);
+        run(&p, &mut w, None, 120);
+        let (lin1, ang1) = momentum(&w);
+        assert!(w.get::<&RigidBody>(boxed_).unwrap().spin.abs() > 0.1, "the box did not start turning");
+        assert!((lin1.0 - lin0.0).abs() < 2.0 && (lin1.1 - lin0.1).abs() < 2.0, "linear {lin0:?} -> {lin1:?}");
+        assert!((ang1 - ang0).abs() < ang0.abs() * 0.03, "angular {ang0} -> {ang1}");
+    }
+
+    #[test]
+    fn tilted_boxes_land_flat_on_a_tile_floor_across_its_seams() {
+        let map = tile_floor();
+        for x in [16.0_f32, 29.0, 100.0] {
+            let (p, mut w) = (Physics::default(), World::new());
+            let e = turning(&mut w, Rect { x, y: 0.0, w: 24.0, h: 14.0 }, RigidBody::dynamic(1.0), 0.5);
+            run(&p, &mut w, Some(&map), 300);
+            let r = state(&w, e).0;
+            let centre = r.y + r.h / 2.0;
+            assert!(
+                (centre - 25.0).abs() < 0.6 || (centre - 20.0).abs() < 0.6,
+                "x {x}: centre at {centre} on a floor at 32"
+            );
+            assert!(state(&w, e).1.1.abs() < 2.0, "x {x}: still falling or bouncing");
+        }
+    }
+
+    #[test]
+    fn spinning_boxes_and_balls_piled_into_an_arena_stay_inside_it() {
+        let (p, mut w) = (Physics::default(), World::new());
+        let mut rng = crate::Rng::new(5);
+        let wall = |x, y, w_, h| (Body(Rect { x, y, w: w_, h }), RigidBody::fixed());
+        w.spawn(wall(0.0, 340.0, 640.0, 20.0));
+        w.spawn(wall(0.0, 0.0, 10.0, 360.0));
+        w.spawn(wall(630.0, 0.0, 10.0, 360.0));
+        let bodies: Vec<Entity> = (0..40)
+            .map(|i| {
+                let (wd, ht) = (rng.range(14.0, 34.0), rng.range(14.0, 34.0));
+                let rect = Rect { x: rng.range(20.0, 600.0), y: -20.0 * i as f32, w: wd, h: ht };
+                let rb = RigidBody::dynamic(wd * ht / 100.0).with_bounce(rng.range(0.0, 0.5)).with_friction(0.5);
+                let rb = rb.with_spin(rng.range(-6.0, 6.0));
+                if i % 3 == 0 {
+                    turning(&mut w, Rect { h: wd, ..rect }, rb.circle(), 0.0)
+                } else {
+                    turning(&mut w, rect, rb, rng.range(0.0, 3.0))
+                }
+            })
+            .collect();
+        run(&p, &mut w, None, 900);
+        for e in bodies {
+            let (r, v) = state(&w, e);
+            // The rect is the unturned box, so judge the centre against the smallest half-size.
+            let (cx, cy, near) = (r.x + r.w / 2.0, r.y + r.h / 2.0, r.w.min(r.h) / 2.0);
+            assert!(cx >= 9.0 + near && cx <= 631.0 - near && cy <= 341.0 - near, "escaped or sank: {r:?}");
+            assert!(v.0.hypot(v.1) < 60.0, "still flying after 15 s: {v:?}");
         }
     }
 }

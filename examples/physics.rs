@@ -1,5 +1,5 @@
 use engine::{
-    Body, Config, Ctx, Entity, Gfx, Key, Look, Physics, Rect, RigidBody, Scene, Trans, Vel, World, draw_list,
+    Body, Config, Ctx, Entity, Gfx, Key, Look, Physics, Rect, RigidBody, Scene, Trans, Transform, Vel, World, draw_list,
 };
 
 const W: f32 = 640.0;
@@ -34,8 +34,11 @@ impl Sandbox {
         let shade = (80.0 + bounce * 250.0) as u32;
         let color = (shade + 40) << 16 | (200 - shade / 2) << 8 | 120;
         let rect = Rect { x: rng.range(20.0, W - 20.0 - size), y, w: size, h: size };
-        let body = RigidBody::dynamic(size * size / 100.0).with_bounce(bounce).with_friction(0.5);
-        self.world.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, Look::Color(color), body))
+        let spin = rng.range(-4.0, 4.0);
+        let angle = rng.range(0.0, 3.0);
+        let body = RigidBody::dynamic(size * size / 100.0).with_bounce(bounce).with_friction(0.5).with_spin(spin);
+        let turn = Transform { angle, ..Transform::IDENTITY };
+        self.world.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, Look::Color(color), body, turn))
     }
 }
 
@@ -45,7 +48,7 @@ impl Sandbox {
         let x = ctx.rng().range(20.0, W - 36.0);
         let body = RigidBody::dynamic(2.5).with_bounce(0.7).with_friction(0.2).circle();
         let rect = Rect { x, y, w: 16.0, h: 16.0 };
-        self.world.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, Look::Sprite(sprite), body))
+        self.world.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, Look::Sprite(sprite), body, Transform::IDENTITY))
     }
 }
 
