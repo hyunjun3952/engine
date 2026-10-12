@@ -86,14 +86,18 @@ impl Soft {
         let (ex, ey) = (hw * c.abs() + hh * s.abs(), hw * s.abs() + hh * c.abs());
         let (x0, x1) = ((cx - ex).floor().max(0.0) as usize, ((cx + ex).ceil().max(0.0) as usize).min(self.w));
         let (y0, y1) = ((cy - ey).floor().max(0.0) as usize, ((cy + ey).ceil().max(0.0) as usize).min(self.h));
+        let (iu, iv) = (1.0 / t.sx, 1.0 / t.sy);
+        let (du, dv) = (c * iu, -s * iv);
         for py in y0..y1 {
-            for px in x0..x1 {
-                let (dx, dy) = (px as f32 + 0.5 - cx, py as f32 + 0.5 - cy);
-                let (lx, ly) = (dx * c + dy * s, dy * c - dx * s);
-                let (u, v) = (lx / t.sx + quad.w / 2.0, ly / t.sy + quad.h / 2.0);
+            let (dx, dy) = (x0 as f32 + 0.5 - cx, py as f32 + 0.5 - cy);
+            let mut u = (dx * c + dy * s) * iu + quad.w / 2.0;
+            let mut v = (dy * c - dx * s) * iv + quad.h / 2.0;
+            for d in &mut self.buf[py * self.w + x0..py * self.w + x1.max(x0)] {
                 if u >= 0.0 && u < quad.w && v >= 0.0 && v < quad.h {
-                    shade(&mut self.buf[py * self.w + px], u, v);
+                    shade(d, u, v);
                 }
+                u += du;
+                v += dv;
             }
         }
     }
