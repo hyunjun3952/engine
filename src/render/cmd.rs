@@ -14,6 +14,17 @@ pub enum Paint {
     Tiles { sheet: Arc<Sprite>, size: u32, tiles: Vec<(u32, u32, u8)> },
 }
 
+impl Paint {
+    /// The sheet, source area and mirroring of a paint that copies pixels from a sprite as they are.
+    pub(crate) fn region(&self) -> Option<(&Arc<Sprite>, Rect, bool)> {
+        match self {
+            Paint::Sprite(s) => Some((s, s.bounds(), false)),
+            Paint::Region { sheet, src, flip } => Some((sheet, *src, *flip)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
     pub angle: f32,

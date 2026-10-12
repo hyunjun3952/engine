@@ -61,21 +61,16 @@ impl Soft {
                 let (col, a) = (*col, *a as u32);
                 self.warp(*r, t, |d, _, _| *d = blend(col, *d, a));
             }
-            Paint::Sprite(s) => {
-                let img = s.image();
-                let quad = Rect { x: r.x, y: r.y, w: img.w as f32, h: img.h as f32 };
-                self.warp(quad, t, |d, u, v| put(d, img.px[v as usize * img.w + u as usize]));
-            }
-            Paint::Region { sheet, src, flip } => {
+            _ => {
+                let Some((sheet, src, flip)) = c.paint.region() else { return false };
                 let img = sheet.image();
                 let (sx0, sy0, w) = (src.x as usize, src.y as usize, src.w as usize);
                 let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
                 self.warp(quad, t, |d, u, v| {
-                    let u = if *flip { w - 1 - u as usize } else { u as usize };
+                    let u = if flip { w - 1 - u as usize } else { u as usize };
                     put(d, img.px[(sy0 + v as usize) * img.w + sx0 + u]);
                 });
             }
-            _ => return false,
         }
         true
     }

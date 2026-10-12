@@ -402,28 +402,33 @@ impl Gpu {
         for c in cmds {
             let r = &c.rect;
             let t = &c.xform;
+            let fill = match &c.paint {
+                Paint::Color(col) => Some((*col, 1.0)),
+                Paint::Alpha(col, a) => Some((*col, *a as f32 / 255.0)),
+                _ => None,
+            };
+            if let Some((col, a)) = fill {
+                match t.is_identity() {
+                    true => self.solid(r, rgba(col, a)),
+                    false => self.warped(Tex::White, *r, t, (0.0, 0.0, 1.0, 1.0), rgba(col, a)),
+                }
+                continue;
+            }
+            if let Some((sheet, src, flip)) = c.paint.region() {
+                let (tex, (sw, sh)) = self.texture(sheet);
+                let (u0, u1) = (src.x / sw, (src.x + src.w) / sw);
+                let (u0, u1) = if flip { (u1, u0) } else { (u0, u1) };
+                let uv = (u0, src.y / sh, u1, (src.y + src.h) / sh);
+                if t.is_identity() {
+                    let (x, y) = (r.x.trunc(), r.y.trunc());
+                    self.quad(tex, (x, y, x + src.w, y + src.h), uv, [1.0; 4]);
+                } else {
+                    self.warped(tex, crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h }, t, uv, [1.0; 4]);
+                }
+                continue;
+            }
             match &c.paint {
-                Paint::Color(col) if !t.is_identity() => {
-                    self.warped(Tex::White, *r, t, (0.0, 0.0, 1.0, 1.0), rgba(*col, 1.0))
-                }
-                Paint::Alpha(col, a) if !t.is_identity() => {
-                    self.warped(Tex::White, *r, t, (0.0, 0.0, 1.0, 1.0), rgba(*col, *a as f32 / 255.0))
-                }
-                Paint::Sprite(s) if !t.is_identity() => {
-                    let (tex, (w, h)) = self.texture(s);
-                    let quad = crate::Rect { x: r.x, y: r.y, w, h };
-                    self.warped(tex, quad, t, (0.0, 0.0, 1.0, 1.0), [1.0; 4]);
-                }
-                Paint::Region { sheet, src, flip } if !t.is_identity() => {
-                    let (tex, (sw, sh)) = self.texture(sheet);
-                    let (u0, u1) = (src.x / sw, (src.x + src.w) / sw);
-                    let (u0, u1) = if *flip { (u1, u0) } else { (u0, u1) };
-                    let quad = crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h };
-                    self.warped(tex, quad, t, (u0, src.y / sh, u1, (src.y + src.h) / sh), [1.0; 4]);
-                }
                 Paint::Clear(col) => self.solid(&full, rgba(*col, 1.0)),
-                Paint::Color(col) => self.solid(r, rgba(*col, 1.0)),
-                Paint::Alpha(col, a) => self.solid(r, rgba(*col, *a as f32 / 255.0)),
                 Paint::Outline(col) => {
                     for edge in r.edges() {
                         self.solid(&edge, rgba(*col, 1.0));
@@ -443,24 +448,13 @@ impl Gpu {
                         self.quad(tex, (x, y, x + sz, y + sz), (u0, 0.0, u0 + sz / sw, 1.0), [1.0; 4]);
                     }
                 }
-                Paint::Sprite(s) => {
-                    let (tex, (w, h)) = self.texture(s);
-                    let (x, y) = (r.x.trunc(), r.y.trunc());
-                    self.quad(tex, (x, y, x + w, y + h), (0.0, 0.0, 1.0, 1.0), [1.0; 4]);
-                }
                 Paint::Mask { sheet, src, color } => {
                     let (tex, (sw, sh)) = self.texture(sheet);
                     let (x, y) = (r.x.trunc(), r.y.trunc());
                     let uv = (src.x / sw, src.y / sh, (src.x + src.w) / sw, (src.y + src.h) / sh);
                     self.quad(tex, (x, y, x + r.w, y + r.h), uv, rgba(*color, 1.0));
                 }
-                Paint::Region { sheet, src, flip } => {
-                    let (tex, (sw, sh)) = self.texture(sheet);
-                    let (x, y) = (r.x.trunc(), r.y.trunc());
-                    let (u0, u1) = (src.x / sw, (src.x + src.w) / sw);
-                    let (u0, u1) = if *flip { (u1, u0) } else { (u0, u1) };
-                    self.quad(tex, (x, y, x + src.w, y + src.h), (u0, src.y / sh, u1, (src.y + src.h) / sh), [1.0; 4]);
-                }
+                Paint::Color(_) | Paint::Alpha(..) | Paint::Sprite(_) | Paint::Region { .. } => unreachable!(),
             }
         }
     }
