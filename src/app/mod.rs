@@ -40,6 +40,18 @@ pub struct Config {
     pub resizable: bool,
 }
 
+impl Config {
+    // A zero rate makes every step infinitely long, so none ever runs; a negative one makes the step loop endless.
+    fn check(&self) {
+        assert!(
+            self.tick_hz.is_finite() && self.tick_hz > 0.0,
+            "Config::tick_hz must be a positive number, not {}",
+            self.tick_hz
+        );
+        assert!(self.w > 0 && self.h > 0, "Config::w and h must be positive, not {}x{}", self.w, self.h);
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -278,6 +290,7 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: u
 }
 
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
+    cfg.check();
     let scale = std::env::var("ENGINE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(cfg.scale).max(1);
     let options =
         WindowOptions { resize: cfg.resizable, scale_mode: ScaleMode::AspectRatioStretch, ..Default::default() };
@@ -406,6 +419,23 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_config_with_no_usable_step_rate_or_size_is_refused_with_its_name() {
+        Config::default().check();
+        for (bad, field) in [
+            (Config { tick_hz: 0.0, ..Config::default() }, "tick_hz"),
+            (Config { tick_hz: -60.0, ..Config::default() }, "tick_hz"),
+            (Config { tick_hz: f32::NAN, ..Config::default() }, "tick_hz"),
+            (Config { tick_hz: f32::INFINITY, ..Config::default() }, "tick_hz"),
+            (Config { w: 0, ..Config::default() }, "w and h"),
+            (Config { h: 0, ..Config::default() }, "w and h"),
+        ] {
+            let message = std::panic::catch_unwind(|| bad.check()).unwrap_err();
+            let message = message.downcast_ref::<String>().cloned().unwrap_or_default();
+            assert!(message.contains(field), "{message}");
+        }
+    }
     use std::{cell::RefCell, rc::Rc};
 
     struct Probe(&'static str, Rc<RefCell<Vec<String>>>);
