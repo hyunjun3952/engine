@@ -234,6 +234,29 @@ fn apply(stack: &mut Stack, trans: Trans, ctx: &mut Ctx) {
     }
 }
 
+/// One fixed step, in this order: a recording replaces the live input, a fade advances (and may change scenes at its
+/// darkest moment), the top scene updates unless a fade is darkening, then the step's bookkeeping. False when a
+/// replay has run out, after quitting every scene.
+fn step(stack: &mut Stack, ctx: &mut Ctx, tape: &mut Tape, dt: f32) -> bool {
+    if !tape.step(&mut ctx.input) {
+        apply(stack, Trans::Quit, ctx);
+        return false;
+    }
+    if let Some(trans) = ctx.fade.tick(dt) {
+        apply(stack, trans, ctx);
+    }
+    if !ctx.fade.blocking()
+        && let Some(top) = stack.last_mut()
+    {
+        let trans = top.update(ctx);
+        apply(stack, trans, ctx);
+    }
+    ctx.input.end_step();
+    ctx.cam.tick(dt);
+    ctx.audio.tick(dt);
+    true
+}
+
 #[derive(Default)]
 struct Stats {
     frames: u32,
@@ -338,20 +361,9 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         let mut ticked = false;
         while acc >= dt && !stack.is_empty() {
             ticked = true;
-            if !tape.step(&mut ctx.input) {
-                apply(&mut stack, Trans::Quit, &mut ctx);
+            if !step(&mut stack, &mut ctx, &mut tape, dt) {
                 break;
             }
-            if let Some(trans) = ctx.fade.tick(dt) {
-                apply(&mut stack, trans, &mut ctx);
-            }
-            if !ctx.fade.blocking() && !stack.is_empty() {
-                let trans = stack.last_mut().unwrap().update(&mut ctx);
-                apply(&mut stack, trans, &mut ctx);
-            }
-            ctx.input.end_step();
-            ctx.cam.tick(dt);
-            ctx.audio.tick(dt);
             stats.ticks += 1;
             acc -= dt;
         }
@@ -451,6 +463,115 @@ mod tests {
         fn on_exit(&mut self, _: &mut Ctx) {
             self.1.borrow_mut().push(format!("{}-", self.0));
         }
+    }
+
+    type Log = Rc<RefCell<Vec<String>>>;
+
+    // A scene that logs what happens to it and decides its own transitions from a closure.
+    struct Script(&'static str, Log, Box<dyn FnMut(&mut Ctx) -> Trans>);
+
+    impl Scene for Script {
+        fn update(&mut self, ctx: &mut Ctx) -> Trans {
+            self.1.borrow_mut().push(format!("{}:update", self.0));
+            (self.2)(ctx)
+        }
+        fn draw(&self, _: &mut Gfx) {}
+        fn on_enter(&mut self, _: &mut Ctx) {
+            self.1.borrow_mut().push(format!("{}+", self.0));
+        }
+        fn on_exit(&mut self, _: &mut Ctx) {
+            self.1.borrow_mut().push(format!("{}-", self.0));
+        }
+    }
+
+    fn script(name: &'static str, log: &Log, f: impl FnMut(&mut Ctx) -> Trans + 'static) -> Box<dyn Scene> {
+        Box::new(Script(name, log.clone(), Box::new(f)))
+    }
+
+    const DT: f32 = 0.05;
+
+    fn world(first: Box<dyn Scene>) -> (Stack, Ctx) {
+        let mut ctx = Ctx::new(64, 64, DT, Audio::disabled());
+        ctx.bind("jump", &[Key::Space]);
+        let mut stack = Stack::new();
+        enter(&mut stack, first, &mut ctx);
+        (stack, ctx)
+    }
+
+    fn recorded(frames: Vec<replay::Frame>) -> Tape {
+        Tape::Play(replay::Recording { seed: 1, frames }, 0)
+    }
+
+    fn held(keys: &[Key]) -> replay::Frame {
+        replay::Frame { keys: keys.to_vec(), pads: vec![], mouse: None, buttons: [false; 5] }
+    }
+
+    #[test]
+    fn a_fade_freezes_the_scene_changes_it_at_black_and_lets_the_new_scene_run() {
+        let log: Log = Rc::default();
+        let next = Rc::new(RefCell::new(Some(script("B", &log, |_| Trans::None))));
+        let mut asked = false;
+        let first = script("A", &log, move |_| {
+            let scene = next.borrow_mut().take();
+            match (asked, scene) {
+                (false, Some(b)) => {
+                    asked = true;
+                    Trans::Fade(Box::new(Trans::Replace(b)), 0.2)
+                }
+                _ => Trans::None,
+            }
+        });
+        let (mut stack, mut ctx) = world(first);
+        let mut tape = Tape::Off;
+        for _ in 0..4 {
+            assert!(step(&mut stack, &mut ctx, &mut tape, DT));
+        }
+        // Step 1: A asks. Step 2: darkening, so A is not updated. Step 3: black, B takes over and runs at once.
+        assert_eq!(*log.borrow(), ["A+", "A:update", "A-", "B+", "B:update", "B:update"]);
+    }
+
+    #[test]
+    fn a_fade_of_no_time_and_a_quit_inside_a_fade_both_finish() {
+        let log: Log = Rc::default();
+        let mut asked = false;
+        let first = script("A", &log, move |_| {
+            if std::mem::replace(&mut asked, true) { Trans::None } else { Trans::Fade(Box::new(Trans::Quit), 0.0) }
+        });
+        let (mut stack, mut ctx) = world(first);
+        let mut tape = Tape::Off;
+        assert!(step(&mut stack, &mut ctx, &mut tape, DT));
+        assert!(step(&mut stack, &mut ctx, &mut tape, DT));
+        assert!(stack.is_empty(), "the zero-length fade handed over its Quit on the next step");
+        assert_eq!(*log.borrow(), ["A+", "A:update", "A-"]);
+        assert!(step(&mut stack, &mut ctx, &mut tape, DT), "stepping an empty stack does nothing");
+    }
+
+    #[test]
+    fn a_replay_feeds_the_scene_its_recorded_input_and_ends_the_run_when_it_runs_out() {
+        let log: Log = Rc::default();
+        let seen: Log = Rc::default();
+        let down = seen.clone();
+        let first = script("A", &log, move |ctx| {
+            down.borrow_mut().push(format!(
+                "down {} pressed {}",
+                ctx.input().down("jump"),
+                ctx.input().pressed("jump")
+            ));
+            Trans::None
+        });
+        let (mut stack, mut ctx) = world(first);
+        let mut tape = recorded(vec![held(&[Key::Space]), held(&[Key::Space]), held(&[])]);
+        for _ in 0..3 {
+            assert!(step(&mut stack, &mut ctx, &mut tape, DT));
+        }
+        assert_eq!(
+            *seen.borrow(),
+            ["down true pressed true", "down true pressed false", "down false pressed false"],
+            "the live keyboard is ignored, and an edge shows once because the step ends after the update"
+        );
+        assert!(!step(&mut stack, &mut ctx, &mut tape, DT), "no recorded steps left");
+        assert!(stack.is_empty());
+        assert_eq!(log.borrow().last().map(String::as_str), Some("A-"), "scenes are told they are leaving");
     }
 
     #[test]
