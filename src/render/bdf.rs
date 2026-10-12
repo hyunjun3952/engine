@@ -110,14 +110,19 @@ impl Font {
     }
 
     pub fn width(&self, s: &str) -> i32 {
-        s.chars().map(|c| self.glyphs.get(&c).map_or(0, |g| g.advance)).sum()
+        s.chars().filter_map(|c| self.glyph(c)).map(|g| g.advance).sum()
+    }
+
+    // A character the font lacks shows as `?` (if it has one) rather than silently vanishing.
+    fn glyph(&self, c: char) -> Option<&Glyph> {
+        self.glyphs.get(&c).or_else(|| self.glyphs.get(&'?'))
     }
 
     /// One `(atlas region, pen offset)` per drawable char; unknown chars draw nothing but still step nothing.
     pub(crate) fn layout<'a>(&'a self, s: &'a str) -> impl Iterator<Item = (Rect, i32, i32)> + 'a {
         let mut pen = 0;
         s.chars().filter_map(move |c| {
-            let g = self.glyphs.get(&c)?;
+            let g = self.glyph(c)?;
             let at = pen + g.xoff;
             pen += g.advance;
             (g.src.w > 0.0).then_some((g.src, at, g.yoff))
@@ -145,13 +150,15 @@ mod tests {
     fn layout_skips_spaces_and_unknown_chars_and_places_by_pen() {
         let f = Font::parse(TINY).unwrap();
         let got: Vec<_> = f.layout("A?A").map(|(_, x, y)| (x, y)).collect();
-        assert_eq!(got, [(0, 0), (3, 0)]);
+        assert_eq!(got, [(0, 0), (3, 0)], "no `?` in the font, so the unknown char takes no room");
+        assert_eq!(f.width("A?A"), 6);
     }
 
     #[test]
     fn the_bundled_font_has_hangul_and_ascii() {
         let f = Font::load("assets/fonts/galmuri9.bdf").unwrap();
-        assert_eq!(f.layout("한글 abc 가힣").count(), 6, "space and a syllable outside the subset draw nothing");
+        assert_eq!(f.layout("한글 abc 가힣").count(), 7, "a syllable outside the subset shows as `?`");
+        assert_eq!(f.width("힣"), f.width("?"));
         assert!(f.width("한글") > f.width("ab"));
     }
 
