@@ -1,5 +1,5 @@
 use crate::{Rect, Sprite};
-use std::{collections::HashMap, sync::Arc};
+use std::{ops::Range, sync::Arc};
 
 struct Glyph {
     src: Rect,
@@ -12,7 +12,8 @@ struct Glyph {
 /// text is tinted from, so any colour costs nothing extra and the GPU can batch a whole string.
 pub struct Font {
     pub(crate) atlas: Arc<Sprite>,
-    glyphs: HashMap<char, Glyph>,
+    // Sorted by character, so a lookup is a binary search; hashing 11k glyphs at load cost more than it saved.
+    glyphs: Vec<(char, Glyph)>,
     line: i32,
 }
 
@@ -29,14 +30,23 @@ impl Font {
             ch: char,
             advance: i32,
             bbx: [i32; 4],
-            rows: Vec<u32>,
+            rows: Range<usize>,
         }
         let (mut ascent, mut descent) = (0, 0);
         let (mut raws, mut cur, mut in_bitmap) = (Vec::<Raw>::new(), None::<Raw>, false);
+        // Every glyph's rows live in one buffer, so a glyph costs no allocation of its own.
+        let mut bits = Vec::<u32>::new();
+        // Up to the first four numbers of a line and how many there were.
         let nums = |v: &str| {
-            v.split_whitespace()
-                .map(|n| n.parse::<i32>().map_err(|e| format!("{v:?}: {e}")))
-                .collect::<Result<Vec<_>, _>>()
+            let (mut out, mut n) = ([0; 4], 0);
+            for tok in v.split_whitespace() {
+                let x = tok.parse::<i32>().map_err(|e| format!("{v:?}: {e}"))?;
+                if n < 4 {
+                    out[n] = x;
+                }
+                n += 1;
+            }
+            Ok::<_, String>((out, n))
         };
         for line in text.lines() {
             let (key, val) = line.split_once(' ').unwrap_or((line, ""));
@@ -46,21 +56,33 @@ impl Font {
                 "ENCODING" => {
                     let code: i64 = val.trim().parse().map_err(|e| format!("ENCODING: {e}"))?;
                     let ch = u32::try_from(code).ok().and_then(char::from_u32);
-                    cur = ch.map(|ch| Raw { ch, advance: 0, bbx: [0; 4], rows: Vec::new() });
+                    cur = ch.map(|ch| Raw { ch, advance: 0, bbx: [0; 4], rows: bits.len()..bits.len() });
                     in_bitmap = false;
                 }
                 "DWIDTH" => {
                     if let Some(g) = &mut cur {
-                        g.advance = *nums(val)?.first().ok_or("DWIDTH: empty")?;
+                        let (first, n) = nums(val)?;
+                        if n == 0 {
+                            return Err("DWIDTH: empty".into());
+                        }
+                        g.advance = first[0];
                     }
                 }
                 "BBX" => {
                     if let Some(g) = &mut cur {
-                        g.bbx = nums(val)?.try_into().map_err(|_| format!("BBX {val:?}: expected 4 numbers"))?;
+                        let (bbx, n) = nums(val)?;
+                        if n != 4 {
+                            return Err(format!("BBX {val:?}: expected 4 numbers"));
+                        }
+                        g.bbx = bbx;
                     }
                 }
                 "BITMAP" => in_bitmap = true,
-                "ENDCHAR" => raws.extend(cur.take().filter(|g| g.rows.len() as i32 == g.bbx[1])),
+                "ENDCHAR" => {
+                    let done = cur.take().filter(|g| g.rows.len() as i32 == g.bbx[1]);
+                    bits.truncate(done.as_ref().map_or(bits.len(), |g| g.rows.end));
+                    raws.extend(done);
+                }
                 _ if in_bitmap => {
                     if let Some(g) = &mut cur {
                         let bytes = line.trim();
@@ -68,7 +90,8 @@ impl Font {
                             return Err(format!("bitmap row {bytes:?}: wider than 32 pixels"));
                         }
                         let row = u32::from_str_radix(bytes, 16).map_err(|e| format!("bitmap row {bytes:?}: {e}"))?;
-                        g.rows.push(row << (32 - 4 * bytes.len()));
+                        bits.push(row << (32 - 4 * bytes.len()));
+                        g.rows.end = bits.len();
                     }
                 }
                 _ => {}
@@ -89,10 +112,10 @@ impl Font {
         }
         let height = (y + row_h).max(1);
         let mut px = vec![0u32; ATLAS_W * height];
-        let mut glyphs = HashMap::new();
+        let mut glyphs = Vec::with_capacity(raws.len());
         for (g, &(gx, gy)) in raws.iter().zip(&placed) {
             let [w, h, xoff, yoff] = g.bbx;
-            for (r, row) in g.rows.iter().enumerate() {
+            for (r, row) in bits[g.rows.clone()].iter().enumerate() {
                 for c in 0..w as usize {
                     if row >> (31 - c) & 1 == 1 {
                         px[(gy + r) * ATLAS_W + gx + c] = 0xFFFF_FFFF;
@@ -100,8 +123,12 @@ impl Font {
                 }
             }
             let src = Rect { x: gx as f32, y: gy as f32, w: w as f32, h: h as f32 };
-            glyphs.insert(g.ch, Glyph { src, xoff, yoff: ascent - yoff - h, advance: g.advance });
+            glyphs.push((g.ch, Glyph { src, xoff, yoff: ascent - yoff - h, advance: g.advance }));
         }
+        // A character listed twice keeps its later entry, as it did when these went into a map.
+        glyphs.reverse();
+        glyphs.sort_by_key(|g| g.0);
+        glyphs.dedup_by_key(|g| g.0);
         Ok(Font { atlas: Arc::new(Sprite::from_pixels(ATLAS_W, height, px)), glyphs, line: ascent + descent })
     }
 
@@ -115,7 +142,8 @@ impl Font {
 
     // A character the font lacks shows as `?` (if it has one) rather than silently vanishing.
     fn glyph(&self, c: char) -> Option<&Glyph> {
-        self.glyphs.get(&c).or_else(|| self.glyphs.get(&'?'))
+        let find = |c| self.glyphs.binary_search_by_key(&c, |g| g.0).ok().map(|i| &self.glyphs[i].1);
+        find(c).or_else(|| find('?'))
     }
 
     /// One `(atlas region, pen offset)` per drawable char; unknown chars draw nothing but still step nothing.
