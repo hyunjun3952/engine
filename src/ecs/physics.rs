@@ -6,6 +6,9 @@ const REST_SPEED: f32 = 30.0;
 const SLOP: f32 = 0.02;
 const CORRECTION: f32 = 0.8;
 const CORRECTION_PASSES: usize = 4;
+const MAX_CORRECTION_PASSES: usize = 40;
+const UNSETTLED: f32 = 0.05;
+const HEAVY_RATIO: f32 = 4.0;
 const WARM_RANGE: f32 = 4.0;
 const SAME_NORMAL: f32 = 0.95;
 const MAX_SUBSTEPS: usize = 16;
@@ -362,14 +365,22 @@ impl Physics {
                 pull(a, b, l);
             }
         }
-        for _ in 0..CORRECTION_PASSES {
+        // A light body squeezed between a floor and a much heavier one converges slowly, so with such a contact the
+        // passes go on while it is still deep, up to a limit. More passes on every pile would shake it apart.
+        let lopsided = hits.iter().any(|h| mass_ratio(&nodes[h.a], &nodes[h.b]) > HEAVY_RATIO);
+        let passes = if lopsided { MAX_CORRECTION_PASSES } else { CORRECTION_PASSES };
+        for pass in 0..passes {
+            let mut deepest = 0.0f32;
             for hit in &hits {
                 let (a, b) = pair_mut(nodes, hit.a, hit.b);
-                separate(a, b, hit);
+                deepest = deepest.max(separate(a, b, hit));
             }
             for l in links {
                 let (a, b) = pair_mut(nodes, l.a, l.b);
                 keep_length(a, b, l);
+            }
+            if pass + 1 >= CORRECTION_PASSES && deepest < UNSETTLED {
+                break;
             }
         }
         self.cache = hits
@@ -651,6 +662,14 @@ fn push_direction((a_lo, a_hi, b_lo, b_hi): (f32, f32, f32, f32), now_a: f32, no
     }
 }
 
+// How many times heavier the heavier of two movable bodies is; 1 when either is a wall.
+fn mass_ratio(a: &Node, b: &Node) -> f32 {
+    if a.inv_mass == 0.0 || b.inv_mass == 0.0 {
+        return 1.0;
+    }
+    (a.inv_mass / b.inv_mass).max(b.inv_mass / a.inv_mass)
+}
+
 fn pair_mut(nodes: &mut [Node], a: usize, b: usize) -> (&mut Node, &mut Node) {
     if a < b {
         let (left, right) = nodes.split_at_mut(b);
@@ -776,13 +795,15 @@ fn keep_length(a: &mut Node, b: &mut Node, l: &Link) {
 
 // Positional correction only moves bodies, not their angle; the contact's depth shrinks by how far they have
 // moved together along the normal since it was found.
-fn separate(a: &mut Node, b: &mut Node, hit: &Hit) {
+fn separate(a: &mut Node, b: &mut Node, hit: &Hit) -> f32 {
     let (ca, cb) = (a.center(), b.center());
     let moved = sub(sub(cb, b.at), sub(ca, a.at));
     let closed = dot(moved, hit.normal);
     let depth = hit.pts.iter().map(|p| p.depth).fold(0.0, f32::max) - closed;
     let inv_sum = a.inv_mass + b.inv_mass;
-    shove(a, b, hit.normal, (depth - SLOP).max(0.0) * CORRECTION / inv_sum);
+    let excess = (depth - SLOP).max(0.0);
+    shove(a, b, hit.normal, excess * CORRECTION / inv_sum);
+    excess
 }
 
 fn write_back(world: &mut World, ents: &[Entity], nodes: &[Node]) {
@@ -1433,5 +1454,19 @@ mod tests {
         p.gravity = (0.0, -900.0);
         run(&mut p, &mut w, None, 30);
         assert!(!p.asleep(top) && state(&w, top).1.1 < 0.0, "flipped gravity lifts it");
+    }
+
+    #[test]
+    fn a_heavy_box_does_not_squash_a_light_one_into_the_floor() {
+        for mass in [10.0, 100.0] {
+            let (mut p, mut w) = (Physics::default(), World::new());
+            floor(&mut w);
+            let light = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+            let heavy = boxed(&mut w, square(50.0, 0.0, 20.0), RigidBody::dynamic(mass), (0.0, 0.0));
+            run(&mut p, &mut w, None, 240);
+            let (l, h) = (state(&w, light).0, state(&w, heavy).0);
+            assert!(l.y + l.h - 100.0 < 1.0, "mass {mass}: light sunk {} into the floor", l.y + l.h - 100.0);
+            assert!(h.y + h.h - l.y < 1.0, "mass {mass}: heavy sunk {} into the light one", h.y + h.h - l.y);
+        }
     }
 }
