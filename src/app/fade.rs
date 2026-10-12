@@ -30,9 +30,7 @@ impl Fade {
         match &mut self.0 {
             Phase::Idle => None,
             Phase::Out(t, ..) => {
-                // `tick` never reports a zero-length timer finishing, so ask `done` (a fade of 0 s would never end).
-                t.tick(dt);
-                if !t.done() {
+                if !t.tick(dt) {
                     return None;
                 }
                 let Phase::Out(_, trans, half) = std::mem::replace(&mut self.0, Phase::Idle) else { unreachable!() };
@@ -40,8 +38,7 @@ impl Fade {
                 Some(*trans)
             }
             Phase::Back(t) => {
-                t.tick(dt);
-                if t.done() {
+                if t.tick(dt) {
                     self.0 = Phase::Idle;
                 }
                 None

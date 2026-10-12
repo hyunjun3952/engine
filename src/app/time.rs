@@ -3,17 +3,20 @@ pub struct Timer {
     duration: f32,
     elapsed: f32,
     looping: bool,
+    // A once-timer says it finished on one tick only; a zero-length one has finished before any tick, so this, not
+    // the elapsed time, decides when it says so.
+    reported: bool,
 }
 
 impl Timer {
     pub fn once(secs: f32) -> Self {
         assert!(secs >= 0.0, "timer duration must not be negative");
-        Timer { duration: secs, elapsed: 0.0, looping: false }
+        Timer { duration: secs, elapsed: 0.0, looping: false, reported: false }
     }
 
     pub fn looping(secs: f32) -> Self {
         assert!(secs > 0.0, "a looping timer needs a positive duration");
-        Timer { duration: secs, elapsed: 0.0, looping: true }
+        Timer { duration: secs, elapsed: 0.0, looping: true, reported: false }
     }
 
     pub fn tick(&mut self, dt: f32) -> bool {
@@ -22,7 +25,9 @@ impl Timer {
             self.elapsed %= self.duration;
             return true;
         }
-        !self.looping && self.elapsed - dt < self.duration && self.done()
+        let first = !self.looping && !self.reported && self.done();
+        self.reported |= first;
+        first
     }
 
     pub fn done(&self) -> bool {
@@ -39,6 +44,7 @@ impl Timer {
 
     pub fn reset(&mut self) {
         self.elapsed = 0.0;
+        self.reported = false;
     }
 }
 
@@ -126,9 +132,12 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_length_timer_is_done_immediately() {
-        let t = Timer::once(0.0);
+    fn a_zero_length_timer_is_done_immediately_and_reports_it_on_its_first_tick_only() {
+        let mut t = Timer::once(0.0);
         assert!(t.done() && t.fraction() == 1.0);
+        assert_eq!([t.tick(0.1), t.tick(0.1), t.tick(0.1)], [true, false, false]);
+        t.reset();
+        assert!(t.tick(0.0), "a reset timer reports again, even with no time passing");
     }
 
     #[test]
