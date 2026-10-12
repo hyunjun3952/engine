@@ -290,8 +290,10 @@ impl Physics {
         self.known = ents.iter().copied().collect();
         self.last_gravity = self.gravity;
         self.last_tiles = tiles;
+        // Only the sleeping stops: the time a body has been still keeps counting, so one whose support is still there
+        // goes back to sleep within the step, and a game that despawns bodies often still gets sleepers.
         if changed {
-            self.rest.clear();
+            self.rest.values_mut().for_each(|r| r.asleep = None);
         }
         let movers: Vec<Rect> = ents
             .iter()
@@ -1486,5 +1488,22 @@ mod tests {
         map.set(3, 2, 0);
         run(&mut p, &mut w, Some(&map), 60);
         assert!(!p.asleep(e) && state(&w, e).0.y > rest + 8.0, "still at {} (was {rest})", state(&w, e).0.y);
+    }
+
+    #[test]
+    fn bodies_coming_and_going_elsewhere_do_not_keep_a_resting_box_awake() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        floor(&mut w);
+        let e = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        for i in 0..400 {
+            if i % 20 == 0 {
+                let passing = boxed(&mut w, square(300.0, 0.0, 8.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+                p.step(&mut w, None, DT);
+                w.despawn(passing).unwrap();
+            }
+            p.step(&mut w, None, DT);
+        }
+        assert!(p.asleep(e), "a body despawned every 20 steps kept the box awake");
+        assert!((state(&w, e).0.y + 20.0 - 100.0).abs() < 0.5);
     }
 }
