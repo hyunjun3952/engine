@@ -1,139 +1,222 @@
-#[cfg(feature = "audio")]
-mod real {
-    use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
-    use std::{collections::HashMap, io::Cursor, sync::Arc};
+use crate::{Ease, Tween};
 
-    pub struct Audio {
-        out: Option<MixerDeviceSink>,
-        files: HashMap<String, Arc<[u8]>>,
-        music: Option<Player>,
-        volume: f32,
-        music_volume: f32,
+#[cfg(feature = "audio")]
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
+#[cfg(feature = "audio")]
+use std::{collections::HashMap, io::Cursor, sync::Arc};
+
+const MAX_SOUNDS: usize = 32;
+
+// The numbers behind the sound, kept apart from the device so the silent build and the tests share them.
+struct Mix {
+    volume: f32,
+    sfx_volume: f32,
+    music_volume: f32,
+    max_sounds: usize,
+    // 1 normally; a fade moves it, and `true` stops the music when the fade ends.
+    fade_gain: f32,
+    fade: Option<(Tween, bool)>,
+}
+
+impl Mix {
+    fn new() -> Self {
+        Mix { volume: 1.0, sfx_volume: 1.0, music_volume: 1.0, max_sounds: MAX_SOUNDS, fade_gain: 1.0, fade: None }
     }
 
-    impl Audio {
-        pub(crate) fn new() -> Self {
-            if std::env::var_os("ENGINE_MUTE").is_some() {
-                return Audio::disabled();
+    // Only a real player has anything to set it on; the silent build still reads it in tests.
+    #[cfg_attr(not(feature = "audio"), allow(dead_code))]
+    fn music(&self) -> f32 {
+        self.volume * self.music_volume * self.fade_gain
+    }
+
+    fn fade_in(&mut self, secs: f32) {
+        self.fade_gain = 0.0;
+        self.fade = Some((Tween::new(0.0, 1.0, secs, Ease::Linear), false));
+    }
+
+    fn fade_out(&mut self, secs: f32) {
+        self.fade = Some((Tween::new(self.fade_gain, 0.0, secs, Ease::Linear), true));
+    }
+
+    // Advances a fade and says whether the music should stop now.
+    fn tick(&mut self, dt: f32) -> bool {
+        let Some((tween, stop)) = &mut self.fade else { return false };
+        self.fade_gain = tween.tick(dt);
+        let (done, stop) = (tween.done(), *stop);
+        if done {
+            self.fade = None;
+            if stop {
+                self.fade_gain = 1.0;
             }
+        }
+        done && stop
+    }
+}
+
+pub struct Audio {
+    mix: Mix,
+    #[cfg(feature = "audio")]
+    dev: Dev,
+}
+
+#[cfg(feature = "audio")]
+struct Dev {
+    out: Option<MixerDeviceSink>,
+    files: HashMap<String, Arc<[u8]>>,
+    music: Option<Player>,
+    sounds: Vec<Player>,
+}
+
+impl Audio {
+    pub(crate) fn new() -> Self {
+        #[cfg(feature = "audio")]
+        if std::env::var_os("ENGINE_MUTE").is_none() {
             match DeviceSinkBuilder::open_default_sink() {
                 Ok(mut out) => {
                     out.log_on_drop(false);
-                    Audio { out: Some(out), ..Audio::disabled() }
+                    let mut audio = Audio::disabled();
+                    audio.dev.out = Some(out);
+                    return audio;
                 }
-                Err(e) => {
-                    eprintln!("audio disabled: {e}");
-                    Audio::disabled()
-                }
+                Err(e) => eprintln!("audio disabled: {e}"),
             }
         }
-
-        pub(crate) fn disabled() -> Self {
-            Audio { out: None, files: HashMap::new(), music: None, volume: 1.0, music_volume: 1.0 }
-        }
-
-        fn open(&mut self, path: &str) -> Cursor<Arc<[u8]>> {
-            let bytes = self
-                .files
-                .entry(path.to_string())
-                .or_insert_with(|| std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}")).into());
-            Cursor::new(bytes.clone())
-        }
-
-        pub fn play(&mut self, path: &str) {
-            let data = self.open(path);
-            let Some(out) = &self.out else { return };
-            match rodio::play(out.mixer(), data) {
-                Ok(p) => {
-                    p.set_volume(self.volume);
-                    p.detach();
-                }
-                Err(e) => eprintln!("{path}: {e}"),
-            }
-        }
-
-        pub fn music(&mut self, path: &str) {
-            let data = self.open(path);
-            let Some(out) = &self.out else { return };
-            match Decoder::new(data) {
-                Ok(src) => {
-                    let player = Player::connect_new(out.mixer());
-                    player.set_volume(self.volume * self.music_volume);
-                    player.append(src.repeat_infinite());
-                    self.music = Some(player);
-                }
-                Err(e) => eprintln!("{path}: {e}"),
-            }
-        }
-
-        pub fn stop_music(&mut self) {
-            self.music = None;
-        }
-
-        pub fn volume(&self) -> f32 {
-            self.volume
-        }
-
-        /// Master volume, 0..=1, for sounds started from now on and for the music.
-        pub fn set_volume(&mut self, v: f32) {
-            self.volume = v.clamp(0.0, 1.0);
-            self.retune_music();
-        }
-
-        pub fn music_volume(&self) -> f32 {
-            self.music_volume
-        }
-
-        /// The music's own volume, 0..=1, on top of the master volume.
-        pub fn set_music_volume(&mut self, v: f32) {
-            self.music_volume = v.clamp(0.0, 1.0);
-            self.retune_music();
-        }
-
-        fn retune_music(&self) {
-            if let Some(m) = &self.music {
-                m.set_volume(self.volume * self.music_volume);
-            }
-        }
-    }
-}
-
-#[cfg(feature = "audio")]
-pub use real::Audio;
-
-#[cfg(not(feature = "audio"))]
-pub struct Audio {
-    volume: f32,
-    music_volume: f32,
-}
-
-#[cfg(not(feature = "audio"))]
-impl Audio {
-    pub(crate) fn new() -> Self {
         Audio::disabled()
     }
 
     pub(crate) fn disabled() -> Self {
-        Audio { volume: 1.0, music_volume: 1.0 }
+        Audio {
+            mix: Mix::new(),
+            #[cfg(feature = "audio")]
+            dev: Dev { out: None, files: HashMap::new(), music: None, sounds: Vec::new() },
+        }
     }
 
+    pub fn volume(&self) -> f32 {
+        self.mix.volume
+    }
+
+    /// Master volume, 0..=1, for sounds started from now on and for the music.
+    pub fn set_volume(&mut self, v: f32) {
+        self.mix.volume = v.clamp(0.0, 1.0);
+        self.retune();
+    }
+
+    pub fn sfx_volume(&self) -> f32 {
+        self.mix.sfx_volume
+    }
+
+    /// The volume of sounds started from now on, 0..=1, on top of the master volume; a sound already playing keeps
+    /// the volume it started with.
+    pub fn set_sfx_volume(&mut self, v: f32) {
+        self.mix.sfx_volume = v.clamp(0.0, 1.0);
+    }
+
+    pub fn music_volume(&self) -> f32 {
+        self.mix.music_volume
+    }
+
+    /// The music's own volume, 0..=1, on top of the master volume.
+    pub fn set_music_volume(&mut self, v: f32) {
+        self.mix.music_volume = v.clamp(0.0, 1.0);
+        self.retune();
+    }
+
+    /// At most this many one-shots play at once (default 32, at least 1); a new one cuts off the oldest.
+    pub fn set_max_sounds(&mut self, n: usize) {
+        self.mix.max_sounds = n.max(1);
+    }
+
+    /// Starts the music from silence and brings it to full over `secs`.
+    pub fn music_fade_in(&mut self, path: &str, secs: f32) {
+        self.music(path);
+        self.mix.fade_in(secs);
+        self.retune();
+    }
+
+    /// Takes the music down to silence over `secs` and then stops it.
+    pub fn music_fade_out(&mut self, secs: f32) {
+        self.mix.fade_out(secs);
+    }
+
+    // Called once per fixed step by `run`.
+    pub(crate) fn tick(&mut self, dt: f32) {
+        if self.mix.tick(dt) {
+            self.stop_music();
+        }
+        self.retune();
+    }
+
+    #[cfg(feature = "audio")]
+    fn open(&mut self, path: &str) -> Cursor<Arc<[u8]>> {
+        let bytes = self
+            .dev
+            .files
+            .entry(path.to_string())
+            .or_insert_with(|| std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}")).into());
+        Cursor::new(bytes.clone())
+    }
+
+    #[cfg(feature = "audio")]
+    pub fn play(&mut self, path: &str) {
+        let data = self.open(path);
+        let Some(out) = &self.dev.out else { return };
+        self.dev.sounds.retain(|p| !p.empty());
+        if self.dev.sounds.len() >= self.mix.max_sounds {
+            self.dev.sounds.remove(0);
+        }
+        match rodio::play(out.mixer(), data) {
+            Ok(p) => {
+                p.set_volume(self.mix.volume * self.mix.sfx_volume);
+                self.dev.sounds.push(p);
+            }
+            Err(e) => eprintln!("{path}: {e}"),
+        }
+    }
+
+    #[cfg(feature = "audio")]
+    pub fn music(&mut self, path: &str) {
+        let data = self.open(path);
+        let Some(out) = &self.dev.out else { return };
+        match Decoder::new(data) {
+            Ok(src) => {
+                let player = Player::connect_new(out.mixer());
+                self.mix.fade = None;
+                self.mix.fade_gain = 1.0;
+                player.set_volume(self.mix.music());
+                player.append(src.repeat_infinite());
+                self.dev.music = Some(player);
+            }
+            Err(e) => eprintln!("{path}: {e}"),
+        }
+    }
+
+    #[cfg(feature = "audio")]
+    pub fn stop_music(&mut self) {
+        self.dev.music = None;
+    }
+
+    #[cfg(feature = "audio")]
+    fn retune(&self) {
+        if let Some(m) = &self.dev.music {
+            m.set_volume(self.mix.music());
+        }
+    }
+
+    #[cfg(not(feature = "audio"))]
     pub fn play(&mut self, _path: &str) {}
 
-    pub fn music(&mut self, _path: &str) {}
+    #[cfg(not(feature = "audio"))]
+    pub fn music(&mut self, _path: &str) {
+        self.mix.fade = None;
+        self.mix.fade_gain = 1.0;
+    }
 
+    #[cfg(not(feature = "audio"))]
     pub fn stop_music(&mut self) {}
-    pub fn volume(&self) -> f32 {
-        self.volume
-    }
-    pub fn set_volume(&mut self, v: f32) {
-        self.volume = v.clamp(0.0, 1.0);
-    }
-    pub fn music_volume(&self) -> f32 {
-        self.music_volume
-    }
-    pub fn set_music_volume(&mut self, v: f32) {
-        self.music_volume = v.clamp(0.0, 1.0);
-    }
+
+    #[cfg(not(feature = "audio"))]
+    fn retune(&self) {}
 }
 
 #[cfg(test)]
@@ -143,11 +226,46 @@ mod tests {
     #[test]
     fn volumes_start_full_and_are_kept_within_zero_and_one() {
         let mut a = Audio::disabled();
-        assert_eq!((a.volume(), a.music_volume()), (1.0, 1.0));
+        assert_eq!((a.volume(), a.sfx_volume(), a.music_volume()), (1.0, 1.0, 1.0));
         a.set_volume(1.7);
         a.set_music_volume(-0.2);
-        assert_eq!((a.volume(), a.music_volume()), (1.0, 0.0));
+        a.set_sfx_volume(0.3);
+        assert_eq!((a.volume(), a.sfx_volume(), a.music_volume()), (1.0, 0.3, 0.0));
         a.set_volume(0.4);
         assert_eq!(a.volume(), 0.4);
+    }
+
+    #[test]
+    fn a_fade_in_rises_to_full_and_a_fade_out_falls_then_stops_and_resets() {
+        let mut m = Mix::new();
+        m.volume = 0.5;
+        m.fade_in(1.0);
+        assert_eq!(m.music(), 0.0);
+        assert!(!m.tick(0.5));
+        assert!((m.music() - 0.25).abs() < 1e-6, "{}", m.music());
+        assert!(!m.tick(0.5));
+        assert_eq!((m.music(), m.fade.is_none()), (0.5, true));
+        m.fade_out(1.0);
+        assert!(!m.tick(0.5));
+        assert!((m.music() - 0.25).abs() < 1e-6);
+        assert!(m.tick(0.5), "finished: the music stops");
+        assert_eq!(m.music(), 0.5, "gain is back to 1 for the next track");
+    }
+
+    #[test]
+    fn a_fade_out_starts_from_wherever_a_fade_in_had_got() {
+        let mut m = Mix::new();
+        m.fade_in(1.0);
+        m.tick(0.25);
+        m.fade_out(1.0);
+        m.tick(0.5);
+        assert!((m.fade_gain - 0.125).abs() < 1e-6, "{}", m.fade_gain);
+    }
+
+    #[test]
+    fn at_least_one_sound_is_allowed_at_once() {
+        let mut a = Audio::disabled();
+        a.set_max_sounds(0);
+        assert_eq!(a.mix.max_sounds, 1);
     }
 }

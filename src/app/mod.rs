@@ -318,6 +318,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             apply(&mut stack, trans, &mut ctx);
             ctx.input.end_step();
             ctx.cam.tick(dt);
+            ctx.audio.tick(dt);
             stats.ticks += 1;
             acc -= dt;
         }
