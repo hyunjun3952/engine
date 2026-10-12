@@ -94,12 +94,20 @@ struct Tetris {
     score: u32,
     lines: u32,
     hi: u32,
+    // False when the save file exists but could not be read: it is left alone instead of overwritten.
+    save_ok: bool,
     paused: bool,
 }
 
 impl Tetris {
     fn new(ctx: &mut Ctx) -> Self {
-        let hi = Save::load(SAVE).unwrap_or_default().get_or("hi", 0);
+        let (hi, save_ok) = match Save::load(SAVE) {
+            Ok(save) => (save.get_or("hi", 0), true),
+            Err(e) => {
+                eprintln!("{e}; the best score will not be saved");
+                (0, false)
+            }
+        };
         let mut game = Tetris {
             world: World::new(),
             board: vec![[0; W]; H],
@@ -112,6 +120,7 @@ impl Tetris {
             score: 0,
             lines: 0,
             hi,
+            save_ok,
             paused: false,
         };
         game.next = game.pull(ctx);
@@ -203,10 +212,12 @@ impl Tetris {
         ctx.audio().play("assets/audio/score.wav");
         if self.score > self.hi {
             self.hi = self.score;
-            let mut save = Save::new();
-            save.set("hi", self.hi);
-            if let Err(e) = save.save(SAVE) {
-                eprintln!("{SAVE}: {e}");
+            if self.save_ok {
+                let mut save = Save::new();
+                save.set("hi", self.hi);
+                if let Err(e) = save.save(SAVE) {
+                    eprintln!("{SAVE}: {e}");
+                }
             }
         }
         Trans::Replace(Box::new(Over { score: self.score, hi: self.hi }))
