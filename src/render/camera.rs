@@ -70,6 +70,10 @@ impl Camera {
         let (vw, vh) = self.visible();
         let goal =
             ((tx - vw / 2.0).clamp(0.0, (world.0 - vw).max(0.0)), (ty - vh / 2.0).clamp(0.0, (world.1 - vh).max(0.0)));
+        // One frame of a position that is not a number would otherwise leave the camera that way for good.
+        if !(goal.0.is_finite() && goal.1.is_finite()) {
+            return;
+        }
         if !self.placed {
             (self.pos, self.placed) = (goal, true);
             return;
@@ -198,6 +202,24 @@ mod tests {
         c.set_zoom(2.0);
         c.tick(1.0);
         assert_eq!(c.zoom(), 2.0, "set_zoom cancels the ease");
+    }
+
+    #[test]
+    fn a_target_that_is_not_a_number_for_a_moment_does_not_ruin_the_camera() {
+        let mut c = Camera::new(100.0, 100.0);
+        c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        c.follow(&Rect { x: f32::NAN, y: 0.0, w: 0.0, h: 0.0 }, (1000.0, 1000.0), 0.1);
+        assert_eq!(c.offset(), (450.0, 0.0), "NaN is ignored");
+        for far in [f32::INFINITY, f32::NEG_INFINITY] {
+            c.follow(&Rect { x: far, y: 0.0, w: 0.0, h: 0.0 }, (1000.0, 1000.0), 10.0);
+            assert!((0.0..=900.0).contains(&c.offset().0), "{far} is clamped into the world like any far target");
+        }
+        c.follow(&at(600.0), (1000.0, 1000.0), 10.0);
+        assert_eq!(c.offset().0, 550.0, "and the next real target is followed as usual");
+        let mut fresh = Camera::new(100.0, 100.0);
+        fresh.follow(&Rect { x: f32::NAN, y: 0.0, w: 0.0, h: 0.0 }, (1000.0, 1000.0), 0.0);
+        fresh.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        assert_eq!(fresh.offset().0, 450.0, "a first target that is not a number does not count as the first");
     }
 
     #[test]
