@@ -106,12 +106,20 @@ impl Gfx {
 
     /// Draws the region `src` of a sheet as a panel filling `dest`: a `margin` wide frame at natural size and the
     /// parts between repeated (not stretched, which suits pixel art), the last repeat cut short to fit. The middle of
-    /// `src` is what repeats, so it must be wider and taller than nothing; `dest` must hold both margins.
+    /// `src` is what repeats, so it must be at least a pixel wide and tall; `dest` must hold both margins. Only the
+    /// pieces that reach the screen are recorded, so a panel of any size costs what the part in view costs.
     pub fn blit_nine(&mut self, s: &Arc<Sprite>, src: Rect, margin: i32, dest: &Rect) {
         let m = margin as f32;
-        assert!(margin >= 0 && src.w > 2.0 * m && src.h > 2.0 * m, "a nine-slice margin must leave a middle");
+        assert!(
+            margin >= 0 && src.w >= 2.0 * m + 1.0 && src.h >= 2.0 * m + 1.0,
+            "a nine-slice margin must leave a middle"
+        );
         assert!(dest.w >= 2.0 * m && dest.h >= 2.0 * m, "a nine-slice panel must hold both margins");
-        let (xs, ys) = (spans(src.w, m, dest.w), spans(src.h, m, dest.h));
+        let seen = |at: f32, len: f32| (-at, len - at);
+        let (xs, ys) = (
+            spans(src.w, m, dest.w, seen(dest.x, self.w as f32)),
+            spans(src.h, m, dest.h, seen(dest.y, self.h as f32)),
+        );
         for &(sy, dy, h) in &ys {
             for &(sx, dx, w) in &xs {
                 let part = Rect { x: src.x + sx, y: src.y + sy, w, h };
@@ -315,17 +323,23 @@ fn decode(path: &str) -> Result<Image, String> {
 }
 
 // Along one axis: (offset in the source, offset in the panel, length) for the start margin, the middle repeated up to
-// the end margin, and the end margin.
-fn spans(src_len: f32, m: f32, dst_len: f32) -> Vec<(f32, f32, f32)> {
+// the end margin, and the end margin, keeping only what overlaps `lo..hi` in panel coordinates (the screen).
+fn spans(src_len: f32, m: f32, dst_len: f32, (lo, hi): (f32, f32)) -> Vec<(f32, f32, f32)> {
     let (mid, room) = (src_len - 2.0 * m, dst_len - 2.0 * m);
-    let mut out = vec![(0.0, 0.0, m)];
-    let mut at = 0.0;
-    while at < room {
-        out.push((m, m + at, mid.min(room - at)));
+    let mut out = Vec::new();
+    let mut keep = |s: (f32, f32, f32)| {
+        if s.2 > 0.0 && s.1 + s.2 > lo && s.1 < hi {
+            out.push(s);
+        }
+    };
+    keep((0.0, 0.0, m));
+    // Start at the first repeat that can be in view instead of counting from the panel's edge.
+    let mut at = ((lo - m) / mid).floor().max(0.0) * mid;
+    while at < room && m + at < hi {
+        keep((m, m + at, mid.min(room - at)));
         at += mid;
     }
-    out.push((src_len - m, dst_len - m, m));
-    out.retain(|s| s.2 > 0.0);
+    keep((src_len - m, dst_len - m, m));
     out
 }
 
@@ -468,6 +482,35 @@ mod tests {
             }
             let corners = g.cmds().iter().filter(|c| c.rect.w == 4.0 && c.rect.h == 4.0).count();
             assert!(corners >= 4, "{w}x{h}");
+        }
+    }
+
+    #[test]
+    fn a_huge_nine_slice_records_only_the_pieces_on_screen_and_still_covers_it_once() {
+        let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0xFFFF_FFFF; 144]));
+        let record = |x: f32, w: f32| {
+            let mut g = Gfx::new(64, 48);
+            g.blit_nine(&sheet, sheet.bounds(), 4, &Rect { x, y: -10.0, w, h: 1e9 });
+            g
+        };
+        // Positions an f32 can still tell a pixel apart at: the part of the panel in view is covered exactly once.
+        for (x, w) in [(-5e6, 1e7), (-1e6, 1e6 + 20.0), (10.0, 1e7), (-30.0, 1e6), (-3e6, f32::INFINITY)] {
+            let g = record(x, w);
+            assert!(g.cmds().len() < 400, "{} commands for a panel at {x} of width {w}", g.cmds().len());
+            let seen: f32 = g
+                .cmds()
+                .iter()
+                .map(|c| {
+                    let r = c.rect;
+                    ((r.x + r.w).min(64.0) - r.x.max(0.0)).max(0.0) * ((r.y + r.h).min(48.0) - r.y.max(0.0)).max(0.0)
+                })
+                .sum();
+            let wanted = ((x + w).min(64.0) - x.max(0.0)).max(0.0) * 48.0;
+            assert_eq!(seen, wanted, "panel at {x}, width {w}");
+        }
+        // Absurd sizes no f32 can place pixels in: nothing hangs or fills memory.
+        for (x, w) in [(-30.0, 1e30), (-1e30, f32::INFINITY), (0.0, f32::INFINITY)] {
+            assert!(record(x, w).cmds().len() < 400, "{x} {w}");
         }
     }
 
