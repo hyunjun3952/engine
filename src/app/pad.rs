@@ -73,12 +73,12 @@ impl PadState {
             loop {
                 match f.read(&mut ev) {
                     Ok(8) => self.apply(ev),
-                    Ok(_) => {}
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         self.file = Some(f);
                         break;
                     }
-                    Err(_) => {
+                    // Includes end of file, which would otherwise spin here forever.
+                    Ok(_) | Err(_) => {
                         (self.buttons, self.dpad, self.stick, self.right, self.trigger) = Default::default();
                         break;
                     }
