@@ -88,13 +88,16 @@ impl Soft {
         let (ex, ey) = (hw * c.abs() + hh * s.abs(), hw * s.abs() + hh * c.abs());
         let (x0, x1) = ((cx - ex).floor().max(0.0) as usize, ((cx + ex).ceil().max(0.0) as usize).min(self.w));
         let (y0, y1) = ((cy - ey).floor().max(0.0) as usize, ((cy + ey).ceil().max(0.0) as usize).min(self.h));
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
         let (iu, iv) = (1.0 / t.sx, 1.0 / t.sy);
         let (du, dv) = (c * iu, -s * iv);
         for py in y0..y1 {
             let (dx, dy) = (x0 as f32 + 0.5 - cx, py as f32 + 0.5 - cy);
             let mut u = (dx * c + dy * s) * iu + quad.w / 2.0;
             let mut v = (dy * c - dx * s) * iv + quad.h / 2.0;
-            for d in &mut self.buf[py * self.w + x0..py * self.w + x1.max(x0)] {
+            for d in &mut self.buf[py * self.w + x0..py * self.w + x1] {
                 if u >= 0.0 && u < quad.w && v >= 0.0 && v < quad.h {
                     shade(d, u, v);
                 }
@@ -338,6 +341,18 @@ mod tests {
 
     fn lit(s: &Soft, w: usize) -> Vec<(usize, usize)> {
         s.buf.iter().enumerate().filter(|(_, p)| **p != 0).map(|(i, _)| (i % w, i / w)).collect()
+    }
+
+    #[test]
+    fn a_turned_or_scaled_sprite_beyond_the_right_or_bottom_edge_draws_nothing_and_does_not_panic() {
+        let sheet = std::sync::Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
+        for (x, y) in [(60.0, 30.0), (47.5, 40.0), (54.0, 40.0), (100.0, 100.0)] {
+            for angle in [0.0, 0.7] {
+                let at = Rect { x, y, w: 4.0, h: 4.0 };
+                let s = drawn(48, 36, at, Paint::Sprite(sheet.clone()), Transform { angle, sx: 2.0, sy: 2.0 });
+                assert!(s.buf.iter().all(|&p| p == 0), "nothing is on the screen at ({x}, {y}), angle {angle}");
+            }
+        }
     }
 
     #[test]
