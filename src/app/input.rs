@@ -12,6 +12,10 @@ impl Input {
     pub(crate) fn poll(&mut self, win: &minifb::Window) {
         self.down = win.get_keys().into_iter().collect();
     }
+    #[cfg(test)]
+    pub(crate) fn hold(&mut self, keys: &[Key]) {
+        self.down = keys.iter().copied().collect();
+    }
     pub(crate) fn end_step(&mut self) {
         self.prev = self.down.clone();
     }
