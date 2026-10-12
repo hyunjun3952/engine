@@ -55,16 +55,25 @@ struct Memory {
     pts: Vec<(V2, f32, f32)>,
 }
 
+// Keeps the centres of two bodies `length` apart (a rod) or at most that far apart (a rope).
+struct Joint {
+    a: Entity,
+    b: Entity,
+    length: f32,
+    rope: bool,
+}
+
 pub struct Physics {
     pub gravity: (f32, f32),
     pub iterations: usize,
     // Last step's contact impulses per body pair, replayed first so resting piles start the solve near its answer.
     cache: HashMap<(u64, u64), Memory>,
+    joints: Vec<Joint>,
 }
 
 impl Default for Physics {
     fn default() -> Self {
-        Physics { gravity: (0.0, 900.0), iterations: 10, cache: HashMap::new() }
+        Physics { gravity: (0.0, 900.0), iterations: 10, cache: HashMap::new(), joints: Vec::new() }
     }
 }
 
@@ -167,13 +176,33 @@ fn node_id(ents: &[Entity], nodes: &[Node], i: usize) -> u64 {
 }
 
 impl Physics {
+    /// A rigid rod between the centres of `a` and `b`. Torque is ignored: the ends are the centres.
+    pub fn rod(&mut self, a: Entity, b: Entity, length: f32) {
+        self.joints.push(Joint { a, b, length, rope: false });
+    }
+
+    /// Like `rod`, but the bodies may come closer than `length`.
+    pub fn rope(&mut self, a: Entity, b: Entity, length: f32) {
+        self.joints.push(Joint { a, b, length, rope: true });
+    }
+
+    pub fn clear_joints(&mut self) {
+        self.joints.clear();
+    }
+
     pub fn step(&mut self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();
         let substeps = self.substeps(&nodes, dt);
+        let at = |e| ents.iter().position(|&x| x == e);
+        let links: Vec<Link> = self
+            .joints
+            .iter()
+            .filter_map(|j| Some(Link { a: at(j.a)?, b: at(j.b)?, length: j.length, rope: j.rope }))
+            .collect();
         for _ in 0..substeps {
             nodes.truncate(bodies);
-            self.substep(&ents, &mut nodes, tiles, dt / substeps as f32);
+            self.substep(&ents, &mut nodes, &links, tiles, dt / substeps as f32);
         }
         write_back(world, &ents, &nodes);
     }
@@ -190,7 +219,7 @@ impl Physics {
         (worst.ceil() as usize).clamp(1, MAX_SUBSTEPS)
     }
 
-    fn substep(&mut self, ents: &[Entity], nodes: &mut Vec<Node>, tiles: Option<&Tilemap>, dt: f32) {
+    fn substep(&mut self, ents: &[Entity], nodes: &mut Vec<Node>, links: &[Link], tiles: Option<&Tilemap>, dt: f32) {
         let bodies = ents.len();
         self.integrate(nodes, dt);
         if let Some(map) = tiles {
@@ -215,11 +244,19 @@ impl Physics {
                 let (a, b) = pair_mut(nodes, hit.a, hit.b);
                 solve(a, b, hit);
             }
+            for l in links {
+                let (a, b) = pair_mut(nodes, l.a, l.b);
+                pull(a, b, l);
+            }
         }
         for _ in 0..CORRECTION_PASSES {
             for hit in &hits {
                 let (a, b) = pair_mut(nodes, hit.a, hit.b);
                 separate(a, b, hit);
+            }
+            for l in links {
+                let (a, b) = pair_mut(nodes, l.a, l.b);
+                keep_length(a, b, l);
             }
         }
         self.cache = hits
@@ -590,6 +627,49 @@ fn solve(a: &mut Node, b: &mut Node, hit: &mut Hit) {
         a.push(impulse, ra, -1.0);
         b.push(impulse, rb, 1.0);
     }
+}
+
+// A joint resolved to node indices for one step.
+struct Link {
+    a: usize,
+    b: usize,
+    length: f32,
+    rope: bool,
+}
+
+fn link_axis(a: &Node, b: &Node) -> Option<(V2, f32)> {
+    let (ca, cb) = (a.center(), b.center());
+    let (dx, dy) = (cb.0 - ca.0, cb.1 - ca.1);
+    let dist = dx.hypot(dy);
+    (dist > 1e-4).then_some(((dx / dist, dy / dist), dist))
+}
+
+// Cancels the speed at which the ends move apart (and, for a rod, together) along the joint.
+fn pull(a: &mut Node, b: &mut Node, l: &Link) {
+    let inv = a.inv_mass + b.inv_mass;
+    let Some((n, dist)) = link_axis(a, b).filter(|_| inv > 0.0) else {
+        return;
+    };
+    let along = dot((b.vel.0 - a.vel.0, b.vel.1 - a.vel.1), n);
+    if l.rope && (dist <= l.length || along <= 0.0) {
+        return;
+    }
+    let j = -along / inv;
+    a.vel = (a.vel.0 - j * n.0 * a.inv_mass, a.vel.1 - j * n.1 * a.inv_mass);
+    b.vel = (b.vel.0 + j * n.0 * b.inv_mass, b.vel.1 + j * n.1 * b.inv_mass);
+}
+
+fn keep_length(a: &mut Node, b: &mut Node, l: &Link) {
+    let inv = a.inv_mass + b.inv_mass;
+    let Some((n, dist)) = link_axis(a, b).filter(|_| inv > 0.0) else {
+        return;
+    };
+    let error = if l.rope { (dist - l.length).max(0.0) } else { dist - l.length };
+    let shift = error * CORRECTION / inv;
+    a.rect.x += n.0 * shift * a.inv_mass;
+    a.rect.y += n.1 * shift * a.inv_mass;
+    b.rect.x -= n.0 * shift * b.inv_mass;
+    b.rect.y -= n.1 * shift * b.inv_mass;
 }
 
 // Positional correction only moves bodies, not their angle; the contact's depth shrinks by how far they have
@@ -998,6 +1078,55 @@ mod tests {
                 assert!(r.y + r.h <= 301.0, "circle {circle} tilt {tilt} went through: {r:?}");
             }
         }
+    }
+
+    fn swing(rope: bool, start: (f32, f32)) -> (Physics, World, Entity, Entity) {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        let anchor = w.spawn((Body(square(300.0, 100.0, 10.0)), RigidBody::fixed()));
+        let bob = boxed(&mut w, square(start.0, start.1, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        if rope {
+            p.rope(anchor, bob, 100.0);
+        } else {
+            p.rod(anchor, bob, 100.0);
+        }
+        (p, w, anchor, bob)
+    }
+
+    fn gap(w: &World, a: Entity, b: Entity) -> f32 {
+        let rect = |e| w.get::<&Body>(e).unwrap().0;
+        let (ra, rb) = (rect(a), rect(b));
+        (ra.x - rb.x).hypot(ra.y - rb.y)
+    }
+
+    #[test]
+    fn a_rod_keeps_its_length_while_the_bob_swings_through_the_bottom() {
+        let (mut p, mut w, anchor, bob) = swing(false, (400.0, 100.0));
+        let mut lowest = 0.0f32;
+        for _ in 0..240 {
+            run(&mut p, &mut w, None, 1);
+            assert!((gap(&w, anchor, bob) - 100.0).abs() < 1.5, "length drifted to {}", gap(&w, anchor, bob));
+            lowest = lowest.max(state(&w, bob).0.y);
+        }
+        assert!(lowest > 190.0, "the bob never swung down: {lowest}");
+    }
+
+    #[test]
+    fn a_rope_goes_slack_up_close_and_holds_once_taut() {
+        let (mut p, mut w, anchor, bob) = swing(true, (300.0, 130.0));
+        run(&mut p, &mut w, None, 6);
+        assert!(state(&w, bob).0.y > 135.0, "a slack rope lets the bob fall freely");
+        run(&mut p, &mut w, None, 120);
+        assert!(gap(&w, anchor, bob) < 101.5, "taut rope holds: {}", gap(&w, anchor, bob));
+        assert!(state(&w, bob).0.y > 190.0);
+    }
+
+    #[test]
+    fn joints_to_despawned_bodies_are_skipped() {
+        let (mut p, mut w, anchor, bob) = swing(false, (400.0, 100.0));
+        w.despawn(anchor).unwrap();
+        run(&mut p, &mut w, None, 30);
+        assert!(state(&w, bob).0.y > 200.0, "free fall without its anchor");
+        p.clear_joints();
     }
 
     fn turning(w: &mut World, rect: Rect, rb: RigidBody, angle: f32) -> Entity {
