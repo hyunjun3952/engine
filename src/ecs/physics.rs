@@ -112,11 +112,11 @@ struct Node {
 
 impl Node {
     fn center(&self) -> V2 {
-        (self.rect.x + self.rect.w / 2.0, self.rect.y + self.rect.h / 2.0)
+        self.rect.center()
     }
 
     fn before_center(&self) -> V2 {
-        (self.before.x + self.before.w / 2.0, self.before.y + self.before.h / 2.0)
+        self.before.center()
     }
 
     fn radius(&self) -> f32 {
@@ -431,11 +431,8 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>) -> Vec<Hit>
                 let tile = &nodes[b].rect;
                 if touch.whole_face {
                     let (nx, ny) = touch.normal;
-                    let behind = Rect {
-                        x: tile.x + tile.w / 2.0 - nx * tile.w,
-                        y: tile.y + tile.h / 2.0 - ny * tile.h,
-                        ..*tile
-                    };
+                    let (tx, ty) = tile.center();
+                    let behind = Rect { x: tx - nx * tile.w, y: ty - ny * tile.h, ..*tile };
                     if is_solid(map, behind.x, behind.y) {
                         return None;
                     }
@@ -461,7 +458,7 @@ fn is_solid(map: &Tilemap, x: f32, y: f32) -> bool {
 // floor would otherwise catch on the seam, because the resting overlap of 0.02 px makes the seam look like a wall.
 // A neighbour only hides the point when the body is on that neighbour's side of it (`toward` is tile to body).
 fn is_hidden(map: &Tilemap, tile: &Rect, (px, py): V2, normal: V2) -> bool {
-    let (mx, my) = (tile.x + tile.w / 2.0, tile.y + tile.h / 2.0);
+    let (mx, my) = tile.center();
     let (dx, dy) = (px - mx, py - my);
     let toward = (-normal.0, -normal.1);
     let blocked = |d: f32, t: f32, half: f32| d.abs() >= half - 0.05 && d.signum() * t > 1e-6;
@@ -1272,7 +1269,7 @@ mod tests {
             let off = off.min(std::f32::consts::FRAC_PI_2 - off);
             assert!(off < 0.03, "tilt {tilt}: rests at {} rad", angle_of(&w, e));
             assert!(v.0.abs() < 1.0 && v.1.abs() < 2.0, "tilt {tilt}: still moving {v:?}");
-            let centre = r.y + r.h / 2.0;
+            let centre = r.center().1;
             assert!((centre - 90.0).abs() < 0.6 || (centre - 85.0).abs() < 0.6, "tilt {tilt}: centre at {centre}");
         }
     }
@@ -1327,7 +1324,7 @@ mod tests {
             let (mut lin, mut ang) = ((0.0, 0.0), 0.0);
             for (e, m, i) in [(ball, 1.0, 0.5 * 25.0), (boxed_, 4.0, 4.0 * 1800.0 / 12.0)] {
                 let (r, v) = state(w, e);
-                let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+                let (cx, cy) = r.center();
                 lin = (lin.0 + m * v.0, lin.1 + m * v.1);
                 ang += m * (cx * v.1 - cy * v.0) + i * w.get::<&RigidBody>(e).unwrap().spin;
             }
@@ -1349,7 +1346,7 @@ mod tests {
             let e = turning(&mut w, Rect { x, y: 0.0, w: 24.0, h: 14.0 }, RigidBody::dynamic(1.0), 0.5);
             run(&mut p, &mut w, Some(&map), 300);
             let r = state(&w, e).0;
-            let centre = r.y + r.h / 2.0;
+            let centre = r.center().1;
             assert!(
                 (centre - 25.0).abs() < 0.6 || (centre - 20.0).abs() < 0.6,
                 "x {x}: centre at {centre} on a floor at 32"
@@ -1383,7 +1380,7 @@ mod tests {
         for e in bodies {
             let (r, v) = state(&w, e);
             // The rect is the unturned box, so judge the centre against the smallest half-size.
-            let (cx, cy, near) = (r.x + r.w / 2.0, r.y + r.h / 2.0, r.w.min(r.h) / 2.0);
+            let ((cx, cy), near) = (r.center(), r.w.min(r.h) / 2.0);
             assert!(cx >= 9.0 + near && cx <= 631.0 - near && cy <= 341.0 - near, "escaped or sank: {r:?}");
             assert!(v.0.hypot(v.1) < 60.0, "still flying after 15 s: {v:?}");
         }

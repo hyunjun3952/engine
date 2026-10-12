@@ -356,7 +356,7 @@ impl Gpu {
     }
 
     fn warped(&mut self, tex: Tex, quad: crate::Rect, t: &Transform, uv: (f32, f32, f32, f32), color: [f32; 4]) {
-        let (cx, cy) = (quad.x + quad.w / 2.0, quad.y + quad.h / 2.0);
+        let (cx, cy) = quad.center();
         let (s, c) = t.angle.sin_cos();
         let corner = |ux: f32, uy: f32| {
             let (lx, ly) = (ux * quad.w / 2.0 * t.sx, uy * quad.h / 2.0 * t.sy);

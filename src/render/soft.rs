@@ -87,7 +87,7 @@ impl Soft {
         if t.sx == 0.0 || t.sy == 0.0 {
             return;
         }
-        let (cx, cy) = (quad.x + quad.w / 2.0, quad.y + quad.h / 2.0);
+        let (cx, cy) = quad.center();
         let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
         let (s, c) = t.angle.sin_cos();
         let (ex, ey) = (hw * c.abs() + hh * s.abs(), hw * s.abs() + hh * c.abs());

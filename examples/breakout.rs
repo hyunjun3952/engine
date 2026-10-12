@@ -118,7 +118,7 @@ impl Scene for Breakout {
                 if v.y > 0.0 {
                     v.y = -v.y.abs();
                     ctx.audio().play("assets/audio/hit.wav");
-                    v.x = ((b.0.x + b.0.w / 2.0) - (paddle.x + paddle.w / 2.0)) / (paddle.w / 2.0) * 250.0;
+                    v.x = (b.0.center().0 - paddle.center().0) / (paddle.w / 2.0) * 250.0;
                 }
             } else if broken.is_none() {
                 if c.x_axis() {
@@ -138,7 +138,7 @@ impl Scene for Breakout {
                 _ => 0xffffff,
             };
             let spec = Burst { count: 10, color, speed: 140.0, life: 0.5, size: 4.0, gravity: 300.0 };
-            burst(&mut self.world, ctx.rng(), (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0), &spec);
+            burst(&mut self.world, ctx.rng(), rect.center(), &spec);
             self.world.despawn(e).unwrap();
             self.score += 10;
             if bricks_left == 1 {

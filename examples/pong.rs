@@ -117,10 +117,10 @@ impl Scene for Pong {
         }
         if let Some(p) = paddle {
             ctx.audio().play("assets/audio/hit.wav");
-            let away = if b.0.x + b.0.w / 2.0 < p.x + p.w / 2.0 { -1.0 } else { 1.0 };
+            let away = if b.0.center().0 < p.center().0 { -1.0 } else { 1.0 };
             b.0.x = if away < 0.0 { p.x - b.0.w } else { p.x + p.w };
             v.x = away * (v.x.abs() * 1.05).min(MAX_SPEED);
-            spark = Some((b.0.x + b.0.w / 2.0, b.0.y + b.0.h / 2.0));
+            spark = Some(b.0.center());
         }
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
             self.score[(b.0.x > 0.0) as usize] += 1;

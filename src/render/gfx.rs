@@ -13,6 +13,10 @@ pub struct Rect {
 }
 
 impl Rect {
+    pub fn center(&self) -> (f32, f32) {
+        (self.x + self.w / 2.0, self.y + self.h / 2.0)
+    }
+
     pub fn penetration(&self, o: &Rect) -> Option<(f32, f32)> {
         let ox = (self.x + self.w).min(o.x + o.w) - self.x.max(o.x);
         let oy = (self.y + self.h).min(o.y + o.h) - self.y.max(o.y);

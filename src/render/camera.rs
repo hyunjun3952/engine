@@ -24,9 +24,10 @@ impl Camera {
     }
 
     pub fn follow(&mut self, target: &Rect, world: (f32, f32), dt: f32) {
+        let (tx, ty) = target.center();
         let goal = (
-            (target.x + target.w / 2.0 - self.view.0 / 2.0).clamp(0.0, (world.0 - self.view.0).max(0.0)),
-            (target.y + target.h / 2.0 - self.view.1 / 2.0).clamp(0.0, (world.1 - self.view.1).max(0.0)),
+            (tx - self.view.0 / 2.0).clamp(0.0, (world.0 - self.view.0).max(0.0)),
+            (ty - self.view.1 / 2.0).clamp(0.0, (world.1 - self.view.1).max(0.0)),
         );
         if !self.placed {
             (self.pos, self.placed) = (goal, true);
