@@ -24,6 +24,9 @@ impl Scene for Fly {
         if ctx.input().pressed("back") {
             return Trans::Quit;
         }
+        if ctx.input().pressed("restart") {
+            return Trans::Fade(Box::new(Trans::Replace(Box::new(Fly::new(ctx)))), 0.8);
+        }
         let dt = ctx.dt();
         let (dx, dy) = (ctx.input().axis("left", "right") * SPEED * dt, ctx.input().axis("up", "down") * SPEED * dt);
         let mut body = self.world.get::<&mut Body>(self.me).unwrap();
@@ -42,7 +45,7 @@ impl Scene for Fly {
         let mut cmds = self.map.draw_list(g.view());
         cmds.extend(draw_list(&self.world));
         g.draw(cmds);
-        g.text("arrows: move   SPACE: shake", 16, 16, 1, 0xaaaaaa);
+        g.text("arrows: move   SPACE: shake   ENTER: restart with a fade", 16, 16, 1, 0xaaaaaa);
     }
 }
 
@@ -53,6 +56,7 @@ fn main() {
         ctx.bind("up", &[Key::Up]);
         ctx.bind("down", &[Key::Down]);
         ctx.bind("shake", &[Key::Space]);
+        ctx.bind("restart", &[Key::Enter]);
         ctx.bind("back", &[Key::Escape]);
         Box::new(Fly::new(ctx))
     });

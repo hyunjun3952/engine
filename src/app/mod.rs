@@ -1,3 +1,4 @@
+mod fade;
 mod input;
 mod pad;
 mod rng;
@@ -14,6 +15,7 @@ pub use time::{Ease, Timer, Tween};
 use crate::render::Gpu;
 use crate::render::Soft;
 use crate::{Assets, Audio, Camera, Gfx, Rect};
+use fade::Fade;
 use minifb::{ScaleMode, Window, WindowOptions};
 use std::time::Instant;
 
@@ -55,6 +57,7 @@ pub struct Ctx {
     pub(crate) input: Input,
     pub(crate) assets: Assets,
     pub(crate) audio: Audio,
+    pub(crate) fade: Fade,
     pub(crate) cam: Camera,
     pub(crate) rng: Rng,
     pub(crate) bindings_path: Option<String>,
@@ -71,6 +74,7 @@ impl Ctx {
             input: Input::default(),
             assets: Assets::default(),
             audio,
+            fade: Fade::new(),
             cam: Camera::new(w as f32, h as f32),
             rng: Rng::new(1),
             bindings_path: None,
@@ -173,6 +177,9 @@ pub enum Trans {
     Pop,
     Replace(Box<dyn Scene>),
     Quit,
+    /// Fades to black over half of `secs`, makes the inner change, and fades back over the other half. The scenes
+    /// stand still while it darkens.
+    Fade(Box<Trans>, f32),
 }
 
 pub trait Scene {
@@ -209,6 +216,7 @@ fn apply(stack: &mut Stack, trans: Trans, ctx: &mut Ctx) {
                 exit_top(stack, ctx);
             }
         }
+        Trans::Fade(inner, secs) => ctx.fade.start(*inner, secs),
     }
 }
 
@@ -314,8 +322,13 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         let mut ticked = false;
         while acc >= dt && !stack.is_empty() {
             ticked = true;
-            let trans = stack.last_mut().unwrap().update(&mut ctx);
-            apply(&mut stack, trans, &mut ctx);
+            if let Some(trans) = ctx.fade.tick(dt) {
+                apply(&mut stack, trans, &mut ctx);
+            }
+            if !ctx.fade.blocking() && !stack.is_empty() {
+                let trans = stack.last_mut().unwrap().update(&mut ctx);
+                apply(&mut stack, trans, &mut ctx);
+            }
             ctx.input.end_step();
             ctx.cam.tick(dt);
             ctx.audio.tick(dt);
@@ -336,6 +349,9 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         gfx.cam = ctx.cam.offset();
         for s in &stack {
             s.draw(&mut gfx);
+        }
+        if ctx.fade.alpha() > 0 {
+            gfx.fill_alpha(&Rect { x: 0.0, y: 0.0, w: cfg.w as f32, h: cfg.h as f32 }, 0x000000, ctx.fade.alpha());
         }
         if gfx.debug {
             let line = format!("FPS {} TPS {} {:.2}ms", stats.fps, stats.tps, stats.ms);
