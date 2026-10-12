@@ -91,8 +91,16 @@ impl Gfx {
     }
 
     pub fn text_font(&mut self, font: &Font, s: &str, x: i32, y: i32, color: u32) {
+        self.text_font_scaled(font, s, x, y, 1, color);
+    }
+
+    /// Like `text_font` with every font pixel drawn `scale` (at least 1) pixels wide and tall;
+    /// `font.width` and `line_height` need multiplying by `scale` to lay out around it.
+    pub fn text_font_scaled(&mut self, font: &Font, s: &str, x: i32, y: i32, scale: i32, color: u32) {
+        let k = scale.max(1);
         for (src, dx, dy) in font.layout(s) {
-            let rect = Rect { x: (x + dx) as f32, y: (y + dy) as f32, w: src.w, h: src.h };
+            let rect =
+                Rect { x: (x + dx * k) as f32, y: (y + dy * k) as f32, w: src.w * k as f32, h: src.h * k as f32 };
             self.push(rect, Paint::Mask { sheet: font.atlas.clone(), src, color });
         }
     }

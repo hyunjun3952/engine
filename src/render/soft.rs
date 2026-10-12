@@ -154,19 +154,21 @@ impl Soft {
         self.fill_with(&Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, |_| c);
     }
 
+    // The destination rect is the source scaled by a whole number, so each source pixel covers k by k.
     fn mask(&mut self, s: &Sprite, src: Rect, at: &Rect, color: u32) {
         let img = s.image();
         let (x, y) = (at.x as i32, at.y as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
-        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
-        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
-        for sy in rows {
-            let from = (sy0 + sy) * img.w + sx0;
-            let dst_from = (y + sy as i32) as usize * self.w;
-            for sx in cols.clone() {
+        let k = ((at.w / src.w) as usize).max(1);
+        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w * k);
+        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h * k);
+        for dy in rows {
+            let from = (sy0 + dy / k) * img.w + sx0;
+            let dst_from = (y + dy as i32) as usize * self.w;
+            for dx in cols.clone() {
                 put(
-                    &mut self.buf[dst_from + (x + sx as i32) as usize],
-                    img.px[from + sx] & 0xFF00_0000 | color & 0xFF_FFFF,
+                    &mut self.buf[dst_from + (x + dx as i32) as usize],
+                    img.px[from + dx / k] & 0xFF00_0000 | color & 0xFF_FFFF,
                 );
             }
         }
@@ -255,6 +257,17 @@ mod tests {
         f(&mut g);
         s.render(g.cmds());
         s
+    }
+
+    #[test]
+    fn scaled_font_text_covers_k_by_k_per_source_pixel_and_clips_at_the_edge() {
+        let font = crate::Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let lit = |s: &Soft| s.buf.iter().filter(|&&p| p & 0xFF_FFFF == 0xFF_FFFF).count();
+        let one = run(60, 40, |g| g.text_font(&font, "ㅁ", 2, 2, 0xffffff));
+        let two = run(60, 40, |g| g.text_font_scaled(&font, "ㅁ", 2, 2, 2, 0xffffff));
+        assert!(lit(&one) > 0 && lit(&two) == lit(&one) * 4);
+        run(8, 8, |g| g.text_font_scaled(&font, "한", -5, -5, 3, 1));
+        run(8, 8, |g| g.text_font_scaled(&font, "한", 5, 5, 3, 1));
     }
 
     #[test]

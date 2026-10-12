@@ -452,7 +452,7 @@ impl Gpu {
                     let (tex, (sw, sh)) = self.texture(sheet);
                     let (x, y) = (r.x.trunc(), r.y.trunc());
                     let uv = (src.x / sw, src.y / sh, (src.x + src.w) / sw, (src.y + src.h) / sh);
-                    self.quad(tex, (x, y, x + src.w, y + src.h), uv, rgba(*color, 1.0));
+                    self.quad(tex, (x, y, x + r.w, y + r.h), uv, rgba(*color, 1.0));
                 }
                 Paint::Region { sheet, src, flip } => {
                     let (tex, (sw, sh)) = self.texture(sheet);
@@ -697,7 +697,9 @@ mod tests {
             cmd(at(100.0, 50.0, 30.0, 12.0), Paint::Color(0xff4040), 0.4, 1.0, 1.0),
             cmd(at(110.0, 60.0, 30.0, 30.0), Paint::Alpha(0x40ff80, 128), -0.8, 1.0, 0.6),
         ]);
-        g.text_font(&crate::Font::load("assets/fonts/galmuri9.bdf").unwrap(), "한글 text", 4, 100, 0xffee88);
+        let font = crate::Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        g.text_font(&font, "한글 text", 4, 100, 0xffee88);
+        g.text_font_scaled(&font, "큰 글", 80, 98, 2, 0x88eeff);
         g
     }
 
