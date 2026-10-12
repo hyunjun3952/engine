@@ -394,6 +394,8 @@ impl Gpu {
     }
 
     fn build(&mut self, cmds: &[DrawCmd]) {
+        // The cache holds the only reference once a game drops a sprite; keeping it would leak one texture per sprite.
+        self.textures.retain(|_, t| Arc::strong_count(&t._keep) > 1);
         self.verts.clear();
         self.batches.clear();
         let full = crate::Rect { x: 0.0, y: 0.0, w: self.size.0 as f32, h: self.size.1 as f32 };
@@ -660,6 +662,24 @@ mod tests {
         assert!(soft != soft2, "the new image really looks different");
         assert!(soft2 == hard2, "re-uploaded texture differs from the software output");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn textures_of_dropped_sprites_are_released() {
+        let Ok(mut gpu) = Gpu::offscreen((64, 64), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let kept = Arc::new(Sprite::load("assets/ball.png"));
+        for _ in 0..20 {
+            let temp = Arc::new(Sprite::load("assets/player.png"));
+            let mut g = Gfx::new(64, 64);
+            g.blit(&kept, 0, 0);
+            g.blit(&temp, 20, 0);
+            gpu.render_to_pixels(g.cmds());
+        }
+        gpu.render_to_pixels(Gfx::new(64, 64).cmds());
+        assert!(gpu.textures.len() <= 1, "{} textures cached", gpu.textures.len());
     }
 
     fn transformed_scene() -> Gfx {
