@@ -3,6 +3,9 @@ use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vel, World};
 use std::collections::{HashMap, HashSet};
 
 const REST_SPEED: f32 = 30.0;
+// How far, as a share of its smaller side, a body may move in one substep. Two bodies closing on each other
+// double it, and a hit can speed one up mid-step, so half a side left new contacts 6 px deep in 14 px boxes.
+const TRAVEL: f32 = 0.125;
 const SLOP: f32 = 0.02;
 const CORRECTION: f32 = 0.5;
 const CORRECTION_PASSES: usize = 6;
@@ -341,7 +344,7 @@ impl Physics {
         let worst = nodes
             .iter()
             .filter(|n| n.inv_mass > 0.0)
-            .map(|n| (speed(n) + gravity) * dt / (n.rect.w.min(n.rect.h) / 2.0))
+            .map(|n| (speed(n) + gravity) * dt / (n.rect.w.min(n.rect.h) * TRAVEL))
             .fold(0.0, f32::max);
         (worst.ceil() as usize).clamp(1, MAX_SUBSTEPS)
     }
@@ -911,7 +914,8 @@ mod tests {
     #[test]
     fn free_fall_follows_semi_implicit_euler() {
         let (mut p, mut w) = (Physics::default(), World::new());
-        let e = boxed(&mut w, square(0.0, 0.0, 40.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        // Big enough that no substeps are needed, since those would change the stepping this test measures.
+        let e = boxed(&mut w, square(0.0, 0.0, 400.0), RigidBody::dynamic(1.0), (0.0, 0.0));
         run(&mut p, &mut w, None, 60);
         let expected = 900.0 * DT * DT * (60.0 * 61.0 / 2.0);
         assert!((state(&w, e).0.y - expected).abs() < 0.01, "{}", state(&w, e).0.y);
