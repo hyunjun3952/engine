@@ -1,3 +1,4 @@
+use crate::hangul::{Hangul, latin_to_jamo};
 use crate::{Ctx, Font, Gfx, Input, Key, MouseButton, Rect};
 
 pub fn draw_panel(gfx: &mut Gfx, r: &Rect, fill: u32, border: u32) {
@@ -32,15 +33,21 @@ pub fn slider(input: &Input, r: &Rect, value: f32) -> f32 {
 }
 
 /// A single-line text box: call `update` once per fixed step with the typed characters and Backspace.
+///
+/// Hangul is composed here, so no input method is needed: jamo from a Korean keyboard layout are joined into
+/// syllables as they arrive, and with `set_korean(true)` (RightAlt toggles it) letter keys type jamo as on a
+/// two-set keyboard. Only syllables in the font's set draw; the bundled font has the 2350 of KS X 1001.
 pub struct TextField {
     text: String,
     max: usize,
+    korean: bool,
+    hangul: Hangul,
 }
 
 impl TextField {
     /// Holds at most `max` characters (not bytes).
     pub fn new(max: usize) -> Self {
-        TextField { text: String::new(), max }
+        TextField { text: String::new(), max, korean: false, hangul: Hangul::default() }
     }
 
     pub fn text(&self) -> &str {
@@ -49,19 +56,38 @@ impl TextField {
 
     pub fn clear(&mut self) {
         self.text.clear();
+        self.hangul.end();
+    }
+
+    pub fn korean(&self) -> bool {
+        self.korean
+    }
+
+    pub fn set_korean(&mut self, on: bool) {
+        self.korean = on;
+        self.hangul.end();
     }
 
     /// Returns true when Enter was pressed this step.
     pub fn update(&mut self, input: &Input) -> bool {
+        if input.key_pressed(Key::RightAlt) {
+            self.set_korean(!self.korean);
+        }
         if input.key_pressed(Key::Backspace) {
-            self.text.pop();
+            self.hangul.backspace(&mut self.text);
         }
         for &c in input.typed() {
-            if self.text.chars().count() < self.max {
-                self.text.push(c);
+            let before = (self.text.clone(), self.hangul);
+            self.hangul.push(&mut self.text, if self.korean { latin_to_jamo(c) } else { c });
+            if self.text.chars().count() > self.max {
+                (self.text, self.hangul) = before;
             }
         }
-        input.key_pressed(Key::Enter)
+        let done = input.key_pressed(Key::Enter);
+        if done {
+            self.hangul.end();
+        }
+        done
     }
 
     /// Draws the text and, while `caret` is true, a `|` after it; callers blink it with a `Timer`.
@@ -303,6 +329,37 @@ mod tests {
         assert!(field.update(&input));
         field.clear();
         assert_eq!(field.text(), "");
+    }
+
+    #[test]
+    fn a_text_field_composes_hangul_from_jamo_or_from_letter_keys_and_keeps_its_limit() {
+        let (mut input, mut field) = (Input::default(), TextField::new(2));
+        input.type_chars("ㅎㅏㄴㄱㅡㄹ");
+        field.update(&input);
+        assert_eq!(field.text(), "한글", "jamo from a Korean layout");
+        input.type_chars("ㅅ");
+        field.update(&input);
+        assert_eq!(field.text(), "한긄", "joining the final needs no room");
+        input.type_chars("ㅏ");
+        field.update(&input);
+        assert_eq!(field.text(), "한긄", "a third syllable does not fit");
+        field.clear();
+        input.type_chars("ㅎㅏㄴㄱㅡㄹ");
+        field.update(&input);
+        field.clear();
+        field.set_korean(true);
+        input.type_chars("gksrmf");
+        field.update(&input);
+        assert_eq!(field.text(), "한글", "letter keys as a two-set keyboard");
+        press(&mut input, Key::Backspace);
+        field.update(&input);
+        assert_eq!(field.text(), "한그");
+        press(&mut input, Key::RightAlt);
+        field.update(&input);
+        assert!(!field.korean());
+        input.type_chars("k");
+        field.update(&input);
+        assert_eq!(field.text(), "한그", "toggled off, and the box is full");
     }
 
     #[test]

@@ -3,6 +3,7 @@ mod assets;
 #[cfg(test)]
 mod bench;
 mod ecs;
+mod hangul;
 mod render;
 mod ui;
 

@@ -28,7 +28,8 @@ impl Scene for Text {
     fn draw(&self, g: &mut Gfx) {
         g.clear(0x101018);
         let f = &self.font;
-        g.text_font(f, "글자를 입력하고 Enter (한글은 OS 입력기가 보낸 글자만)", 16, 16, 0xaaaaaa);
+        let mode = if self.field.korean() { "한" } else { "영" };
+        g.text_font(f, &format!("[{mode}] 오른쪽 Alt: 한/영   Enter: 입력   Tab: 메뉴 선택"), 16, 16, 0xaaaaaa);
         self.field.draw(g, f, 16, 40, 0xffffff, self.blink.fraction() < 0.5);
         self.menu.draw(g, f, 16, 80, 0xcccccc, 0xffd040);
         g.text_font_scaled(f, &self.said, 16, 180, 2, 0x80ff80);
