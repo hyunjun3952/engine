@@ -102,7 +102,10 @@ impl Gfx {
         self.push(Rect { x: x as f32, y: y as f32, w: src.w, h: src.h }, paint);
     }
 
+    /// Draws the commands lowest layer first (ties keep their order), so tiles behind and in front of entities mix.
     pub fn draw(&mut self, cmds: impl IntoIterator<Item = DrawCmd>) {
+        let mut cmds: Vec<DrawCmd> = cmds.into_iter().collect();
+        cmds.sort_by_key(|c| c.layer);
         for mut c in cmds {
             if c.debug_only && !self.debug {
                 continue;
@@ -239,5 +242,18 @@ mod tests {
         assert_eq!(letterbox(canvas, canvas), Rect { x: 0.0, y: 0.0, w: 640.0, h: 360.0 });
         assert_eq!(letterbox((1280.0, 1000.0), canvas), Rect { x: 0.0, y: 140.0, w: 1280.0, h: 720.0 });
         assert_eq!(letterbox((1600.0, 720.0), canvas), Rect { x: 160.0, y: 0.0, w: 1280.0, h: 720.0 });
+    }
+
+    #[test]
+    fn draw_puts_lower_layers_first_and_keeps_the_order_within_a_layer() {
+        let cmd = |layer, color| DrawCmd {
+            layer,
+            ..DrawCmd::new(Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }, Paint::Color(color))
+        };
+        let mut g = Gfx::new(8, 8);
+        g.draw([cmd(5, 1), cmd(-3, 2), cmd(5, 3), cmd(0, 4)]);
+        let colors: Vec<u32> =
+            g.cmds().iter().filter_map(|c| if let Paint::Color(x) = c.paint { Some(x) } else { None }).collect();
+        assert_eq!(colors, [2, 4, 1, 3]);
     }
 }

@@ -72,12 +72,13 @@ mod tests {
         let held = a.sprite(path);
         let version = held.version();
         assert_eq!(held.size(), (16, 16));
+        let sheet_size = Sprite::load("assets/images/tiles.png").size();
 
         std::fs::copy("assets/images/tiles.png", path).unwrap();
         bump(2000);
         a.watcher.poll();
         assert_eq!(a.reload_changed().len(), 1);
-        assert_eq!(held.size(), (32, 16));
+        assert_eq!(held.size(), sheet_size);
         assert!(held.version() > version);
 
         std::fs::write(path, "not a png").unwrap();
@@ -85,7 +86,7 @@ mod tests {
         a.watcher.poll();
         let results = a.reload_changed();
         assert!(results[0].as_ref().unwrap_err().starts_with(path));
-        assert_eq!(held.size(), (32, 16), "a broken file keeps the last good image");
+        assert_eq!(held.size(), sheet_size, "a broken file keeps the last good image");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

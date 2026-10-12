@@ -1,10 +1,17 @@
 use engine::{
-    Anim, Body, Burst, Config, Ctx, Entity, Font, Gfx, Key, Physics, Rebind, Rect, RigidBody, Scene, Tilemap, Trans,
-    Vel, World, animate, burst, draw_list, particles,
+    Anim, Body, Burst, Config, Ctx, Entity, Font, Gfx, Key, Physics, Rebind, Rect, RigidBody, Scene, Tile, Tilemap,
+    Trans, Vel, World, animate, burst, draw_list, particles,
 };
 use std::sync::Arc;
 
 const TILE: usize = 16;
+// `:` is a wall behind the player, `v` leaves in front of him; neither blocks.
+const LEGEND: [Tile; 4] = [
+    Tile::DEFAULT[0],
+    Tile::DEFAULT[1],
+    Tile { ch: b':', id: 3, solid: false, front: false },
+    Tile { ch: b'v', id: 4, solid: false, front: true },
+];
 const DUST: Burst = Burst { count: 6, color: 0xdddddd, speed: 50.0, life: 0.3, size: 3.0, gravity: 0.0 };
 
 struct Remap {
@@ -43,7 +50,7 @@ struct Platformer {
 }
 
 fn load_level(ctx: &mut Ctx, path: &str) -> Result<(Tilemap, Rect), String> {
-    let map = Tilemap::try_load(path, TILE, ctx.assets().sprite("assets/images/tiles.png"))?;
+    let map = Tilemap::try_load_with(path, TILE, ctx.assets().sprite("assets/images/tiles.png"), &LEGEND)?;
     let (x, y) = map.marks(b'P').next().ok_or(format!("{path}: level needs a P marker"))?;
     Ok((map, Rect { x, y: y + TILE as f32 - 24.0, w: 12.0, h: 24.0 }))
 }

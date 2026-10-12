@@ -16,4 +16,4 @@ pub use gfx::{Gfx, Rect, Sprite};
 #[cfg(feature = "gpu")]
 pub(crate) use gpu::Gpu;
 pub(crate) use soft::Soft;
-pub use tilemap::Tilemap;
+pub use tilemap::{Tile, Tilemap};

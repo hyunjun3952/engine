@@ -14,5 +14,5 @@ pub use ecs::{
     Anim, Body, Burst, Collider, Contact, Entity, Layer, Look, Physics, RigidBody, Vel, World, animate, burst,
     collisions, draw_list, movement, particles,
 };
-pub use render::{Camera, DrawCmd, Font, Gfx, Paint, Rect, Sprite, Tilemap, Transform};
+pub use render::{Camera, DrawCmd, Font, Gfx, Paint, Rect, Sprite, Tile, Tilemap, Transform};
 pub use ui::{Menu, Rebind, TextField, clicked, draw_bar, draw_panel, hovered, slider};

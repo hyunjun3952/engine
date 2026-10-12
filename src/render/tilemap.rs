@@ -5,6 +5,27 @@ use std::sync::{
 };
 
 static STAMPS: AtomicU64 = AtomicU64::new(1);
+const SOLID: u8 = 1;
+const FRONT: u8 = 2;
+// Above entities (the debug outlines are on `i32::MAX`); tiles behind them sit at `i32::MIN`.
+const FRONT_LAYER: i32 = i32::MAX - 1;
+
+/// What a character in a level file means: the sheet tile it shows (ids start at 1, the sheet is a row of
+/// square tiles), whether bodies collide with it, and whether it is drawn over entities instead of behind them.
+/// The flags belong to the id, so two characters sharing an id share them.
+#[derive(Clone, Copy, Debug)]
+pub struct Tile {
+    pub ch: u8,
+    pub id: u8,
+    pub solid: bool,
+    pub front: bool,
+}
+
+impl Tile {
+    /// `#` ground and `+` brick, both solid and drawn behind entities: what `Tilemap::load` uses.
+    pub const DEFAULT: [Tile; 2] =
+        [Tile { ch: b'#', id: 1, solid: true, front: false }, Tile { ch: b'+', id: 2, solid: true, front: false }];
+}
 
 pub struct Tilemap {
     pub w: usize,
@@ -13,6 +34,7 @@ pub struct Tilemap {
     tiles: Vec<u8>,
     marks: Vec<(u8, usize, usize)>,
     sheet: Arc<Sprite>,
+    flags: [u8; 256],
     // A number nobody else has: new for every map and after every `set`, so a reader can tell the tiles changed.
     stamp: u64,
 }
@@ -23,6 +45,24 @@ impl Tilemap {
     }
 
     pub fn try_from_ascii(rows: &[&str], size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
+        Tilemap::try_from_ascii_with(rows, size, sheet, &Tile::DEFAULT)
+    }
+
+    /// Like `try_from_ascii` with your own characters; `.` and space stay empty and any other character is a marker.
+    /// A tile id that no entry names (one given to `set`, say) is solid and drawn behind entities.
+    pub fn try_from_ascii_with(
+        rows: &[&str],
+        size: usize,
+        sheet: Arc<Sprite>,
+        legend: &[Tile],
+    ) -> Result<Self, String> {
+        if let Some(t) = legend.iter().find(|t| t.id == 0 || matches!(t.ch, b'.' | b' ')) {
+            return Err(format!("legend entry {:?} would hide an empty tile or the id 0", t.ch as char));
+        }
+        let mut flags = [SOLID; 256];
+        for t in legend {
+            flags[t.id as usize] = if t.solid { SOLID } else { 0 } | if t.front { FRONT } else { 0 };
+        }
         let w = rows.first().ok_or("empty tilemap")?.len();
         let mut tiles = Vec::with_capacity(w * rows.len());
         let mut marks = Vec::new();
@@ -31,17 +71,15 @@ impl Tilemap {
                 return Err(format!("ragged tilemap row {} (width {}, expected {w})", y + 1, row.len()));
             }
             for (x, c) in row.bytes().enumerate() {
-                tiles.push(match c {
-                    b'#' => 1,
-                    b'+' => 2,
-                    _ => 0,
-                });
-                if !matches!(c, b'.' | b' ' | b'#' | b'+') {
+                let tile = legend.iter().find(|t| t.ch == c);
+                tiles.push(tile.map_or(0, |t| t.id));
+                if tile.is_none() && !matches!(c, b'.' | b' ') {
                     marks.push((c, x, y));
                 }
             }
         }
-        Ok(Tilemap { w, h: rows.len(), size, tiles, marks, sheet, stamp: STAMPS.fetch_add(1, Ordering::Relaxed) })
+        let stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
+        Ok(Tilemap { w, h: rows.len(), size, tiles, marks, sheet, flags, stamp })
     }
 
     pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Self {
@@ -49,9 +87,13 @@ impl Tilemap {
     }
 
     pub fn try_load(path: &str, size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
+        Tilemap::try_load_with(path, size, sheet, &Tile::DEFAULT)
+    }
+
+    pub fn try_load_with(path: &str, size: usize, sheet: Arc<Sprite>, legend: &[Tile]) -> Result<Self, String> {
         let text = crate::assets::read_text(path)?;
         let rows: Vec<&str> = text.trim_end().lines().collect();
-        Tilemap::try_from_ascii(&rows, size, sheet).map_err(|e| format!("{path}: {e}"))
+        Tilemap::try_from_ascii_with(&rows, size, sheet, legend).map_err(|e| format!("{path}: {e}"))
     }
 
     pub fn marks(&self, c: u8) -> impl Iterator<Item = (f32, f32)> + '_ {
@@ -62,7 +104,7 @@ impl Tilemap {
         self.stamp
     }
 
-    /// The tile id at a grid cell: 0 empty, anything else solid (1 and 2 are the sheet's first two tiles).
+    /// The tile id at a grid cell, 0 for empty.
     pub fn tile(&self, tx: usize, ty: usize) -> u8 {
         self.tiles[ty * self.w + tx]
     }
@@ -85,7 +127,8 @@ impl Tilemap {
         if ty < 0 || ty >= self.h as i32 {
             return false;
         }
-        self.tiles[ty as usize * self.w + tx as usize] != 0
+        let id = self.tiles[ty as usize * self.w + tx as usize];
+        id != 0 && self.flags[id as usize] & SOLID != 0
     }
 
     fn blocked(&self, r: &Rect) -> bool {
@@ -132,21 +175,25 @@ impl Tilemap {
         let (tx0, ty0) = ((view.x / s).floor().max(0.0) as usize, (view.y / s).floor().max(0.0) as usize);
         let tx1 = (((view.x + view.w) / s).ceil().max(0.0) as usize).min(self.w);
         let ty1 = (((view.y + view.h) / s).ceil().max(0.0) as usize).min(self.h);
-        let mut tiles = Vec::new();
+        let (mut back, mut front) = (Vec::new(), Vec::new());
         for ty in ty0..ty1 {
             for tx in tx0..tx1 {
                 let id = self.tiles[ty * self.w + tx];
                 if id > 0 {
-                    tiles.push(((tx - tx0) as u32, (ty - ty0) as u32, id));
+                    let cell = ((tx - tx0) as u32, (ty - ty0) as u32, id);
+                    if self.flags[id as usize] & FRONT != 0 { front.push(cell) } else { back.push(cell) }
                 }
             }
         }
-        if tiles.is_empty() {
-            return Vec::new();
-        }
         let rect = Rect { x: tx0 as f32 * s, y: ty0 as f32 * s, w: (tx1 - tx0) as f32 * s, h: (ty1 - ty0) as f32 * s };
-        let paint = Paint::Tiles { sheet: self.sheet.clone(), size: self.size as u32, tiles };
-        vec![DrawCmd { layer: i32::MIN, ..DrawCmd::new(rect, paint) }]
+        [(back, i32::MIN), (front, FRONT_LAYER)]
+            .into_iter()
+            .filter(|(tiles, _)| !tiles.is_empty())
+            .map(|(tiles, layer)| {
+                let paint = Paint::Tiles { sheet: self.sheet.clone(), size: self.size as u32, tiles };
+                DrawCmd { layer, ..DrawCmd::new(rect, paint) }
+            })
+            .collect()
     }
 }
 
@@ -218,5 +265,39 @@ mod tests {
         assert_eq!((map.tile(1, 0), map.tile(1, 1), map.tile(0, 0)), (2, 1, 0));
         assert!(map.stamp() != before);
         assert!(!map.solid_in(Rect { x: 16.0, y: 0.0, w: 16.0, h: 16.0 }).is_empty());
+    }
+
+    fn legend() -> [Tile; 3] {
+        [
+            Tile::DEFAULT[0],
+            Tile { ch: b':', id: 3, solid: false, front: false },
+            Tile { ch: b'v', id: 4, solid: false, front: true },
+        ]
+    }
+
+    #[test]
+    fn a_legend_makes_tiles_that_do_not_block_and_tiles_drawn_in_front() {
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let map = Tilemap::try_from_ascii_with(&["P.v", ":::", "###"], 16, sheet, &legend()).unwrap();
+        assert_eq!(map.marks(b'P').count(), 1, "characters outside the legend are still markers");
+        assert_eq!(map.solid_in(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }).len(), 3, "only the ground blocks");
+        let (moved, hit_x, hit_y) = map.slide(&Rect { x: 4.0, y: 20.0, w: 8.0, h: 8.0 }, 10.0, 0.0);
+        assert!(!hit_x && !hit_y && moved.x == 14.0, "walks through the background wall");
+        let cmds = map.draw_list(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 });
+        assert_eq!(cmds.iter().map(|c| c.layer).collect::<Vec<_>>(), [i32::MIN, FRONT_LAYER]);
+        let count = |c: &DrawCmd| match &c.paint {
+            Paint::Tiles { tiles, .. } => tiles.len(),
+            _ => 0,
+        };
+        assert_eq!((count(&cmds[0]), count(&cmds[1])), (6, 1), "behind: wall and ground, in front: the leaf");
+    }
+
+    #[test]
+    fn a_legend_that_hides_empty_tiles_is_an_error() {
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let bad = [Tile { ch: b'.', id: 1, solid: true, front: false }];
+        assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &bad).is_err());
+        let zero = [Tile { ch: b'#', id: 0, solid: true, front: false }];
+        assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet, &zero).is_err());
     }
 }
