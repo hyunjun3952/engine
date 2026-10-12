@@ -20,6 +20,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_sequence_for_a_seed_is_fixed_across_builds() {
+        // Replays and saved seeds depend on these numbers never changing.
+        let mut r = Rng::new(1);
+        assert_eq!([r.f32(), r.f32()], [0.2364555, 0.36927062]);
+    }
+
+    #[test]
     fn same_seed_same_sequence_and_values_stay_in_range() {
         let (mut a, mut b) = (Rng::new(9), Rng::new(9));
         for _ in 0..1000 {

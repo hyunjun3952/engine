@@ -862,6 +862,50 @@ mod tests {
         }
     }
 
+    // Every body's position, speed, spin and turn as raw bits, so "equal" means identical and not just close.
+    fn fingerprint(w: &World) -> Vec<[u32; 6]> {
+        let mut out: Vec<_> = w
+            .query::<(&Body, &Vel, &RigidBody, &Transform)>()
+            .iter()
+            .map(|(b, v, rb, t)| [b.0.x, b.0.y, v.x, v.y, rb.spin, t.angle].map(f32::to_bits))
+            .collect();
+        out.sort();
+        out
+    }
+
+    fn pile(seed: u32) -> (Physics, World) {
+        let (mut rng, mut w) = (crate::Rng::new(seed), World::new());
+        floor(&mut w);
+        w.spawn((Body(Rect { x: 0.0, y: -100.0, w: 10.0, h: 300.0 }), RigidBody::fixed()));
+        w.spawn((Body(Rect { x: 190.0, y: -100.0, w: 10.0, h: 300.0 }), RigidBody::fixed()));
+        for i in 0..60 {
+            let size = rng.range(6.0, 14.0);
+            let rect = Rect { x: rng.range(15.0, 170.0), y: -(i as f32) * 12.0, w: size, h: size };
+            let body = RigidBody::dynamic(1.0).with_bounce(0.2).with_spin(rng.range(-3.0, 3.0));
+            let body = if i % 3 == 0 { body.circle() } else { body };
+            w.spawn((Body(rect), Vel::default(), body, Transform::IDENTITY));
+        }
+        (Physics::default(), w)
+    }
+
+    #[test]
+    fn the_same_world_steps_to_exactly_the_same_bits_every_time() {
+        // A pile that bounces, rests and falls asleep covers contacts, warm starting and sleeping, which all keep
+        // hash maps; their iteration order must not leak into the result.
+        let results: Vec<_> = (0..3)
+            .map(|_| {
+                let (mut p, mut w) = pile(5);
+                run(&mut p, &mut w, None, 400);
+                fingerprint(&w)
+            })
+            .collect();
+        assert_eq!(results[0], results[1]);
+        assert_eq!(results[1], results[2]);
+        let (mut p, mut w) = pile(6);
+        run(&mut p, &mut w, None, 400);
+        assert_ne!(fingerprint(&w), results[0], "a different seed is a different pile, so the check can fail");
+    }
+
     #[test]
     fn free_fall_follows_semi_implicit_euler() {
         let (mut p, mut w) = (Physics::default(), World::new());
