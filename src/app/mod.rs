@@ -1,6 +1,7 @@
 mod fade;
 mod input;
 mod pad;
+mod replay;
 mod rng;
 mod save;
 mod time;
@@ -17,6 +18,7 @@ use crate::render::Soft;
 use crate::{Assets, Audio, Camera, Gfx, Rect};
 use fade::Fade;
 use minifb::{ScaleMode, Window, WindowOptions};
+use replay::Tape;
 use std::time::Instant;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -287,7 +289,8 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
     let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
     ctx.input.listen(&mut win);
-    ctx.rng = Rng::new(seed);
+    let mut tape = Tape::from_env(seed).unwrap_or_else(|e| panic!("{e}"));
+    ctx.rng = Rng::new(tape.seed().unwrap_or(seed));
     let mut stack = Stack::new();
     let scene = first(&mut ctx);
     enter(&mut stack, scene, &mut ctx);
@@ -322,6 +325,10 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         let mut ticked = false;
         while acc >= dt && !stack.is_empty() {
             ticked = true;
+            if !tape.step(&mut ctx.input) {
+                apply(&mut stack, Trans::Quit, &mut ctx);
+                break;
+            }
             if let Some(trans) = ctx.fade.tick(dt) {
                 apply(&mut stack, trans, &mut ctx);
             }
@@ -392,6 +399,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         gfx.reset();
     }
     apply(&mut stack, Trans::Quit, &mut ctx);
+    tape.finish();
 }
 
 #[cfg(test)]

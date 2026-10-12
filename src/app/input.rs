@@ -73,6 +73,22 @@ impl Input {
         self.mouse = at;
         self.buttons[0] = left;
     }
+    pub(crate) fn snapshot(&self) -> super::replay::Frame {
+        super::replay::Frame {
+            keys: self.down.iter().copied().collect(),
+            pads: self.pad_down.iter().copied().collect(),
+            mouse: self.mouse,
+            buttons: self.buttons,
+        }
+    }
+
+    pub(crate) fn restore(&mut self, f: &super::replay::Frame) {
+        self.down = f.keys.iter().copied().collect();
+        self.pad_down = f.pads.iter().copied().collect();
+        self.mouse = f.mouse;
+        self.buttons = f.buttons;
+    }
+
     pub(crate) fn end_step(&mut self) {
         self.prev = self.down.clone();
         self.pad_prev = self.pad_down.clone();
@@ -186,7 +202,7 @@ impl Input {
 
 macro_rules! key_names {
     ($($k:ident),* $(,)?) => {
-        const KEYS: &[(&str, Key)] = &[$((stringify!($k), Key::$k)),*];
+        pub(super) const KEYS: &[(&str, Key)] = &[$((stringify!($k), Key::$k)),*];
     };
 }
 
