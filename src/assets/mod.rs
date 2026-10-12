@@ -3,13 +3,14 @@ mod watch;
 
 pub use audio::Audio;
 
-use crate::Sprite;
+use crate::{Font, Sprite};
 use std::{collections::HashMap, sync::Arc};
 pub(crate) use watch::Watcher;
 
 #[derive(Default)]
 pub struct Assets {
     sprites: HashMap<String, Arc<Sprite>>,
+    fonts: HashMap<String, Arc<Font>>,
     pub(crate) watcher: Watcher,
 }
 
@@ -17,6 +18,11 @@ impl Assets {
     pub fn sprite(&mut self, path: &str) -> Arc<Sprite> {
         self.watcher.watch(path);
         self.sprites.entry(path.to_string()).or_insert_with(|| Arc::new(Sprite::load(path))).clone()
+    }
+
+    pub fn font(&mut self, path: &str) -> Arc<Font> {
+        let load = || Arc::new(Font::load(path).unwrap_or_else(|e| panic!("{e}")));
+        self.fonts.entry(path.to_string()).or_insert_with(load).clone()
     }
 
     pub(crate) fn reload_changed(&mut self) -> Vec<Result<String, String>> {

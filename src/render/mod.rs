@@ -1,3 +1,4 @@
+mod bdf;
 mod camera;
 mod cmd;
 mod font;
@@ -7,6 +8,7 @@ mod gpu;
 mod soft;
 mod tilemap;
 
+pub use bdf::Font;
 pub use camera::Camera;
 pub use cmd::{DrawCmd, Paint, Transform};
 pub use gfx::{Gfx, Rect, Sprite};

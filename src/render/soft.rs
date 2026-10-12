@@ -39,6 +39,7 @@ impl Soft {
                     self.blit_region(s, Rect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 }, r, false)
                 }
                 Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r, *flip),
+                Paint::Mask { sheet, src, color } => self.mask(sheet, *src, r, *color),
                 Paint::Outline(col) => self.outline(r, *col),
                 Paint::Glyph { ch, color, scale } => self.glyph(r, *ch, *color, *scale),
                 Paint::Tiles { sheet, size, tiles } => {
@@ -151,6 +152,24 @@ impl Soft {
         self.fill_with(&Rect { y: r.y + r.h - 1.0, h: 1.0, ..*r }, |_| c);
         self.fill_with(&Rect { w: 1.0, ..*r }, |_| c);
         self.fill_with(&Rect { x: r.x + r.w - 1.0, w: 1.0, ..*r }, |_| c);
+    }
+
+    fn mask(&mut self, s: &Sprite, src: Rect, at: &Rect, color: u32) {
+        let img = s.image();
+        let (x, y) = (at.x as i32, at.y as i32);
+        let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
+        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
+        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
+        for sy in rows {
+            let from = (sy0 + sy) * img.w + sx0;
+            let dst_from = (y + sy as i32) as usize * self.w;
+            for sx in cols.clone() {
+                put(
+                    &mut self.buf[dst_from + (x + sx as i32) as usize],
+                    img.px[from + sx] & 0xFF00_0000 | color & 0xFF_FFFF,
+                );
+            }
+        }
     }
 
     fn blit_region(&mut self, s: &Sprite, src: Rect, at: &Rect, flip: bool) {

@@ -8,6 +8,7 @@ pub enum Paint {
     Alpha(u32, u8),
     Sprite(Arc<Sprite>),
     Region { sheet: Arc<Sprite>, src: Rect, flip: bool },
+    Mask { sheet: Arc<Sprite>, src: Rect, color: u32 },
     Outline(u32),
     Glyph { ch: u8, color: u32, scale: u32 },
     Tiles { sheet: Arc<Sprite>, size: u32, tiles: Vec<(u32, u32, u8)> },

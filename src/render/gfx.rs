@@ -1,4 +1,4 @@
-use super::{DrawCmd, Paint, Transform, font};
+use super::{DrawCmd, Font, Paint, Transform, font};
 use std::sync::{
     Arc, RwLock, RwLockReadGuard,
     atomic::{AtomicU64, Ordering},
@@ -90,6 +90,13 @@ impl Gfx {
         }
     }
 
+    pub fn text_font(&mut self, font: &Font, s: &str, x: i32, y: i32, color: u32) {
+        for (src, dx, dy) in font.layout(s) {
+            let rect = Rect { x: (x + dx) as f32, y: (y + dy) as f32, w: src.w, h: src.h };
+            self.push(rect, Paint::Mask { sheet: font.atlas.clone(), src, color });
+        }
+    }
+
     pub fn text(&mut self, s: &str, x: i32, y: i32, scale: i32, c: u32) {
         let (scale, size) = (scale.max(1) as u32, 8.0 * scale.max(1) as f32);
         for (i, ch) in s.chars().enumerate() {
@@ -121,6 +128,10 @@ impl Sprite {
 
     pub fn try_load(path: &str) -> Result<Self, String> {
         Ok(Sprite { image: RwLock::new(decode(path)?), version: AtomicU64::new(0) })
+    }
+
+    pub(crate) fn from_pixels(w: usize, h: usize, px: Vec<u32>) -> Self {
+        Sprite { image: RwLock::new(Image { w, h, px }), version: AtomicU64::new(0) }
     }
 
     pub fn size(&self) -> (usize, usize) {
