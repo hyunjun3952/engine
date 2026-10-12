@@ -1,5 +1,6 @@
 use super::{DrawCmd, Paint, Transform, font};
 use crate::{Rect, Sprite};
+use std::ops::Range;
 
 pub(crate) struct Soft {
     w: usize,
@@ -103,6 +104,13 @@ impl Soft {
         (x0, y0, x1.max(x0), y1)
     }
 
+    // The columns and rows of a `w` by `h` picture drawn at (`x`, `y`) that land inside the buffer.
+    fn visible(&self, x: i32, y: i32, w: usize, h: usize) -> (Range<usize>, Range<usize>) {
+        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
+        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
+        (cols, rows)
+    }
+
     fn fill_with(&mut self, r: &Rect, f: impl Fn(u32) -> u32) {
         let (x0, y0, x1, y1) = self.clip(r);
         for y in y0..y1 {
@@ -151,8 +159,7 @@ impl Soft {
         let (x, y) = (at.x as i32, at.y as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
         let k = ((at.w / src.w) as usize).max(1);
-        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w * k);
-        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h * k);
+        let (cols, rows) = self.visible(x, y, w * k, h * k);
         for dy in rows {
             let from = (sy0 + dy / k) * img.w + sx0;
             let dst_from = (y + dy as i32) as usize * self.w;
@@ -169,8 +176,7 @@ impl Soft {
         let img = s.image();
         let (x, y) = (at.x as i32, at.y as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
-        let cols = (-x).max(0) as usize..((self.w as i32 - x).max(0) as usize).min(w);
-        let rows = (-y).max(0) as usize..((self.h as i32 - y).max(0) as usize).min(h);
+        let (cols, rows) = self.visible(x, y, w, h);
         for sy in rows {
             let from = (sy0 + sy) * img.w + sx0;
             let src_row = &img.px[from..from + w];
