@@ -7,6 +7,8 @@ mod real {
         out: Option<MixerDeviceSink>,
         files: HashMap<String, Arc<[u8]>>,
         music: Option<Player>,
+        volume: f32,
+        music_volume: f32,
     }
 
     impl Audio {
@@ -27,7 +29,7 @@ mod real {
         }
 
         pub(crate) fn disabled() -> Self {
-            Audio { out: None, files: HashMap::new(), music: None }
+            Audio { out: None, files: HashMap::new(), music: None, volume: 1.0, music_volume: 1.0 }
         }
 
         fn open(&mut self, path: &str) -> Cursor<Arc<[u8]>> {
@@ -42,7 +44,10 @@ mod real {
             let data = self.open(path);
             let Some(out) = &self.out else { return };
             match rodio::play(out.mixer(), data) {
-                Ok(p) => p.detach(),
+                Ok(p) => {
+                    p.set_volume(self.volume);
+                    p.detach();
+                }
                 Err(e) => eprintln!("{path}: {e}"),
             }
         }
@@ -53,6 +58,7 @@ mod real {
             match Decoder::new(data) {
                 Ok(src) => {
                     let player = Player::connect_new(out.mixer());
+                    player.set_volume(self.volume * self.music_volume);
                     player.append(src.repeat_infinite());
                     self.music = Some(player);
                 }
@@ -63,6 +69,32 @@ mod real {
         pub fn stop_music(&mut self) {
             self.music = None;
         }
+
+        pub fn volume(&self) -> f32 {
+            self.volume
+        }
+
+        /// Master volume, 0..=1, for sounds started from now on and for the music.
+        pub fn set_volume(&mut self, v: f32) {
+            self.volume = v.clamp(0.0, 1.0);
+            self.retune_music();
+        }
+
+        pub fn music_volume(&self) -> f32 {
+            self.music_volume
+        }
+
+        /// The music's own volume, 0..=1, on top of the master volume.
+        pub fn set_music_volume(&mut self, v: f32) {
+            self.music_volume = v.clamp(0.0, 1.0);
+            self.retune_music();
+        }
+
+        fn retune_music(&self) {
+            if let Some(m) = &self.music {
+                m.set_volume(self.volume * self.music_volume);
+            }
+        }
     }
 }
 
@@ -70,7 +102,10 @@ mod real {
 pub use real::Audio;
 
 #[cfg(not(feature = "audio"))]
-pub struct Audio;
+pub struct Audio {
+    volume: f32,
+    music_volume: f32,
+}
 
 #[cfg(not(feature = "audio"))]
 impl Audio {
@@ -79,7 +114,7 @@ impl Audio {
     }
 
     pub(crate) fn disabled() -> Self {
-        Audio
+        Audio { volume: 1.0, music_volume: 1.0 }
     }
 
     pub fn play(&mut self, _path: &str) {}
@@ -87,4 +122,32 @@ impl Audio {
     pub fn music(&mut self, _path: &str) {}
 
     pub fn stop_music(&mut self) {}
+    pub fn volume(&self) -> f32 {
+        self.volume
+    }
+    pub fn set_volume(&mut self, v: f32) {
+        self.volume = v.clamp(0.0, 1.0);
+    }
+    pub fn music_volume(&self) -> f32 {
+        self.music_volume
+    }
+    pub fn set_music_volume(&mut self, v: f32) {
+        self.music_volume = v.clamp(0.0, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volumes_start_full_and_are_kept_within_zero_and_one() {
+        let mut a = Audio::disabled();
+        assert_eq!((a.volume(), a.music_volume()), (1.0, 1.0));
+        a.set_volume(1.7);
+        a.set_music_volume(-0.2);
+        assert_eq!((a.volume(), a.music_volume()), (1.0, 0.0));
+        a.set_volume(0.4);
+        assert_eq!(a.volume(), 0.4);
+    }
 }
