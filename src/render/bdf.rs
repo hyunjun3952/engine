@@ -74,6 +74,10 @@ impl Font {
                         if n != 4 {
                             return Err(format!("BBX {val:?}: expected 4 numbers"));
                         }
+                        // A bitmap row is at most 32 pixels, and a negative size has no pixels to draw.
+                        if !(0..=32).contains(&bbx[0]) || bbx[1] < 0 {
+                            return Err(format!("BBX {val:?}: the width must be 0 to 32 and the height not negative"));
+                        }
                         g.bbx = bbx;
                     }
                 }
@@ -189,6 +193,18 @@ mod tests {
         assert!(f.width("한글") > f.width("ab"));
         let all: String = ('\u{AC00}'..='\u{D7A3}').collect();
         assert_eq!(f.layout(&all).count(), 11172, "every syllable has a glyph, so none falls back to `?`");
+    }
+
+    #[test]
+    fn glyph_boxes_a_row_cannot_hold_are_errors_not_panics() {
+        for bbx in ["-1 1 0 0", "33 1 0 0", "2000 1 0 0", "1 -1 0 0"] {
+            let text =
+                format!("FONT_ASCENT 1\nFONT_DESCENT 0\nENCODING 65\nDWIDTH 1 0\nBBX {bbx}\nBITMAP\n80\nENDCHAR\n");
+            let err = Font::parse(&text).err().unwrap_or_else(|| panic!("BBX {bbx} was accepted"));
+            assert!(err.contains("BBX"), "{bbx}: {err}");
+        }
+        let ok = "FONT_ASCENT 1\nFONT_DESCENT 0\nENCODING 65\nDWIDTH 32 0\nBBX 32 1 0 0\nBITMAP\n80000000\nENDCHAR\n";
+        assert!(Font::parse(ok).is_ok(), "32 pixels is the widest a row holds");
     }
 
     #[test]
