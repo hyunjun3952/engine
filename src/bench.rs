@@ -1,7 +1,7 @@
 use crate::render::Soft;
 use crate::{
-    Body, Burst, Collider, DrawCmd, Gfx, Look, Paint, Physics, Rect, RigidBody, Rng, Sprite, Tilemap, Transform, Vel,
-    World, burst, collisions, draw_list, particles,
+    Body, Burst, Collider, DrawCmd, Gfx, Look, Paint, Physics, RayIndex, Rect, RigidBody, Rng, Sprite, Tilemap,
+    Transform, Vel, World, burst, collisions, draw_list, particles, raycast,
 };
 use std::hint::black_box;
 use std::time::Instant;
@@ -35,6 +35,24 @@ fn bench() {
     let mut n = 0;
     time("collisions 3000", 10, || n = collisions(&world).len());
     println!("  contacts: {n}");
+
+    time("raycast 3000 colliders, 100 rays", 10, || {
+        for i in 0..100 {
+            let a = i as f32 * 0.0628;
+            black_box(raycast(&world, (320.0, 180.0), (a.cos(), a.sin()), 400.0, u32::MAX));
+        }
+    });
+
+    time("raycast index build, 3000 colliders", 10, || {
+        black_box(RayIndex::new(&world));
+    });
+    let index = RayIndex::new(&world);
+    time("raycast grid, 100 rays", 100, || {
+        for i in 0..100 {
+            let a = i as f32 * 0.0628;
+            black_box(index.cast((320.0, 180.0), (a.cos(), a.sin()), 400.0, u32::MAX));
+        }
+    });
 
     let mut soft = Soft::new(640, 360, 1);
     let full = Rect { x: 0.0, y: 0.0, w: 640.0, h: 360.0 };
