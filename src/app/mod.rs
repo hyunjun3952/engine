@@ -14,7 +14,7 @@ pub use time::{Ease, Timer, Tween};
 use crate::render::Gpu;
 use crate::render::Soft;
 use crate::{Assets, Audio, Camera, Gfx, Rect};
-use minifb::{Window, WindowOptions};
+use minifb::{ScaleMode, Window, WindowOptions};
 use std::time::Instant;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -32,6 +32,8 @@ pub struct Config {
     pub renderer: RenderMode,
     pub hot_reload: bool,
     pub scale: usize,
+    /// Lets the player drag the window to any size; the picture keeps its shape and the rest is black.
+    pub resizable: bool,
 }
 
 impl Default for Config {
@@ -44,6 +46,7 @@ impl Default for Config {
             renderer: RenderMode::Auto,
             hot_reload: cfg!(debug_assertions),
             scale: 1,
+            resizable: true,
         }
     }
 }
@@ -258,7 +261,9 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: u
 
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let scale = std::env::var("ENGINE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(cfg.scale).max(1);
-    let mut win = Window::new(cfg.title, cfg.w * scale, cfg.h * scale, WindowOptions::default()).expect("window");
+    let options =
+        WindowOptions { resize: cfg.resizable, scale_mode: ScaleMode::AspectRatioStretch, ..Default::default() };
+    let mut win = Window::new(cfg.title, cfg.w * scale, cfg.h * scale, options).expect("window");
     let mut gfx = Gfx::new(cfg.w, cfg.h);
     let log_stats = std::env::var_os("ENGINE_STATS").is_some();
     let mut backend = pick_backend(cfg.renderer, &win, (cfg.w, cfg.h), scale);
@@ -273,6 +278,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut last_poll = Instant::now();
     let (mut last, mut acc) = (Instant::now(), 0.0f32);
     let mut drawn = false;
+    let mut win_size = win.get_size();
     let (mut stats, mut since, mut f3) = (Stats::default(), Instant::now(), false);
     while win.is_open() && !stack.is_empty() {
         let now = Instant::now();
@@ -282,7 +288,16 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             ctx.poll_files();
             last_poll = Instant::now();
         }
-        ctx.input.poll(&win, scale);
+        let size = win.get_size();
+        if size != win_size {
+            win_size = size;
+            drawn = false;
+            #[cfg(feature = "gpu")]
+            if let Backend::Gpu(gpu) = &mut backend {
+                gpu.resize((size.0 as u32, size.1 as u32));
+            }
+        }
+        ctx.input.poll(&win, (cfg.w, cfg.h));
         let f3_down = ctx.input.key_down(Key::F3);
         if f3_down && !f3 {
             gfx.debug = !gfx.debug;

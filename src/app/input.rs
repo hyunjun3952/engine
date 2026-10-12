@@ -1,4 +1,5 @@
 use super::pad::{PADS, Pad, PadAxis, PadState};
+use crate::render::letterbox;
 pub use minifb::{Key, MouseButton};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,13 @@ pub struct Input {
     wheel: f32,
     typed: Vec<char>,
     typing: Arc<Mutex<Vec<char>>>,
+}
+
+/// A window pixel as a canvas pixel, or `None` over the black bars around a letterboxed picture.
+fn canvas_pos((x, y): (f32, f32), win: (f32, f32), canvas: (f32, f32)) -> Option<(f32, f32)> {
+    let view = letterbox(win, canvas);
+    let k = view.w / canvas.0;
+    view.contains(x, y).then(|| ((x - view.x) / k, (y - view.y) / k))
 }
 
 struct Typing(Arc<Mutex<Vec<char>>>);
@@ -43,11 +51,13 @@ impl Input {
         win.set_input_callback(Box::new(Typing(self.typing.clone())));
     }
 
-    pub(crate) fn poll(&mut self, win: &minifb::Window, scale: usize) {
+    pub(crate) fn poll(&mut self, win: &minifb::Window, canvas: (usize, usize)) {
         self.down = win.get_keys().into_iter().collect();
         self.pad_down = self.pad.poll();
-        let s = scale as f32;
-        self.mouse = win.get_mouse_pos(minifb::MouseMode::Discard).map(|(x, y)| (x / s, y / s));
+        let (ww, wh) = win.get_size();
+        let (win_size, canvas) = ((ww as f32, wh as f32), (canvas.0 as f32, canvas.1 as f32));
+        let at = win.get_unscaled_mouse_pos(minifb::MouseMode::Discard);
+        self.mouse = at.and_then(|p| canvas_pos(p, win_size, canvas));
         self.buttons = MOUSE.map(|b| win.get_mouse_down(b));
         self.wheel += win.get_scroll_wheel().map_or(0.0, |(_, y)| y);
         if let Ok(mut chars) = self.typing.lock() {
@@ -422,5 +432,16 @@ mod tests {
         i.bind("jump", &[Key::X]);
         assert_eq!(i.to_text(), "fire = pad.RB\njump = X pad.A\n", "bind replaces keys, not pad buttons");
         assert!(i.load_text("jump = pad.Z\n").unwrap_err().starts_with("line 1: unknown pad button"));
+    }
+
+    #[test]
+    fn the_mouse_maps_through_the_letterboxed_picture_and_is_none_over_the_bars() {
+        let canvas = (640.0, 360.0);
+        assert_eq!(canvas_pos((100.0, 50.0), canvas, canvas), Some((100.0, 50.0)));
+        assert_eq!(canvas_pos((200.0, 100.0), (1280.0, 720.0), canvas), Some((100.0, 50.0)));
+        // 1280x1000 fits the picture at 2x and leaves 140 px of bar above and below it.
+        let wide = (1280.0, 1000.0);
+        assert_eq!(canvas_pos((200.0, 140.0 + 100.0), wide, canvas), Some((100.0, 50.0)));
+        assert_eq!(canvas_pos((200.0, 100.0), wide, canvas), None);
     }
 }

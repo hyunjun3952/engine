@@ -84,6 +84,7 @@ pub(crate) struct Gpu {
     vbuf: wgpu::Buffer,
     vcap: usize,
     size: (u32, u32),
+    viewport: crate::Rect,
     surface: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     pub(crate) adapter: String,
 }
@@ -183,7 +184,20 @@ impl Gpu {
         };
         surface.configure(&gpu.device, &config);
         gpu.surface = Some((surface, config));
+        gpu.resize((size.0 * scale, size.1 * scale));
         Ok(gpu)
+    }
+
+    /// Follows a window resize: the picture keeps its shape, centred, and the rest of the window stays black.
+    pub(crate) fn resize(&mut self, (w, h): (u32, u32)) {
+        let Some((surface, config)) = &mut self.surface else { return };
+        if w == 0 || h == 0 {
+            return;
+        }
+        (config.width, config.height) = (w, h);
+        surface.configure(&self.device, config);
+        let canvas = (self.size.0 as f32, self.size.1 as f32);
+        self.viewport = super::letterbox((w as f32, h as f32), canvas);
     }
 
     #[cfg(test)]
@@ -317,6 +331,7 @@ impl Gpu {
             vbuf,
             vcap,
             size,
+            viewport: crate::Rect { x: 0.0, y: 0.0, w: size.0 as f32, h: size.1 as f32 },
             surface: None,
             adapter: format!("{} ({:?})", info.name, info.backend),
         })
@@ -485,6 +500,8 @@ impl Gpu {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            let v = &self.viewport;
+            pass.set_viewport(v.x, v.y, v.w, v.h, 0.0, 1.0);
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bind, &[]);
             pass.set_vertex_buffer(0, self.vbuf.slice(..));

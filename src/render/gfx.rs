@@ -42,6 +42,12 @@ impl Rect {
     }
 }
 
+/// Where a `canvas`-sized picture lands in a `win`-sized window when it is scaled up as far as it fits and centred.
+pub(crate) fn letterbox((ww, wh): (f32, f32), (w, h): (f32, f32)) -> Rect {
+    let k = (ww / w).min(wh / h);
+    Rect { x: (ww - w * k) / 2.0, y: (wh - h * k) / 2.0, w: w * k, h: h * k }
+}
+
 pub struct Gfx {
     pub w: usize,
     pub h: usize,
