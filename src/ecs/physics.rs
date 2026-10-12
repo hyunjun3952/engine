@@ -835,7 +835,7 @@ mod tests {
         let map = Tilemap::from_ascii(
             &["....................", "....................", "####################"],
             16,
-            std::sync::Arc::new(crate::Sprite::load("assets/tiles.png")),
+            std::sync::Arc::new(crate::Sprite::load("assets/images/tiles.png")),
         );
         let (mut p, mut w) = (Physics::default(), World::new());
         let e = boxed(
@@ -914,7 +914,7 @@ mod tests {
 
     #[test]
     fn tiles_act_as_floor_and_walls_for_dynamic_bodies() {
-        let sheet = Arc::new(Sprite::load("assets/tiles.png"));
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
         let map = Tilemap::from_ascii(&["....", "....", "####"], 16, sheet);
         let (mut p, mut w) = (Physics::default(), World::new());
         let e = boxed(&mut w, square(20.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
@@ -938,7 +938,7 @@ mod tests {
     }
 
     fn tile_floor() -> Tilemap {
-        let sheet = Arc::new(Sprite::load("assets/tiles.png"));
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
         Tilemap::from_ascii(&["....................", "....................", "####################"], 16, sheet)
     }
 

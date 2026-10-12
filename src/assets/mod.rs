@@ -51,7 +51,7 @@ mod tests {
             let f = std::fs::File::options().write(true).open(path).unwrap();
             f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
         };
-        std::fs::copy("assets/ball.png", path).unwrap();
+        std::fs::copy("assets/images/ball.png", path).unwrap();
         bump(1000);
 
         let mut a = Assets::default();
@@ -59,7 +59,7 @@ mod tests {
         let version = held.version();
         assert_eq!(held.size(), (16, 16));
 
-        std::fs::copy("assets/tiles.png", path).unwrap();
+        std::fs::copy("assets/images/tiles.png", path).unwrap();
         bump(2000);
         a.watcher.poll();
         assert_eq!(a.reload_changed().len(), 1);
@@ -78,6 +78,6 @@ mod tests {
     #[test]
     fn same_path_loads_once() {
         let mut a = Assets::default();
-        assert!(Arc::ptr_eq(&a.sprite("assets/ball.png"), &a.sprite("assets/ball.png")));
+        assert!(Arc::ptr_eq(&a.sprite("assets/images/ball.png"), &a.sprite("assets/images/ball.png")));
     }
 }

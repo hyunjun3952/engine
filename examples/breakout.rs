@@ -61,7 +61,7 @@ impl Breakout {
         let ball = world.spawn((
             Body(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }),
             Vel { x: 0.0, y: 0.0 },
-            Look::Sprite(ctx.assets().sprite("assets/ball.png")),
+            Look::Sprite(ctx.assets().sprite("assets/images/ball.png")),
             Collider,
         ));
         let mut g = Breakout { world, paddle, ball, score: 0, lives: 3 };
@@ -117,7 +117,7 @@ impl Scene for Breakout {
             if other == self.paddle {
                 if v.y > 0.0 {
                     v.y = -v.y.abs();
-                    ctx.audio().play("assets/hit.wav");
+                    ctx.audio().play("assets/audio/hit.wav");
                     v.x = ((b.0.x + b.0.w / 2.0) - (paddle.x + paddle.w / 2.0)) / (paddle.w / 2.0) * 250.0;
                 }
             } else if broken.is_none() {
@@ -131,7 +131,7 @@ impl Scene for Breakout {
         }
 
         if let Some(e) = broken {
-            ctx.audio().play("assets/brick.wav");
+            ctx.audio().play("assets/audio/brick.wav");
             let rect = self.world.get::<&Body>(e).unwrap().0;
             let color = match *self.world.get::<&Look>(e).unwrap() {
                 Look::Color(c) => c,
@@ -147,7 +147,7 @@ impl Scene for Breakout {
         }
         if lost {
             self.lives -= 1;
-            ctx.audio().play("assets/score.wav");
+            ctx.audio().play("assets/audio/score.wav");
             ctx.cam().shake(5.0, 0.25);
             if self.lives == 0 {
                 return Trans::Replace(Box::new(Over("GAME OVER")));

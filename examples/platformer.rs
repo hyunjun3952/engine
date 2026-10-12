@@ -17,7 +17,7 @@ struct Platformer {
 }
 
 fn load_level(ctx: &mut Ctx, path: &str) -> Result<(Tilemap, Rect), String> {
-    let map = Tilemap::try_load(path, TILE, ctx.assets().sprite("assets/tiles.png"))?;
+    let map = Tilemap::try_load(path, TILE, ctx.assets().sprite("assets/images/tiles.png"))?;
     let (x, y) = map.marks(b'P').next().ok_or(format!("{path}: level needs a P marker"))?;
     Ok((map, Rect { x, y: y + TILE as f32 - 24.0, w: 12.0, h: 24.0 }))
 }
@@ -31,7 +31,7 @@ impl Platformer {
             Body(start),
             Vel { x: 0.0, y: 0.0 },
             RigidBody::dynamic(1.0).with_friction(0.0),
-            Anim::new(ctx.assets().sprite("assets/player.png"), 12, 24),
+            Anim::new(ctx.assets().sprite("assets/images/player.png"), 12, 24),
         ));
         Platformer { world, physics: Physics::default(), player, map, start, grounded: false, level: level.to_string() }
     }
@@ -40,7 +40,7 @@ impl Platformer {
 impl Scene for Platformer {
     fn on_enter(&mut self, ctx: &mut Ctx) {
         ctx.cam().reset();
-        ctx.audio().music("assets/music.wav");
+        ctx.audio().music("assets/audio/music.wav");
     }
 
     fn on_exit(&mut self, ctx: &mut Ctx) {
@@ -64,7 +64,7 @@ impl Scene for Platformer {
         v.x = ctx.input().axis("left", "right") * 160.0;
         if self.grounded && ctx.input().pressed("jump") {
             v.y = -330.0;
-            ctx.audio().play("assets/jump.wav");
+            ctx.audio().play("assets/audio/jump.wav");
             dust = true;
         }
 
@@ -115,7 +115,7 @@ impl Scene for Platformer {
 }
 
 fn main() {
-    let level = std::env::args().nth(1).unwrap_or_else(|| "assets/level1.txt".into());
+    let level = std::env::args().nth(1).unwrap_or_else(|| "assets/levels/level1.txt".into());
     engine::run(Config { title: "platformer", scale: 2, ..Config::default() }, |ctx| {
         ctx.bind("left", &[Key::Left, Key::A]);
         ctx.bind("right", &[Key::Right, Key::D]);

@@ -46,7 +46,7 @@ impl Sandbox {
 
 impl Sandbox {
     fn drop_ball(&mut self, ctx: &mut Ctx, x: f32, y: f32) -> Entity {
-        let sprite = ctx.assets().sprite("assets/ball.png");
+        let sprite = ctx.assets().sprite("assets/images/ball.png");
         let body = RigidBody::dynamic(2.5).with_bounce(0.7).with_friction(0.2).circle();
         let rect = Rect { x, y, w: 16.0, h: 16.0 };
         self.world.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, Look::Sprite(sprite), body, Transform::IDENTITY))

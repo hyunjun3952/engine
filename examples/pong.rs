@@ -71,7 +71,7 @@ impl Pong {
         let ball = world.spawn((
             Body(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }),
             Vel { x: 0.0, y: 0.0 },
-            Look::Sprite(ctx.assets().sprite("assets/ball.png")),
+            Look::Sprite(ctx.assets().sprite("assets/images/ball.png")),
             Collider,
         ));
         let mut p = Pong { world, ball, score: [0, 0] };
@@ -116,7 +116,7 @@ impl Scene for Pong {
             (b.0.y, v.y) = (H - b.0.h, -v.y.abs());
         }
         if let Some(p) = paddle {
-            ctx.audio().play("assets/hit.wav");
+            ctx.audio().play("assets/audio/hit.wav");
             let away = if b.0.x + b.0.w / 2.0 < p.x + p.w / 2.0 { -1.0 } else { 1.0 };
             b.0.x = if away < 0.0 { p.x - b.0.w } else { p.x + p.w };
             v.x = away * (v.x.abs() * 1.05).min(MAX_SPEED);
@@ -124,7 +124,7 @@ impl Scene for Pong {
         }
         if b.0.x < -20.0 || b.0.x > W + 20.0 {
             self.score[(b.0.x > 0.0) as usize] += 1;
-            ctx.audio().play("assets/score.wav");
+            ctx.audio().play("assets/audio/score.wav");
             ctx.cam().shake(4.0, 0.2);
             self.serve();
         }

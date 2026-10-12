@@ -583,13 +583,13 @@ mod tests {
         let mut g = Gfx::new(640, 360);
         g.cam = (120.0, 0.0);
         g.clear(0x6fa8e0);
-        let map = Tilemap::load("assets/level1.txt", 16, sprite("assets/tiles.png"));
+        let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png"));
         g.draw(map.draw_list(g.view()));
-        let player = sprite("assets/player.png");
+        let player = sprite("assets/images/player.png");
         let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
         g.blit_region(&player, frame, 50, 40, false);
         g.blit_region(&player, frame, 80, 40, true);
-        g.blit(&sprite("assets/ball.png"), -4, 100);
+        g.blit(&sprite("assets/images/ball.png"), -4, 100);
         g.fill(&Rect { x: 300.0, y: 200.0, w: 50.0, h: 30.0 }, 0xff0000);
         g.fill_alpha(&Rect { x: 320.0, y: 210.0, w: 50.0, h: 30.0 }, 0x0000ff, 128);
         g.outline(&Rect { x: 400.0, y: 50.0, w: 40.0, h: 20.0 }, 0x00ff00);
@@ -644,7 +644,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("s.png");
         let path = path.to_str().unwrap();
-        std::fs::copy("assets/ball.png", path).unwrap();
+        std::fs::copy("assets/images/ball.png", path).unwrap();
         let sprite = Arc::new(Sprite::load(path));
         let draw = |gpu: &mut Gpu| {
             let mut g = Gfx::new(64, 64);
@@ -656,7 +656,7 @@ mod tests {
         };
         let (soft, hard) = draw(&mut gpu);
         assert!(soft == hard, "first upload differs from the software output");
-        std::fs::copy("assets/player.png", path).unwrap();
+        std::fs::copy("assets/images/player.png", path).unwrap();
         sprite.reload(path).unwrap();
         let (soft2, hard2) = draw(&mut gpu);
         assert!(soft != soft2, "the new image really looks different");
@@ -670,9 +670,9 @@ mod tests {
             eprintln!("no GPU adapter, skipping");
             return;
         };
-        let kept = Arc::new(Sprite::load("assets/ball.png"));
+        let kept = Arc::new(Sprite::load("assets/images/ball.png"));
         for _ in 0..20 {
-            let temp = Arc::new(Sprite::load("assets/player.png"));
+            let temp = Arc::new(Sprite::load("assets/images/player.png"));
             let mut g = Gfx::new(64, 64);
             g.blit(&kept, 0, 0);
             g.blit(&temp, 20, 0);
@@ -684,7 +684,7 @@ mod tests {
 
     fn transformed_scene() -> Gfx {
         let sprite = |p: &str| Arc::new(Sprite::load(p));
-        let (ball, player) = (sprite("assets/ball.png"), sprite("assets/player.png"));
+        let (ball, player) = (sprite("assets/images/ball.png"), sprite("assets/images/player.png"));
         let mut g = Gfx::new(160, 120);
         g.clear(0x203050);
         let cmd = |rect, paint, angle, sx, sy| DrawCmd {

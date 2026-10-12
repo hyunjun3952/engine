@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn animation_advances_loops_and_resets_on_clip_change() {
         let mut w = World::new();
-        let mut a = Anim::new(Arc::new(Sprite::load("assets/player.png")), 12, 24);
+        let mut a = Anim::new(Arc::new(Sprite::load("assets/images/player.png")), 12, 24);
         a.play(1, 4, 10.0);
         let e = w.spawn((a,));
         animate(&mut w, 0.25);

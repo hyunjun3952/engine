@@ -133,14 +133,14 @@ mod tests {
 
     #[test]
     fn letters_become_markers_with_pixel_positions() {
-        let map = Tilemap::from_ascii(&["...", ".P.", "###"], 16, Arc::new(Sprite::load("assets/tiles.png")));
+        let map = Tilemap::from_ascii(&["...", ".P.", "###"], 16, Arc::new(Sprite::load("assets/images/tiles.png")));
         assert_eq!(map.marks(b'P').collect::<Vec<_>>(), vec![(16.0, 16.0)]);
         assert_eq!(map.marks(b'E').count(), 0);
     }
 
     #[test]
     fn a_broken_level_is_an_error_not_a_crash() {
-        let sheet = Arc::new(Sprite::load("assets/tiles.png"));
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
         let err = Tilemap::try_from_ascii(&["###", "##"], 16, sheet.clone()).err().unwrap();
         assert!(err.contains("row 2"), "{err}");
         assert!(Tilemap::try_from_ascii(&[], 16, sheet.clone()).is_err());
@@ -150,14 +150,14 @@ mod tests {
 
     #[test]
     fn level_file_loads_with_a_start_marker() {
-        let map = Tilemap::load("assets/level1.txt", 16, Arc::new(Sprite::load("assets/tiles.png")));
+        let map = Tilemap::load("assets/levels/level1.txt", 16, Arc::new(Sprite::load("assets/images/tiles.png")));
         assert_eq!((map.w, map.h), (60, 23));
         assert_eq!(map.marks(b'P').count(), 1);
     }
 
     #[test]
     fn draw_list_covers_only_the_visible_solid_tiles_in_world_space() {
-        let map = Tilemap::from_ascii(&["#.#", "...", "..."], 16, Arc::new(Sprite::load("assets/tiles.png")));
+        let map = Tilemap::from_ascii(&["#.#", "...", "..."], 16, Arc::new(Sprite::load("assets/images/tiles.png")));
         let at = |view| {
             map.draw_list(view)
                 .iter()
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn falling_box_lands_on_floor_and_wall_stops_it() {
-        let map = Tilemap::from_ascii(&["...", "...", "###"], 16, Arc::new(Sprite::load("assets/tiles.png")));
+        let map = Tilemap::from_ascii(&["...", "...", "###"], 16, Arc::new(Sprite::load("assets/images/tiles.png")));
         let (r, hx, hy) = map.slide(&Rect { x: 0.0, y: 20.0, w: 10.0, h: 10.0 }, 0.0, 5.0);
         assert_eq!((r.y, hx, hy), (22.0, false, true));
         let (r, hx, _) = map.slide(&Rect { x: 1.0, y: 0.0, w: 10.0, h: 10.0 }, -3.0, 0.0);

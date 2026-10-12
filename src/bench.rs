@@ -39,7 +39,7 @@ fn bench() {
 
     let mut soft = Soft::new(640, 360, 1);
     let full = Rect { x: 0.0, y: 0.0, w: 640.0, h: 360.0 };
-    let sprite = Arc::new(Sprite::load("assets/ball.png"));
+    let sprite = Arc::new(Sprite::load("assets/images/ball.png"));
     let sprites: Vec<DrawCmd> = (0..5000)
         .map(|_| {
             let at = Rect {
@@ -69,7 +69,7 @@ fn bench() {
     time("soft: clear", 200, || soft.render(black_box(&[cmd(full, Paint::Clear(0x101018))])));
     time("soft: full-screen alpha", 200, || soft.render(black_box(&[cmd(full, Paint::Alpha(0, 150))])));
 
-    let map = Tilemap::load("assets/level1.txt", 16, Arc::new(Sprite::load("assets/tiles.png")));
+    let map = Tilemap::load("assets/levels/level1.txt", 16, Arc::new(Sprite::load("assets/images/tiles.png")));
     let mut tiles = 0;
     time("tilemap draw_list (visible)", 200, || tiles = map.draw_list(full).len());
     println!("  tile cmds: {tiles}");
