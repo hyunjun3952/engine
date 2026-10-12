@@ -237,10 +237,10 @@ impl Scene for Tetris {
         if ctx.input().pressed("pause") {
             self.paused = !self.paused;
         }
-        particles(&mut self.world, dt);
         if self.paused {
             return Trans::None;
         }
+        particles(&mut self.world, dt);
 
         let dir = ctx.input().axis("left", "right") as i32;
         // One step on the press, then a repeat once the key has been held for a moment.
