@@ -102,6 +102,22 @@ impl Gfx {
         self.push(Rect { x: x as f32, y: y as f32, w: src.w, h: src.h }, paint);
     }
 
+    /// Draws the region `src` of a sheet as a panel filling `dest`: a `margin` wide frame at natural size and the
+    /// parts between repeated (not stretched, which suits pixel art), the last repeat cut short to fit. The middle of
+    /// `src` is what repeats, so it must be wider and taller than nothing; `dest` must hold both margins.
+    pub fn blit_nine(&mut self, s: &Arc<Sprite>, src: Rect, margin: i32, dest: &Rect) {
+        let m = margin as f32;
+        assert!(margin >= 0 && src.w > 2.0 * m && src.h > 2.0 * m, "a nine-slice margin must leave a middle");
+        assert!(dest.w >= 2.0 * m && dest.h >= 2.0 * m, "a nine-slice panel must hold both margins");
+        let (xs, ys) = (spans(src.w, m, dest.w), spans(src.h, m, dest.h));
+        for &(sy, dy, h) in &ys {
+            for &(sx, dx, w) in &xs {
+                let part = Rect { x: src.x + sx, y: src.y + sy, w, h };
+                self.blit_region(s, part, (dest.x + dx) as i32, (dest.y + dy) as i32, false);
+            }
+        }
+    }
+
     /// Draws the commands lowest layer first (ties keep their order), so tiles behind and in front of entities mix.
     pub fn draw(&mut self, cmds: impl IntoIterator<Item = DrawCmd>) {
         let mut cmds: Vec<DrawCmd> = cmds.into_iter().collect();
@@ -212,6 +228,21 @@ fn decode(path: &str) -> Result<Image, String> {
     Ok(Image { w: img.width() as usize, h: img.height() as usize, px })
 }
 
+// Along one axis: (offset in the source, offset in the panel, length) for the start margin, the middle repeated up to
+// the end margin, and the end margin.
+fn spans(src_len: f32, m: f32, dst_len: f32) -> Vec<(f32, f32, f32)> {
+    let (mid, room) = (src_len - 2.0 * m, dst_len - 2.0 * m);
+    let mut out = vec![(0.0, 0.0, m)];
+    let mut at = 0.0;
+    while at < room {
+        out.push((m, m + at, mid.min(room - at)));
+        at += mid;
+    }
+    out.push((src_len - m, dst_len - m, m));
+    out.retain(|s| s.2 > 0.0);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +265,32 @@ mod tests {
         g.debug = true;
         g.draw([cmd(true)]);
         assert_eq!(g.cmds().len(), 2);
+    }
+
+    #[test]
+    fn a_nine_slice_covers_the_panel_exactly_once_with_corners_at_natural_size() {
+        let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0xFFFF_FFFF; 144]));
+        let src = sheet.bounds();
+        for (w, h) in [(8.0, 8.0), (20.0, 14.0), (31.0, 9.0), (50.0, 50.0)] {
+            let mut g = Gfx::new(64, 64);
+            let dest = Rect { x: 5.0, y: 7.0, w, h };
+            g.blit_nine(&sheet, src, 4, &dest);
+            let area: f32 = g.cmds().iter().map(|c| c.rect.w * c.rect.h).sum();
+            assert_eq!(area, w * h, "{w}x{h}: every pixel once");
+            for c in g.cmds() {
+                let r = c.rect;
+                assert!(r.x >= dest.x && r.y >= dest.y && r.x + r.w <= dest.x + w && r.y + r.h <= dest.y + h, "{r:?}");
+            }
+            let corners = g.cmds().iter().filter(|c| c.rect.w == 4.0 && c.rect.h == 4.0).count();
+            assert!(corners >= 4, "{w}x{h}");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "hold both margins")]
+    fn a_nine_slice_panel_smaller_than_its_margins_is_refused() {
+        let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0; 144]));
+        Gfx::new(64, 64).blit_nine(&sheet, sheet.bounds(), 4, &Rect { x: 0.0, y: 0.0, w: 7.0, h: 20.0 });
     }
 
     #[test]
