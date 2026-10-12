@@ -86,6 +86,7 @@ pub struct Physics {
     // What the last step saw, to notice a body that vanished or a gravity change: sleepers must then be woken.
     known: HashSet<Entity>,
     last_gravity: V2,
+    last_tiles: Option<u64>,
 }
 
 impl Default for Physics {
@@ -98,6 +99,7 @@ impl Default for Physics {
             rest: HashMap::new(),
             known: HashSet::new(),
             last_gravity: (0.0, 900.0),
+            last_tiles: None,
         }
     }
 }
@@ -257,7 +259,7 @@ impl Physics {
     pub fn step(&mut self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();
-        self.freeze(&ents, &mut nodes, dt);
+        self.freeze(&ents, &mut nodes, tiles.map(Tilemap::stamp), dt);
         let substeps = self.substeps(&nodes, dt);
         let at = |e| ents.iter().position(|&x| x == e);
         let links: Vec<Link> = self
@@ -274,17 +276,20 @@ impl Physics {
     }
 
     // Turns sleepers into walls for this step, after waking any the game touched or a fast body is about to hit.
-    fn freeze(&mut self, ents: &[Entity], nodes: &mut [Node], dt: f32) {
+    fn freeze(&mut self, ents: &[Entity], nodes: &mut [Node], tiles: Option<u64>, dt: f32) {
         let index: HashMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
         self.rest.retain(|e, r| {
             let Some(&i) = index.get(e) else { return false };
             let n = &nodes[i];
             r.asleep.is_none_or(|at| at == n.rect && n.vel == (0.0, 0.0) && n.spin == 0.0)
         });
-        // Whatever a sleeper rested on may be gone (a despawned body or wall) or pulling another way.
-        let changed = self.known.iter().any(|e| !index.contains_key(e)) || self.gravity != self.last_gravity;
+        // Whatever a sleeper rested on may be gone (a despawned body or wall, a dug tile) or pulling another way.
+        let changed = self.known.iter().any(|e| !index.contains_key(e))
+            || self.gravity != self.last_gravity
+            || tiles != self.last_tiles;
         self.known = ents.iter().copied().collect();
         self.last_gravity = self.gravity;
+        self.last_tiles = tiles;
         if changed {
             self.rest.clear();
         }
@@ -1468,5 +1473,18 @@ mod tests {
             assert!(l.y + l.h - 100.0 < 1.0, "mass {mass}: light sunk {} into the floor", l.y + l.h - 100.0);
             assert!(h.y + h.h - l.y < 1.0, "mass {mass}: heavy sunk {} into the light one", h.y + h.h - l.y);
         }
+    }
+
+    #[test]
+    fn a_sleeper_falls_when_the_tile_under_it_is_removed() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        let mut map = tile_floor();
+        let e = boxed(&mut w, square(48.0, 20.0, 12.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(&mut p, &mut w, Some(&map), 240);
+        assert!(p.asleep(e));
+        let rest = state(&w, e).0.y;
+        map.set(3, 2, 0);
+        run(&mut p, &mut w, Some(&map), 60);
+        assert!(!p.asleep(e) && state(&w, e).0.y > rest + 8.0, "still at {} (was {rest})", state(&w, e).0.y);
     }
 }

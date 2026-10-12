@@ -1,5 +1,10 @@
 use crate::{DrawCmd, Paint, Rect, Sprite};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+static STAMPS: AtomicU64 = AtomicU64::new(1);
 
 pub struct Tilemap {
     pub w: usize,
@@ -8,6 +13,8 @@ pub struct Tilemap {
     tiles: Vec<u8>,
     marks: Vec<(u8, usize, usize)>,
     sheet: Arc<Sprite>,
+    // A number nobody else has: new for every map and after every `set`, so a reader can tell the tiles changed.
+    stamp: u64,
 }
 
 impl Tilemap {
@@ -34,7 +41,7 @@ impl Tilemap {
                 }
             }
         }
-        Ok(Tilemap { w, h: rows.len(), size, tiles, marks, sheet })
+        Ok(Tilemap { w, h: rows.len(), size, tiles, marks, sheet, stamp: STAMPS.fetch_add(1, Ordering::Relaxed) })
     }
 
     pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Self {
@@ -49,6 +56,22 @@ impl Tilemap {
 
     pub fn marks(&self, c: u8) -> impl Iterator<Item = (f32, f32)> + '_ {
         self.marks.iter().filter(move |m| m.0 == c).map(|&(_, x, y)| ((x * self.size) as f32, (y * self.size) as f32))
+    }
+
+    pub(crate) fn stamp(&self) -> u64 {
+        self.stamp
+    }
+
+    /// The tile id at a grid cell: 0 empty, anything else solid (1 and 2 are the sheet's first two tiles).
+    pub fn tile(&self, tx: usize, ty: usize) -> u8 {
+        self.tiles[ty * self.w + tx]
+    }
+
+    /// Replaces a tile, for digging or building. Physics notices and wakes the bodies resting on the map.
+    pub fn set(&mut self, tx: usize, ty: usize, id: u8) {
+        assert!(tx < self.w && ty < self.h, "tile ({tx}, {ty}) is outside the {}x{} map", self.w, self.h);
+        self.tiles[ty * self.w + tx] = id;
+        self.stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn pixel_size(&self) -> (f32, f32) {
@@ -184,5 +207,16 @@ mod tests {
         assert_eq!((r.y, hx, hy), (22.0, false, true));
         let (r, hx, _) = map.slide(&Rect { x: 1.0, y: 0.0, w: 10.0, h: 10.0 }, -3.0, 0.0);
         assert_eq!((r.x, hx), (0.0, true));
+    }
+
+    #[test]
+    fn set_replaces_a_tile_and_gives_the_map_a_new_stamp() {
+        let sheet = Arc::new(Sprite::load("assets/images/tiles.png"));
+        let mut map = Tilemap::from_ascii(&["...", "###"], 16, sheet);
+        let before = map.stamp();
+        map.set(1, 0, 2);
+        assert_eq!((map.tile(1, 0), map.tile(1, 1), map.tile(0, 0)), (2, 1, 0));
+        assert!(map.stamp() != before);
+        assert!(!map.solid_in(Rect { x: 16.0, y: 0.0, w: 16.0, h: 16.0 }).is_empty());
     }
 }
