@@ -4,15 +4,17 @@ use std::collections::{HashMap, HashSet};
 
 const REST_SPEED: f32 = 30.0;
 const SLOP: f32 = 0.02;
-const CORRECTION: f32 = 0.8;
-const CORRECTION_PASSES: usize = 4;
-const MAX_CORRECTION_PASSES: usize = 40;
+const CORRECTION: f32 = 0.5;
+const CORRECTION_PASSES: usize = 6;
+const MAX_CORRECTION_PASSES: usize = 50;
 const UNSETTLED: f32 = 0.05;
 const HEAVY_RATIO: f32 = 4.0;
 const WARM_RANGE: f32 = 4.0;
 const SAME_NORMAL: f32 = 0.95;
 const MAX_SUBSTEPS: usize = 16;
 const SLEEP_SPEED: f32 = 5.0;
+// Above SLEEP_SPEED, so a body still creeping at the edge of sleeping does not keep waking the ones it touches.
+const WAKE_SPEED: f32 = 20.0;
 const SLEEP_SPIN: f32 = 0.1;
 const SLEEP_TIME: f32 = 0.5;
 
@@ -300,7 +302,7 @@ impl Physics {
         let movers: Vec<Rect> = ents
             .iter()
             .zip(nodes.iter())
-            .filter(|(e, n)| n.inv_mass > 0.0 && !self.asleep(**e) && speed(n) > SLEEP_SPEED)
+            .filter(|(e, n)| n.inv_mass > 0.0 && !self.asleep(**e) && speed(n) > WAKE_SPEED)
             .map(|(_, n)| grow(n.bounds(), speed(n) * dt + 1.0))
             .collect();
         for (e, n) in ents.iter().zip(nodes.iter_mut()) {
@@ -1273,6 +1275,19 @@ mod tests {
         let at = state(&w, e);
         run(&mut p, &mut w, None, 60);
         assert_eq!(state(&w, e), at);
+    }
+
+    #[test]
+    fn a_body_creeping_beside_a_sleeper_does_not_keep_waking_it() {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        floor(&mut w);
+        let sleeper = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        run(&mut p, &mut w, None, 180);
+        assert!(p.asleep(sleeper));
+        // Faster than a body may sleep at, slower than one that wakes things, and within reach of the sleeper.
+        boxed(&mut w, square(70.5, 80.0, 20.0), RigidBody::dynamic(1.0), (8.0, 0.0));
+        p.step(&mut w, None, DT);
+        assert!(p.asleep(sleeper), "a creeping neighbour woke it, so the pair would never rest");
     }
 
     #[test]
