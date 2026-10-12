@@ -9,6 +9,7 @@ const CORRECTION_PASSES: usize = 4;
 
 pub struct RigidBody {
     inv_mass: f32,
+    circle: bool,
     pub restitution: f32,
     pub friction: f32,
 }
@@ -16,11 +17,16 @@ pub struct RigidBody {
 impl RigidBody {
     pub fn dynamic(mass: f32) -> Self {
         assert!(mass > 0.0, "a dynamic body needs a positive mass");
-        RigidBody { inv_mass: 1.0 / mass, restitution: 0.0, friction: 0.4 }
+        RigidBody { inv_mass: 1.0 / mass, circle: false, restitution: 0.0, friction: 0.4 }
     }
 
     pub fn fixed() -> Self {
-        RigidBody { inv_mass: 0.0, restitution: 0.0, friction: 0.4 }
+        RigidBody { inv_mass: 0.0, circle: false, restitution: 0.0, friction: 0.4 }
+    }
+
+    pub fn circle(mut self) -> Self {
+        self.circle = true;
+        self
     }
 
     pub fn with_bounce(mut self, restitution: f32) -> Self {
@@ -50,8 +56,23 @@ struct Node {
     before: Rect,
     vel: (f32, f32),
     inv_mass: f32,
+    circle: bool,
     restitution: f32,
     friction: f32,
+}
+
+impl Node {
+    fn center(&self) -> (f32, f32) {
+        (self.rect.x + self.rect.w / 2.0, self.rect.y + self.rect.h / 2.0)
+    }
+
+    fn before_center(&self) -> (f32, f32) {
+        (self.before.x + self.before.w / 2.0, self.before.y + self.before.h / 2.0)
+    }
+
+    fn radius(&self) -> f32 {
+        self.rect.w.min(self.rect.h) / 2.0
+    }
 }
 
 struct Hit {
@@ -106,6 +127,7 @@ fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
                 before: body.0,
                 vel: vel.map_or((0.0, 0.0), |v| (v.x, v.y)),
                 inv_mass: if movable { rb.inv_mass } else { 0.0 },
+                circle: rb.circle,
                 restitution: rb.restitution,
                 friction: rb.friction,
             };
@@ -129,6 +151,7 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
                     before: tile,
                     vel: (0.0, 0.0),
                     inv_mass: 0.0,
+                    circle: false,
                     restitution: 0.0,
                     friction: 0.4,
                 });
@@ -142,27 +165,95 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>) -> Vec<Hit>
     overlapping_pairs(&rects)
         .into_iter()
         .filter(|&(a, b, ..)| nodes[a].inv_mass + nodes[b].inv_mass > 0.0)
-        .map(|(a, b, ox, oy)| {
-            let (now_a, now_b) = (&nodes[a].rect, &nodes[b].rect);
-            let (was_a, was_b) = (&nodes[a].before, &nodes[b].before);
-            let normal = if hit_along_x(was_a, was_b, ox, oy) {
-                let side = (was_a.x, was_a.x + was_a.w, was_b.x, was_b.x + was_b.w);
-                (push_direction(side, now_a.x + now_a.w / 2.0, now_b.x + now_b.w / 2.0), 0.0)
-            } else {
-                let side = (was_a.y, was_a.y + was_a.h, was_b.y, was_b.y + was_b.h);
-                (0.0, push_direction(side, now_a.y + now_a.h / 2.0, now_b.y + now_b.h / 2.0))
-            };
-            Hit { a, b, normal }
+        // A tile always goes second, which is where the seam filter below expects it.
+        .map(|(a, b, ..)| if a >= bodies && b < bodies { (b, a) } else { (a, b) })
+        .filter_map(|(a, b)| {
+            let touch = touch(&nodes[a], &nodes[b])?;
+            let ghost = tiles.is_some_and(|map| b >= bodies && is_ghost(map, &nodes[b].rect, &touch));
+            (!ghost).then_some(Hit { a, b, normal: touch.normal })
         })
-        .filter(|hit| !tiles.is_some_and(|map| hit.b >= bodies && is_inner_face(map, &nodes[hit.b].rect, hit.normal)))
         .collect()
 }
 
-// A face between two solid tiles cannot be touched; a body sliding along the floor would otherwise
-// catch on the seam, because the resting overlap of 0.02 px makes the seam look like a wall.
-fn is_inner_face(map: &Tilemap, tile: &Rect, (nx, ny): (f32, f32)) -> bool {
-    let probe = Rect { x: tile.x + tile.w / 2.0 - nx * tile.w, y: tile.y + tile.h / 2.0 - ny * tile.h, w: 0.1, h: 0.1 };
-    !map.solid_in(probe).is_empty()
+struct Touch {
+    normal: (f32, f32),
+    depth: f32,
+    // Which side of a box's corner a circle touches, as signs; None for a face contact.
+    corner: Option<(f32, f32)>,
+}
+
+// Normal points from a to b. Boxes use where they were before the step (see `hit_along_x`); circles only
+// have their current positions, so a fast circle can still tunnel.
+fn touch(a: &Node, b: &Node) -> Option<Touch> {
+    match (a.circle, b.circle) {
+        (false, false) => {
+            let (ox, oy) = a.rect.penetration(&b.rect)?;
+            let normal = if hit_along_x(&a.before, &b.before, ox, oy) {
+                let side = (a.before.x, a.before.x + a.before.w, b.before.x, b.before.x + b.before.w);
+                (push_direction(side, a.center().0, b.center().0), 0.0)
+            } else {
+                let side = (a.before.y, a.before.y + a.before.h, b.before.y, b.before.y + b.before.h);
+                (0.0, push_direction(side, a.center().1, b.center().1))
+            };
+            Some(Touch { normal, depth: if normal.0 != 0.0 { ox } else { oy }, corner: None })
+        }
+        (true, true) => {
+            let (ca, cb) = (a.center(), b.center());
+            let (dx, dy) = (cb.0 - ca.0, cb.1 - ca.1);
+            let reach = a.radius() + b.radius();
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist >= reach {
+                return None;
+            }
+            let normal = if dist > 1e-6 { (dx / dist, dy / dist) } else { (0.0, 1.0) };
+            Some(Touch { normal, depth: reach - dist, corner: None })
+        }
+        (true, false) => circle_box(a, b).map(|t| Touch { normal: (-t.normal.0, -t.normal.1), ..t }),
+        (false, true) => circle_box(b, a),
+    }
+}
+
+// Normal points from the box to the circle.
+fn circle_box(circle: &Node, boxed: &Node) -> Option<Touch> {
+    let ((cx, cy), r, b) = (circle.center(), circle.radius(), boxed.rect);
+    let (qx, qy) = (cx.clamp(b.x, b.x + b.w), cy.clamp(b.y, b.y + b.h));
+    let (dx, dy) = (cx - qx, cy - qy);
+    let d2 = dx * dx + dy * dy;
+    if d2 > 0.0 {
+        if d2 >= r * r {
+            return None;
+        }
+        let dist = d2.sqrt();
+        let corner = (dx != 0.0 && dy != 0.0).then(|| (dx.signum(), dy.signum()));
+        return Some(Touch { normal: (dx / dist, dy / dist), depth: r - dist, corner });
+    }
+    // A centre that ended up inside came from outside: leave by the side it was on before the step.
+    let ((px, py), was) = (circle.before_center(), boxed.before);
+    let exits = [
+        (cx - b.x, (-1.0, 0.0), px < was.x),
+        (b.x + b.w - cx, (1.0, 0.0), px > was.x + was.w),
+        (cy - b.y, (0.0, -1.0), py < was.y),
+        (b.y + b.h - cy, (0.0, 1.0), py > was.y + was.h),
+    ];
+    let nearest = exits.iter().min_by(|x, y| x.0.total_cmp(&y.0)).unwrap();
+    let (inside, normal, _) = *exits.iter().find(|e| e.2).unwrap_or(nearest);
+    Some(Touch { normal, depth: r + inside, corner: None })
+}
+
+// A tile face or corner that a neighbouring solid tile hides cannot be touched; a body sliding along the
+// floor would otherwise catch on the seam, because the resting overlap of 0.02 px makes the seam look like a wall.
+fn is_ghost(map: &Tilemap, tile: &Rect, touch: &Touch) -> bool {
+    let solid_at = |x: f32, y: f32| !map.solid_in(Rect { x, y, w: 0.1, h: 0.1 }).is_empty();
+    match touch.corner {
+        None => {
+            let (nx, ny) = touch.normal;
+            solid_at(tile.x + tile.w / 2.0 - nx * tile.w, tile.y + tile.h / 2.0 - ny * tile.h)
+        }
+        Some((sx, sy)) => {
+            let (mx, my) = (tile.x + tile.w / 2.0, tile.y + tile.h / 2.0);
+            solid_at(mx + sx * tile.w, my) || solid_at(mx, my + sy * tile.h)
+        }
+    }
 }
 
 fn hit_along_x(a: &Rect, b: &Rect, ox: f32, oy: f32) -> bool {
@@ -212,9 +303,14 @@ fn push_apart(a: &mut Node, b: &mut Node, (nx, ny): (f32, f32)) {
     b.vel = (b.vel.0 + jt * b.inv_mass * tx, b.vel.1 + jt * b.inv_mass * ty);
 }
 
-fn separate(a: &mut Node, b: &mut Node, (nx, ny): (f32, f32)) {
-    let Some((ox, oy)) = a.rect.penetration(&b.rect) else { return };
-    let depth = if nx != 0.0 { ox } else { oy };
+fn separate(a: &mut Node, b: &mut Node, normal: (f32, f32)) {
+    let (nx, ny, depth) = if a.circle || b.circle {
+        let Some(t) = touch(a, b) else { return };
+        (t.normal.0, t.normal.1, t.depth)
+    } else {
+        let Some((ox, oy)) = a.rect.penetration(&b.rect) else { return };
+        (normal.0, normal.1, if normal.0 != 0.0 { ox } else { oy })
+    };
     let inv_sum = a.inv_mass + b.inv_mass;
     let shift = (depth - SLOP).max(0.0) * CORRECTION / inv_sum;
     a.rect.x -= nx * shift * a.inv_mass;
@@ -464,5 +560,111 @@ mod tests {
         let e = w.spawn((Body(square(0.0, 0.0, 10.0)), RigidBody::dynamic(1.0)));
         run(&p, &mut w, None, 30);
         assert_eq!(w.get::<&Body>(e).unwrap().0.y, 0.0);
+    }
+
+    fn tile_floor() -> Tilemap {
+        let sheet = Arc::new(Sprite::load("assets/tiles.png"));
+        Tilemap::from_ascii(&["....................", "....................", "####################"], 16, sheet)
+    }
+
+    #[test]
+    fn a_body_walks_left_along_a_tile_floor_without_catching_on_the_seams() {
+        let map = tile_floor();
+        let (p, mut w) = (Physics::default(), World::new());
+        let rb = RigidBody::dynamic(1.0).with_friction(0.0);
+        let e = boxed(&mut w, Rect { x: 280.0, y: 0.0, w: 12.0, h: 24.0 }, rb, (0.0, 0.0));
+        for _ in 0..120 {
+            w.query_one_mut::<&mut Vel>(e).unwrap().x = -100.0;
+            p.step(&mut w, Some(&map), DT);
+        }
+        assert!(state(&w, e).0.x < 100.0, "caught on a seam at {:?}", state(&w, e).0);
+    }
+
+    #[test]
+    fn a_ball_rolls_over_tile_seams_either_way_without_bumping() {
+        let map = tile_floor();
+        for (start, speed) in [(20.0, 120.0), (280.0, -120.0)] {
+            let (p, mut w) = (Physics::default(), World::new());
+            let rb = RigidBody::dynamic(1.0).with_friction(0.0).circle();
+            let e = boxed(&mut w, square(start, 8.0, 16.0), rb, (0.0, 0.0));
+            run(&p, &mut w, Some(&map), 30);
+            let rest = state(&w, e).0.y;
+            let mut worst: f32 = 0.0;
+            for _ in 0..120 {
+                w.query_one_mut::<&mut Vel>(e).unwrap().x = speed;
+                p.step(&mut w, Some(&map), DT);
+                worst = worst.max((state(&w, e).0.y - rest).abs());
+            }
+            assert!((state(&w, e).0.x - start).abs() > 200.0, "stuck at {:?}", state(&w, e).0);
+            assert!(worst < 0.3, "bumped {worst} px over a seam going {speed}");
+        }
+    }
+
+    #[test]
+    fn a_ball_dropped_on_the_floor_rests_on_top_and_bounces_by_its_restitution() {
+        let (p, mut w) = (Physics::default(), World::new());
+        floor(&mut w);
+        let e = boxed(&mut w, square(50.0, 40.0, 20.0), RigidBody::dynamic(1.0).circle(), (0.0, 0.0));
+        run(&p, &mut w, None, 120);
+        let (r, v) = state(&w, e);
+        assert!((r.y + r.h - 100.0).abs() < 0.2 && v.1.abs() < 1.0, "{r:?} {v:?}");
+
+        let mut w = World::new();
+        w.spawn((Body(Rect { x: -500.0, y: 500.0, w: 2000.0, h: 50.0 }), RigidBody::fixed().with_bounce(0.5)));
+        let e = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0).with_bounce(0.5).circle(), (0.0, 0.0));
+        let (mut incoming, mut outgoing) = (0.0, 0.0);
+        for _ in 0..200 {
+            let before = state(&w, e).1.1;
+            p.step(&mut w, None, DT);
+            let after = state(&w, e).1.1;
+            if before > 0.0 && after < 0.0 {
+                (incoming, outgoing) = (before + 900.0 * DT, after);
+                break;
+            }
+        }
+        assert!(incoming > 0.0, "the ball never bounced");
+        assert!((outgoing / -incoming - 0.5).abs() < 0.03, "{outgoing} vs {incoming}");
+    }
+
+    #[test]
+    fn equal_balls_meeting_head_on_swap_velocities_and_off_centre_ones_deflect() {
+        let p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+        let rb = || RigidBody::dynamic(1.0).with_bounce(1.0).with_friction(0.0).circle();
+        let mut w = World::new();
+        let a = boxed(&mut w, square(0.0, 0.0, 20.0), rb(), (100.0, 0.0));
+        let b = boxed(&mut w, square(80.0, 0.0, 20.0), rb(), (-100.0, 0.0));
+        run(&p, &mut w, None, 60);
+        assert!((state(&w, a).1.0 + 100.0).abs() < 1.0 && (state(&w, b).1.0 - 100.0).abs() < 1.0);
+
+        let mut w = World::new();
+        let a = boxed(&mut w, square(0.0, 0.0, 20.0), rb(), (100.0, 0.0));
+        let b = boxed(&mut w, square(50.0, 14.0, 20.0), rb(), (0.0, 0.0));
+        run(&p, &mut w, None, 40);
+        let (va, vb) = (state(&w, a).1, state(&w, b).1);
+        assert!(va.1 < -5.0 && vb.1 > 5.0, "no sideways deflection: {va:?} {vb:?}");
+        assert!((va.0 + vb.0 - 100.0).abs() < 1.0 && (va.1 + vb.1).abs() < 1.0, "momentum: {va:?} {vb:?}");
+    }
+
+    #[test]
+    fn balls_and_boxes_piled_into_an_arena_stay_inside_it() {
+        let (p, mut w) = (Physics::default(), World::new());
+        let mut rng = crate::Rng::new(11);
+        let wall = |x, y, w_, h| (Body(Rect { x, y, w: w_, h }), RigidBody::fixed());
+        w.spawn(wall(0.0, 340.0, 640.0, 20.0));
+        w.spawn(wall(0.0, 0.0, 10.0, 360.0));
+        w.spawn(wall(630.0, 0.0, 10.0, 360.0));
+        let bodies: Vec<Entity> = (0..40)
+            .map(|i| {
+                let size = rng.range(14.0, 30.0);
+                let rect = Rect { x: rng.range(20.0, 620.0 - size), y: -20.0 * i as f32, w: size, h: size };
+                let rb = RigidBody::dynamic(size * size / 100.0).with_bounce(rng.range(0.0, 0.6)).with_friction(0.4);
+                boxed(&mut w, rect, if i % 2 == 0 { rb.circle() } else { rb }, (0.0, 0.0))
+            })
+            .collect();
+        run(&p, &mut w, None, 600);
+        for e in bodies {
+            let (r, _) = state(&w, e);
+            assert!(r.x >= 9.0 && r.x + r.w <= 631.0 && r.y + r.h <= 341.0, "escaped or sank: {r:?}");
+        }
     }
 }
