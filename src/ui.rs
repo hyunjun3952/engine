@@ -32,6 +32,85 @@ pub fn slider(input: &Input, r: &Rect, value: f32) -> f32 {
     }
 }
 
+const BUTTON: u32 = 0x303048;
+const BUTTON_HOT: u32 = 0x454568;
+const BUTTON_DOWN: u32 = 0x202030;
+const EDGE: u32 = 0x8080a0;
+const TEXT: u32 = 0xffffff;
+const BOX: f32 = 10.0;
+
+fn shade(input: &Input, r: &Rect) -> u32 {
+    match (hovered(input, r), input.mouse_down(MouseButton::Left)) {
+        (true, true) => BUTTON_DOWN,
+        (true, false) => BUTTON_HOT,
+        _ => BUTTON,
+    }
+}
+
+/// A labelled button: `update` once per step (true on the step it is clicked), `draw` with the font; the look
+/// follows the cursor as of the last `update`.
+pub struct Button {
+    pub rect: Rect,
+    pub label: String,
+    fill: u32,
+}
+
+impl Button {
+    pub fn new(rect: Rect, label: &str) -> Self {
+        Button { rect, label: label.to_string(), fill: BUTTON }
+    }
+
+    pub fn update(&mut self, input: &Input) -> bool {
+        self.fill = shade(input, &self.rect);
+        clicked(input, &self.rect)
+    }
+
+    /// The label is centred in the rectangle.
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font) {
+        draw_panel(gfx, &self.rect, self.fill, EDGE);
+        let r = &self.rect;
+        let (x, y) = (
+            r.x as i32 + (r.w as i32 - font.width(&self.label)) / 2,
+            r.y as i32 + (r.h as i32 - font.line_height()) / 2,
+        );
+        gfx.text_font(font, &self.label, x, y, TEXT);
+    }
+}
+
+/// A box with a label to its right that flips when the box or the label is clicked.
+pub struct Checkbox {
+    pub checked: bool,
+    pos: (i32, i32),
+    label: String,
+    hit: Rect,
+    fill: u32,
+}
+
+impl Checkbox {
+    pub fn new(font: &Font, pos: (i32, i32), label: &str, checked: bool) -> Self {
+        let (x, y) = (pos.0 as f32, pos.1 as f32);
+        let hit = Rect { x, y, w: BOX + 4.0 + font.width(label) as f32, h: BOX.max(font.line_height() as f32) };
+        Checkbox { checked, pos, label: label.to_string(), hit, fill: BUTTON }
+    }
+
+    /// Returns true on the step it flips.
+    pub fn update(&mut self, input: &Input) -> bool {
+        self.fill = if hovered(input, &self.hit) { BUTTON_HOT } else { BUTTON };
+        let flip = clicked(input, &self.hit);
+        self.checked ^= flip;
+        flip
+    }
+
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font) {
+        let r = Rect { x: self.pos.0 as f32, y: self.pos.1 as f32, w: BOX, h: BOX };
+        draw_panel(gfx, &r, self.fill, EDGE);
+        if self.checked {
+            gfx.fill(&Rect { x: r.x + 3.0, y: r.y + 3.0, w: BOX - 6.0, h: BOX - 6.0 }, TEXT);
+        }
+        gfx.text_font(font, &self.label, self.pos.0 + BOX as i32 + 4, self.pos.1, TEXT);
+    }
+}
+
 /// A single-line text box: call `update` once per fixed step with the typed characters and Backspace.
 ///
 /// Hangul is composed here, so no input method is needed: jamo from a Korean keyboard layout are joined into
@@ -296,6 +375,44 @@ mod tests {
         assert_eq!(slider(&input, &r, 0.9), 0.9, "outside leaves the value alone");
         at(&mut input, 20.0, 40.0, true);
         assert!(!hovered(&input, &r));
+    }
+
+    #[test]
+    fn a_button_reports_a_click_once_and_centres_its_label() {
+        let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let (mut input, mut b) = (Input::default(), Button::new(Rect { x: 10.0, y: 10.0, w: 60.0, h: 20.0 }, "확인"));
+        at(&mut input, 200.0, 12.0, false);
+        assert!(!b.update(&input));
+        at(&mut input, 20.0, 12.0, true);
+        assert!(b.update(&input));
+        at(&mut input, 20.0, 12.0, true);
+        assert!(!b.update(&input), "holding is not a new click");
+        assert_eq!(b.fill, BUTTON_DOWN);
+        let mut g = Gfx::new(100, 50);
+        b.draw(&mut g, &font);
+        let glyph =
+            g.cmds().iter().find_map(|c| matches!(c.paint, crate::Paint::Mask { .. }).then_some(c.rect)).unwrap();
+        assert_eq!(glyph.x as i32, 10 + (60 - font.width("확인")) / 2 + font.layout("확인").next().unwrap().1);
+    }
+
+    #[test]
+    fn a_checkbox_flips_on_a_click_on_the_box_or_its_label_and_shows_its_state() {
+        let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let (mut input, mut c) = (Input::default(), Checkbox::new(&font, (10, 10), "소리", false));
+        let count = |c: &Checkbox| {
+            let mut g = Gfx::new(100, 50);
+            c.draw(&mut g, &font);
+            g.cmds().len()
+        };
+        let off = count(&c);
+        at(&mut input, 200.0, 12.0, false);
+        assert!(!c.update(&input) && !c.checked);
+        at(&mut input, 12.0, 12.0, true);
+        assert!(c.update(&input) && c.checked, "on the box");
+        assert_eq!(count(&c), off + 1, "a tick is one more fill");
+        at(&mut input, 28.0, 12.0, false);
+        at(&mut input, 28.0, 12.0, true);
+        assert!(c.update(&input) && !c.checked, "on the label");
     }
 
     #[test]

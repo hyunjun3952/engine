@@ -16,4 +16,4 @@ pub use ecs::{
     animate, burst, collisions, draw_list, movement, particles, query_rect, raycast,
 };
 pub use render::{Camera, DrawCmd, Font, Gfx, Paint, Rect, Sprite, Tile, Tilemap, Transform};
-pub use ui::{Menu, Rebind, TextField, clicked, draw_bar, draw_panel, hovered, slider};
+pub use ui::{Button, Checkbox, Menu, Rebind, TextField, clicked, draw_bar, draw_panel, hovered, slider};

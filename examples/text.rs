@@ -1,4 +1,4 @@
-use engine::{Config, Ctx, Font, Gfx, Key, Menu, Scene, TextField, Timer, Trans};
+use engine::{Button, Checkbox, Config, Ctx, Font, Gfx, Key, Menu, Rect, Scene, TextField, Timer, Trans};
 use std::sync::Arc;
 
 struct Text {
@@ -7,6 +7,8 @@ struct Text {
     menu: Menu,
     said: String,
     blink: Timer,
+    clear: Button,
+    korean: Checkbox,
 }
 
 impl Scene for Text {
@@ -19,6 +21,13 @@ impl Scene for Text {
             self.said = format!("입력: {}", self.field.text());
             self.field.clear();
         }
+        if self.clear.update(ctx.input()) {
+            self.field.clear();
+        }
+        if self.korean.update(ctx.input()) {
+            self.field.set_korean(self.korean.checked);
+        }
+        self.korean.checked = self.field.korean();
         if let Some(i) = self.menu.update(ctx.input(), "up", "down", "accept") {
             self.said = format!("메뉴 {i} 선택");
         }
@@ -32,6 +41,8 @@ impl Scene for Text {
         g.text_font(f, &format!("[{mode}] 오른쪽 Alt: 한/영   Enter: 입력   Tab: 메뉴 선택"), 16, 16, 0xaaaaaa);
         self.field.draw(g, f, 16, 40, 0xffffff, self.blink.fraction() < 0.5);
         self.menu.draw(g, f, 16, 80, 0xcccccc, 0xffd040);
+        self.clear.draw(g, f);
+        self.korean.draw(g, f);
         g.text_font_scaled(f, &self.said, 16, 180, 2, 0x80ff80);
     }
 }
@@ -43,12 +54,15 @@ fn main() {
         ctx.bind("accept", &[Key::Tab]);
         ctx.bind("back", &[Key::Escape]);
         let font = ctx.assets().font("assets/fonts/galmuri9.bdf");
+        let korean = Checkbox::new(&font, (300, 80), "한글 입력", false);
         Box::new(Text {
             font,
             field: TextField::new(20),
             menu: Menu::new(&["시작", "설정", "끝"]),
             said: String::new(),
             blink: Timer::looping(1.0),
+            clear: Button::new(Rect { x: 300.0, y: 36.0, w: 60.0, h: 18.0 }, "지우기"),
+            korean,
         })
     });
 }
