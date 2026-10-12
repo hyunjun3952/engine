@@ -11,23 +11,16 @@ pub fn draw_list(world: &World) -> Vec<DrawCmd> {
                 Look::Alpha(c, a) => Paint::Alpha(*c, *a),
                 Look::Sprite(s) => Paint::Sprite(s.clone()),
             };
-            cmds.push(DrawCmd { layer, rect, paint, debug_only: false, xform });
+            cmds.push(DrawCmd { layer, xform, ..DrawCmd::new(rect, paint) });
         }
         if let Some(a) = anim {
             let paint = Paint::Region { sheet: a.sheet.clone(), src: a.src(), flip: a.flip };
-            cmds.push(DrawCmd { layer, rect, paint, debug_only: false, xform });
+            cmds.push(DrawCmd { layer, xform, ..DrawCmd::new(rect, paint) });
         }
     }
     cmds.sort_by_key(|c| c.layer);
     for (body, _) in world.query::<(&Body, &Collider)>().iter() {
-        let outline = Paint::Outline(0x00ff00);
-        cmds.push(DrawCmd {
-            layer: i32::MAX,
-            rect: body.0,
-            paint: outline,
-            debug_only: true,
-            xform: Transform::IDENTITY,
-        });
+        cmds.push(DrawCmd { layer: i32::MAX, debug_only: true, ..DrawCmd::new(body.0, Paint::Outline(0x00ff00)) });
     }
     cmds
 }

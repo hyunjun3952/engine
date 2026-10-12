@@ -1,4 +1,4 @@
-use super::{DrawCmd, Font, Paint, Transform, font};
+use super::{DrawCmd, Font, Paint, font};
 use std::sync::{
     Arc, RwLock, RwLockReadGuard,
     atomic::{AtomicU64, Ordering},
@@ -50,7 +50,7 @@ impl Gfx {
     }
 
     fn push(&mut self, rect: Rect, paint: Paint) {
-        self.cmds.push(DrawCmd { layer: 0, rect, paint, debug_only: false, xform: Transform::IDENTITY });
+        self.cmds.push(DrawCmd::new(rect, paint));
     }
 
     pub fn view(&self) -> Rect {
@@ -177,6 +177,7 @@ fn decode(path: &str) -> Result<Image, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Transform;
 
     #[test]
     fn draw_applies_the_camera_and_skips_debug_commands_unless_enabled() {

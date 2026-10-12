@@ -123,7 +123,7 @@ impl Tilemap {
         }
         let rect = Rect { x: tx0 as f32 * s, y: ty0 as f32 * s, w: (tx1 - tx0) as f32 * s, h: (ty1 - ty0) as f32 * s };
         let paint = Paint::Tiles { sheet: self.sheet.clone(), size: self.size as u32, tiles };
-        vec![DrawCmd { layer: i32::MIN, rect, paint, debug_only: false, xform: Default::default() }]
+        vec![DrawCmd { layer: i32::MIN, ..DrawCmd::new(rect, paint) }]
     }
 }
 

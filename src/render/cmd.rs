@@ -43,3 +43,10 @@ pub struct DrawCmd {
     pub debug_only: bool,
     pub xform: Transform,
 }
+
+impl DrawCmd {
+    /// A command on layer 0, always drawn, without rotation or scale.
+    pub fn new(rect: Rect, paint: Paint) -> Self {
+        DrawCmd { layer: 0, rect, paint, debug_only: false, xform: Transform::IDENTITY }
+    }
+}
