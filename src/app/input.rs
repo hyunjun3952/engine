@@ -1,4 +1,4 @@
-use super::pad::{PADS, Pad, PadState};
+use super::pad::{PADS, Pad, PadAxis, PadState};
 pub use minifb::{Key, MouseButton};
 use std::collections::{HashMap, HashSet};
 
@@ -123,6 +123,10 @@ impl Input {
     /// Wheel movement since the last tick, positive away from the user.
     pub fn wheel(&self) -> f32 {
         self.wheel
+    }
+    /// Analog stick (-1..=1, dead zone removed) or trigger (0..=1) of the pad; 0 with no pad plugged in.
+    pub fn pad_axis(&self, axis: PadAxis) -> f32 {
+        self.pad.axis(axis)
     }
     pub fn key_down(&self, key: Key) -> bool {
         self.down.contains(&key)

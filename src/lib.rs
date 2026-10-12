@@ -7,7 +7,7 @@ mod render;
 mod ui;
 
 pub use app::{
-    Config, Ctx, Ease, Input, Key, MouseButton, Pad, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run,
+    Config, Ctx, Ease, Input, Key, MouseButton, Pad, PadAxis, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run,
 };
 pub use assets::{Assets, Audio};
 pub use ecs::{

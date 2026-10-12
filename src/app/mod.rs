@@ -5,7 +5,7 @@ mod save;
 mod time;
 
 pub use input::{Input, Key, MouseButton};
-pub use pad::Pad;
+pub use pad::{Pad, PadAxis};
 pub use rng::Rng;
 pub use save::Save;
 pub use time::{Ease, Timer, Tween};

@@ -17,6 +17,16 @@ pub enum Pad {
     Right,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PadAxis {
+    LeftX,
+    LeftY,
+    RightX,
+    RightY,
+    LeftTrigger,
+    RightTrigger,
+}
+
 pub(crate) const PADS: &[(&str, Pad)] = &[
     ("A", Pad::A),
     ("B", Pad::B),
@@ -33,6 +43,7 @@ pub(crate) const PADS: &[(&str, Pad)] = &[
 ];
 
 const STICK_ON: i16 = 16000;
+const DEADZONE: f32 = 0.2;
 const BUTTONS: [Pad; 8] = [Pad::A, Pad::B, Pad::X, Pad::Y, Pad::LB, Pad::RB, Pad::Back, Pad::Start];
 
 /// First pad through the Linux joystick API (`/dev/input/js0`, Xbox-style layout). Elsewhere, or with no pad
@@ -44,6 +55,9 @@ pub(crate) struct PadState {
     buttons: HashSet<Pad>,
     dpad: [i16; 2],
     stick: [i16; 2],
+    right: [i16; 2],
+    // Raw 0..=65534; the driver reports a released trigger as -32767, which would read as half pressed before any event.
+    trigger: [u16; 2],
 }
 
 impl PadState {
@@ -65,7 +79,7 @@ impl PadState {
                         break;
                     }
                     Err(_) => {
-                        (self.buttons, self.dpad, self.stick) = Default::default();
+                        (self.buttons, self.dpad, self.stick, self.right, self.trigger) = Default::default();
                         break;
                     }
                 }
@@ -86,8 +100,27 @@ impl PadState {
                 }
             }
             (2, 0 | 1) => self.stick[n] = value,
+            (2, 3 | 4) => self.right[n - 3] = value,
+            (2, 2 | 5) => self.trigger[n / 5] = (i32::from(value) + 32767) as u16,
             (2, 6 | 7) => self.dpad[n - 6] = value,
             _ => {}
+        }
+    }
+
+    /// Sticks run -1..=1 with the dead zone cut out and rescaled; triggers run 0..=1.
+    pub(crate) fn axis(&self, axis: PadAxis) -> f32 {
+        let stick = |raw: i16| {
+            let v = f32::from(raw) / 32767.0;
+            v.signum() * ((v.abs() - DEADZONE) / (1.0 - DEADZONE)).clamp(0.0, 1.0)
+        };
+        let pull = |raw: u16| f32::from(raw) / 65534.0;
+        match axis {
+            PadAxis::LeftX => stick(self.stick[0]),
+            PadAxis::LeftY => stick(self.stick[1]),
+            PadAxis::RightX => stick(self.right[0]),
+            PadAxis::RightY => stick(self.right[1]),
+            PadAxis::LeftTrigger => pull(self.trigger[0]),
+            PadAxis::RightTrigger => pull(self.trigger[1]),
         }
     }
 
@@ -150,7 +183,22 @@ mod tests {
     fn unknown_buttons_and_axes_are_ignored() {
         let mut p = PadState::default();
         p.apply(ev(1, 1, 9));
-        p.apply(ev(30000, 2, 2));
+        p.apply(ev(30000, 2, 9));
         assert!(p.held().is_empty());
+    }
+
+    #[test]
+    fn sticks_cut_the_dead_zone_and_triggers_start_at_zero() {
+        let mut p = PadState::default();
+        assert_eq!(p.axis(PadAxis::LeftTrigger), 0.0, "no event yet reads as released");
+        p.apply(ev(-32767, 2, 2));
+        p.apply(ev(32767, 2, 5));
+        assert_eq!((p.axis(PadAxis::LeftTrigger), p.axis(PadAxis::RightTrigger)), (0.0, 1.0));
+        p.apply(ev(3000, 2, 3));
+        p.apply(ev(-32767, 2, 4));
+        p.apply(ev(32767, 2, 0));
+        assert_eq!((p.axis(PadAxis::RightX), p.axis(PadAxis::RightY), p.axis(PadAxis::LeftX)), (0.0, -1.0, 1.0));
+        p.apply(ev(19660, 2, 1));
+        assert!((p.axis(PadAxis::LeftY) - 0.5).abs() < 0.01, "0.6 deflection is 0.5 after a 0.2 dead zone");
     }
 }
