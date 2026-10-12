@@ -232,4 +232,12 @@ mod tests {
         assert!(matches!(g.cmds()[0].paint, Paint::Glyph { ch: b'A', color: 5, scale: 2 }));
         assert_eq!(g.cmds()[0].rect.w, 16.0);
     }
+
+    #[test]
+    fn the_picture_is_scaled_up_as_far_as_it_fits_and_centred() {
+        let canvas = (640.0, 360.0);
+        assert_eq!(letterbox(canvas, canvas), Rect { x: 0.0, y: 0.0, w: 640.0, h: 360.0 });
+        assert_eq!(letterbox((1280.0, 1000.0), canvas), Rect { x: 0.0, y: 140.0, w: 1280.0, h: 720.0 });
+        assert_eq!(letterbox((1600.0, 720.0), canvas), Rect { x: 160.0, y: 0.0, w: 1280.0, h: 720.0 });
+    }
 }
