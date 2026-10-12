@@ -73,6 +73,11 @@ impl TextField {
     }
 }
 
+// Row height and the width of the `> ` marker, shared by drawing and mouse hit tests so they cannot disagree.
+fn row_metrics(font: &Font) -> (i32, i32) {
+    (font.line_height() + 3, font.width("> "))
+}
+
 pub struct Menu {
     items: Vec<String>,
     sel: usize,
@@ -110,8 +115,7 @@ impl Menu {
 
     /// Hovering a row highlights it and a left click on it returns its index; `x` and `y` must match `draw`.
     pub fn mouse(&mut self, input: &Input, font: &Font, x: i32, y: i32) -> Option<usize> {
-        let step = font.line_height() + 3;
-        let indent = font.width("> ");
+        let (step, indent) = row_metrics(font);
         let row = |i: usize, item: &str| Rect {
             x: x as f32,
             y: (y + i as i32 * step) as f32,
@@ -126,8 +130,7 @@ impl Menu {
     }
 
     pub fn draw(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, active: u32) {
-        let step = font.line_height() + 3;
-        let indent = font.width("> ");
+        let (step, indent) = row_metrics(font);
         for (i, item) in self.items.iter().enumerate() {
             let row = y + i as i32 * step;
             if i == self.sel {
@@ -151,8 +154,10 @@ pub struct Rebind {
 }
 
 impl Rebind {
+    /// Panics when no action is bound, like `Menu::new` without rows.
     pub fn new(input: &Input) -> Self {
         let actions: Vec<String> = input.actions().into_iter().map(String::from).collect();
+        assert!(!actions.is_empty(), "bind actions before opening a Rebind screen");
         let mut screen = Rebind {
             menu: Menu::new(&actions.iter().map(String::as_str).collect::<Vec<_>>()),
             actions,
