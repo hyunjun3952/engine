@@ -1,6 +1,8 @@
+mod atlas;
 mod audio;
 mod watch;
 
+pub use atlas::Atlas;
 pub use audio::Audio;
 
 use crate::{Font, Sprite};

@@ -10,7 +10,7 @@ mod ui;
 pub use app::{
     Config, Ctx, Ease, Input, Key, MouseButton, Pad, PadAxis, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run,
 };
-pub use assets::{Assets, Audio};
+pub use assets::{Assets, Atlas, Audio};
 pub use ecs::{
     Anim, Body, Burst, Collider, Contact, Entity, Filter, Layer, Look, Physics, RayIndex, RigidBody, Vel, World,
     animate, burst, collisions, draw_list, movement, particles, query_rect, raycast,
