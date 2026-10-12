@@ -1,4 +1,4 @@
-use crate::{Body, Collider, Entity, Filter, Rect, World};
+use crate::{Body, Collider, Entity, Filter, Rect, Transform, World};
 
 pub struct Contact {
     pub a: Entity,
@@ -55,20 +55,27 @@ pub fn collisions(world: &World) -> Vec<Contact> {
         .collect()
 }
 
-// First collider hit by the ray `from + t * dir`, 0 <= t <= max, with its t; `dir` need not be a unit vector.
-pub fn raycast(world: &World, from: (f32, f32), dir: (f32, f32), max: f32) -> Option<(Entity, f32)> {
+// First collider in `mask`'s groups hit by the ray `from + t * dir`, 0 <= t <= max, with its t; `dir` need not be a
+// unit vector. A body with a `Transform` is hit where it is turned, as physics sees it (scale is ignored).
+pub fn raycast(world: &World, from: (f32, f32), dir: (f32, f32), max: f32, mask: u32) -> Option<(Entity, f32)> {
     let mut best: Option<(Entity, f32)> = None;
-    for (e, b, _) in world.query::<(Entity, &Body, &Collider)>().iter() {
+    for (e, b, f, xform, _) in world.query::<(Entity, &Body, Option<&Filter>, Option<&Transform>, &Collider)>().iter() {
+        if f.is_some_and(|f| f.group & mask == 0) {
+            continue;
+        }
         let r = &b.0;
+        let (c, (s, k)) = (r.center(), xform.map_or(0.0, |t| t.angle).sin_cos());
+        let turn = |x: f32, y: f32| (x * k + y * s, y * k - x * s);
+        let (o, d) = (turn(from.0 - c.0, from.1 - c.1), turn(dir.0, dir.1));
         let (mut t0, mut t1) = (0.0_f32, max);
-        for (o, d, lo, hi) in [(from.0, dir.0, r.x, r.x + r.w), (from.1, dir.1, r.y, r.y + r.h)] {
+        for (o, d, half) in [(o.0, d.0, r.w / 2.0), (o.1, d.1, r.h / 2.0)] {
             if d == 0.0 {
-                if o < lo || o > hi {
+                if o.abs() > half {
                     t1 = -1.0;
                 }
                 continue;
             }
-            let (a, b) = ((lo - o) / d, (hi - o) / d);
+            let (a, b) = ((-half - o) / d, (half - o) / d);
             t0 = t0.max(a.min(b));
             t1 = t1.min(a.max(b));
         }
@@ -116,11 +123,28 @@ mod tests {
         boxed(&mut w, 50.0, true);
         boxed(&mut w, -30.0, true);
         boxed(&mut w, 80.0, false);
-        let (e, t) = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0).unwrap();
+        let (e, t) = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX).unwrap();
         assert_eq!((e, t), (near, 20.0));
-        assert!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 10.0).is_none());
-        assert!(raycast(&w, (0.0, 50.0), (1.0, 0.0), 100.0).is_none());
-        assert_eq!(raycast(&w, (25.0, 5.0), (0.0, 1.0), 5.0).map(|h| h.1), Some(0.0));
+        assert!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 10.0, u32::MAX).is_none());
+        assert!(raycast(&w, (0.0, 50.0), (1.0, 0.0), 100.0, u32::MAX).is_none());
+        assert_eq!(raycast(&w, (25.0, 5.0), (0.0, 1.0), 5.0, u32::MAX).map(|h| h.1), Some(0.0));
+    }
+
+    #[test]
+    fn a_ray_skips_groups_outside_its_mask_and_sees_a_turned_box_where_it_is() {
+        let mut w = World::new();
+        let wall = boxed(&mut w, 20.0, true);
+        w.insert_one(wall, Filter { group: 2, mask: u32::MAX }).unwrap();
+        assert!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 1).is_none());
+        assert_eq!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 2).map(|h| h.0), Some(wall));
+        // a 10x10 box turned 45 degrees about (25, 5) reaches 7.07 either side of it, so a ray along y = 5 meets it at 17.9
+        let turned = Transform { angle: std::f32::consts::FRAC_PI_4, ..Transform::IDENTITY };
+        w.insert_one(wall, turned).unwrap();
+        let t = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 2).unwrap().1;
+        assert!((t - 17.93).abs() < 0.01, "{t}");
+        // along y = 0.5 the unturned box would be met at 20; the diamond is only 2.57 wide either side there
+        let t = raycast(&w, (0.0, 0.5), (1.0, 0.0), 100.0, 2).unwrap().1;
+        assert!((t - 22.43).abs() < 0.01, "{t}");
     }
 
     #[test]
