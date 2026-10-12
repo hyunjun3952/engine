@@ -20,11 +20,13 @@ pub fn clicked(input: &Input, r: &Rect) -> bool {
     input.mouse_pressed(MouseButton::Left) && hovered(input, r)
 }
 
-/// While the left button is held over `r`, the value (0..=1) under the cursor; otherwise `value` unchanged.
+/// While the left button is held over `r`, the value (0..=1) under the cursor (first pixel 0, last pixel 1); otherwise `value` unchanged.
 /// Dragging off the rectangle stops it following, so make the rectangle taller than the drawn track.
 pub fn slider(input: &Input, r: &Rect, value: f32) -> f32 {
     match input.mouse() {
-        Some((x, _)) if input.mouse_down(MouseButton::Left) && hovered(input, r) => ((x - r.x) / r.w).clamp(0.0, 1.0),
+        Some((x, _)) if input.mouse_down(MouseButton::Left) && hovered(input, r) => {
+            ((x.floor() - r.x) / (r.w - 1.0).max(1.0)).clamp(0.0, 1.0)
+        }
         _ => value,
     }
 }
@@ -136,7 +138,12 @@ mod tests {
         assert!(hovered(&input, &r) && !clicked(&input, &r));
         at(&mut input, 20.0, 12.0, true);
         assert!(clicked(&input, &r));
-        assert_eq!(slider(&input, &r, 0.9), 0.1);
+        assert!((slider(&input, &r, 0.9) - 10.0 / 99.0).abs() < 1e-6);
+        at(&mut input, 109.9, 12.0, true);
+        assert_eq!(slider(&input, &r, 0.0), 1.0, "the last pixel is the full value");
+        at(&mut input, 10.2, 12.0, true);
+        assert_eq!(slider(&input, &r, 1.0), 0.0);
+        at(&mut input, 20.0, 12.0, true);
         at(&mut input, 20.0, 12.0, true);
         assert!(!clicked(&input, &r), "holding is not a new click");
         at(&mut input, 500.0, 12.0, true);
