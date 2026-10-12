@@ -110,7 +110,7 @@ impl Ctx {
     pub fn save_bindings(&self, path: &str) -> std::io::Result<()> {
         let all = self.input.to_text();
         let kept = |line: &&str| self.defaults.as_ref().is_none_or(|d| !d.lines().any(|l| l == *line));
-        std::fs::write(path, all.lines().filter(kept).map(|l| format!("{l}\n")).collect::<String>())
+        crate::assets::write_atomic(path, &all.lines().filter(kept).map(|l| format!("{l}\n")).collect::<String>())
     }
 
     pub fn watch(&mut self, path: &str) {

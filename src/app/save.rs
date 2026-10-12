@@ -21,9 +21,7 @@ impl Save {
 
     /// Writes beside the target and renames, so a crash mid-write cannot destroy the previous save.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let tmp = format!("{path}.tmp");
-        std::fs::write(&tmp, self.to_text())?;
-        std::fs::rename(tmp, path)
+        crate::assets::write_atomic(path, &self.to_text())
     }
 
     pub fn set(&mut self, key: &str, value: impl ToString) {

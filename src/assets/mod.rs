@@ -14,6 +14,17 @@ pub(crate) fn read_text(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
 }
 
+/// Writes beside the target, flushes to disk and renames over it, so a crash leaves the old file or the whole new
+/// one, never half of it (and never an empty one: a rename alone can reach the disk before the data does).
+pub(crate) fn write_atomic(path: &str, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = format!("{path}.tmp");
+    let mut file = std::fs::File::create(&tmp)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(tmp, path)
+}
+
 /// Like `read_text`, but a file that does not exist is `Ok(None)`.
 pub(crate) fn read_text_if_exists(path: &str) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
@@ -89,6 +100,23 @@ mod tests {
         let results = a.reload_changed();
         assert!(results[0].as_ref().unwrap_err().starts_with(path));
         assert_eq!(held.size(), sheet_size, "a broken file keeps the last good image");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_atomic_write_replaces_the_file_whole_and_leaves_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("engine-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("save.txt");
+        let path = path.to_str().unwrap();
+        write_atomic(path, "first\n").unwrap();
+        write_atomic(path, "second\n").unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "second\n");
+        assert!(!std::path::Path::new(&format!("{path}.tmp")).exists());
+        assert!(
+            write_atomic(dir.join("missing").join("x.txt").to_str().unwrap(), "x").is_err(),
+            "no directory is an error"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
