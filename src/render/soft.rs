@@ -1,3 +1,4 @@
+use super::cmd::SAMPLE_BIAS;
 use super::{DrawCmd, Paint, Transform, font};
 use crate::{Rect, Sprite};
 use std::ops::Range;
@@ -65,11 +66,12 @@ impl Soft {
             _ => {
                 let Some((sheet, src, flip)) = c.paint.region() else { return false };
                 let img = sheet.image();
-                let (sx0, sy0, w) = (src.x as usize, src.y as usize, src.w as usize);
+                let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
                 let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
                 self.warp(quad, t, |d, u, v| {
-                    let u = if flip { w - 1 - u as usize } else { u as usize };
-                    put(d, img.px[(sy0 + v as usize) * img.w + sx0 + u]);
+                    let u = if flip { src.w - u } else { u } + SAMPLE_BIAS;
+                    let (u, v) = ((u as usize).min(w - 1), ((v + SAMPLE_BIAS) as usize).min(h - 1));
+                    put(d, img.px[(sy0 + v) * img.w + sx0 + u]);
                 });
             }
         }

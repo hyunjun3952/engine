@@ -6,6 +6,7 @@ struct Fly {
     map: Tilemap,
     world: World,
     me: engine::Entity,
+    zoom: f32,
 }
 
 impl Fly {
@@ -15,7 +16,7 @@ impl Fly {
         let mut world = World::new();
         let me = world.spawn((Body(Rect { x, y, w: 12.0, h: 12.0 }), Look::Color(0xffd040)));
         ctx.cam().reset();
-        Fly { map, world, me }
+        Fly { map, world, me, zoom: 1.0 }
     }
 }
 
@@ -33,6 +34,11 @@ impl Scene for Fly {
         body.0 = self.map.slide(&body.0, dx, dy).0;
         let rect = body.0;
         drop(body);
+        let step = ctx.input().pressed("zoom_in") as i32 - ctx.input().pressed("zoom_out") as i32;
+        if step != 0 {
+            self.zoom = (self.zoom * 1.5f32.powi(step)).clamp(0.5, 6.0);
+            ctx.cam().zoom_to(self.zoom, 0.3);
+        }
         if ctx.input().pressed("shake") {
             ctx.cam().shake(4.0, 0.4);
         }
@@ -45,7 +51,7 @@ impl Scene for Fly {
         let mut cmds = self.map.draw_list(g.view());
         cmds.extend(draw_list(&self.world));
         g.draw(cmds);
-        g.text("arrows: move   SPACE: shake   ENTER: restart with a fade", 16, 16, 1, 0xaaaaaa);
+        g.text("arrows: move   Z/X: zoom   SPACE: shake   ENTER: restart with a fade", 16, 16, 1, 0xaaaaaa);
     }
 }
 
@@ -56,6 +62,8 @@ fn main() {
         ctx.bind("up", &[Key::Up]);
         ctx.bind("down", &[Key::Down]);
         ctx.bind("shake", &[Key::Space]);
+        ctx.bind("zoom_in", &[Key::Z]);
+        ctx.bind("zoom_out", &[Key::X]);
         ctx.bind("restart", &[Key::Enter]);
         ctx.bind("back", &[Key::Escape]);
         Box::new(Fly::new(ctx))

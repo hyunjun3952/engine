@@ -1,3 +1,4 @@
+use super::cmd::SAMPLE_BIAS;
 use super::{DrawCmd, Paint, Transform, font};
 use crate::Sprite;
 use std::{collections::HashMap, sync::Arc};
@@ -450,7 +451,13 @@ impl Gpu {
                     let (x, y) = (r.x.trunc(), r.y.trunc());
                     self.quad(tex, (x, y, x + src.w, y + src.h), uv, [1.0; 4]);
                 } else {
-                    self.warped(tex, crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h }, t, uv, [1.0; 4]);
+                    let nudged = (
+                        uv.0 + SAMPLE_BIAS / sw,
+                        uv.1 + SAMPLE_BIAS / sh,
+                        uv.2 + SAMPLE_BIAS / sw,
+                        uv.3 + SAMPLE_BIAS / sh,
+                    );
+                    self.warped(tex, crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h }, t, nudged, [1.0; 4]);
                 }
                 continue;
             }
@@ -627,19 +634,14 @@ mod tests {
         img.save(path).unwrap();
     }
 
-    #[test]
-    fn gpu_output_matches_the_software_rasterizer() {
-        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
-            eprintln!("no GPU adapter, skipping");
-            return;
-        };
-        let g = scene();
+    // Renders on both backends and fails if any pixel differs by more than the blending rounding.
+    fn assert_same(gpu: &mut Gpu, g: &Gfx, name: &str) {
         let mut soft = Soft::new(640, 360, 1);
         soft.render(g.cmds());
         let gpu_px = gpu.render_to_pixels(g.cmds());
         if let Ok(dir) = std::env::var("ENGINE_DUMP") {
-            dump(&soft.buf, &format!("{dir}/soft.png"));
-            dump(&gpu_px, &format!("{dir}/gpu.png"));
+            dump(&soft.buf, &format!("{dir}/soft{name}.png"));
+            dump(&gpu_px, &format!("{dir}/gpu{name}.png"));
         }
         let channel = |p: u32, sh: u32| (p >> sh & 255) as i32;
         let off: Vec<usize> = (0..soft.buf.len())
@@ -647,12 +649,65 @@ mod tests {
             .collect();
         assert!(
             off.is_empty(),
-            "{} of {} pixels differ on {}, first at {:?}",
+            "{name}: {} of {} pixels differ on {}, in x {:?} y {:?}, first at {:?}",
             off.len(),
             gpu_px.len(),
             gpu.adapter,
+            off.iter().map(|i| i % 640).min().zip(off.iter().map(|i| i % 640).max()),
+            off.iter().map(|i| i / 640).min().zip(off.iter().map(|i| i / 640).max()),
             off.first().map(|i| (i % 640, i / 640))
         );
+    }
+
+    #[test]
+    fn gpu_output_matches_the_software_rasterizer() {
+        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        assert_same(&mut gpu, &scene(), "");
+    }
+
+    // Everything the camera zooms: tiles, sprites (some mirrored, some turned), flat and blended rects, an outline and
+    // world text, drawn through `Gfx::draw` the way a game does, plus one screen-space line that must not zoom.
+    fn zoomed_scene(zoom: f32) -> Gfx {
+        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let mut world = Gfx::new(640, 360);
+        let player = sprite("assets/images/player.png");
+        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        world.blit_region(&player, frame, 150, 100, false);
+        world.blit_region(&player, frame, 180, 100, true);
+        world.blit(&sprite("assets/images/ball.png"), 130, 160);
+        world.fill(&Rect { x: 200.0, y: 150.0, w: 50.0, h: 30.0 }, 0xff0000);
+        world.fill(&Rect { x: 250.0, y: 150.0, w: 17.0, h: 30.0 }, 0x00ff00);
+        world.fill_alpha(&Rect { x: 220.0, y: 160.0, w: 50.0, h: 30.0 }, 0x0000ff, 128);
+        world.outline(&Rect { x: 300.0, y: 120.0, w: 40.0, h: 20.0 }, 0x00ff00);
+        world.text("HELLO 123", 160, 80, 1, 0xffffff);
+        let mut turned = Gfx::new(640, 360);
+        turned.blit_region(&player, frame, 120, 130, false);
+        turned.fill(&Rect { x: 280.0, y: 170.0, w: 30.0, h: 14.0 }, 0xffaa00);
+        let spin = Transform { angle: 0.7, sx: 1.0, sy: 1.0 };
+        let spun: Vec<DrawCmd> = turned.cmds().iter().map(|c| DrawCmd { xform: spin, ..c.clone() }).collect();
+        let mut g = Gfx::new(640, 360);
+        (g.zoom, g.cam) = (zoom, (60.0, 40.0));
+        g.clear(0x6fa8e0);
+        let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png"));
+        g.draw(map.draw_list(g.view()));
+        g.draw(world.cmds().to_vec());
+        g.draw(spun);
+        g.text("HUD", 10, 10, 2, 0xffffff);
+        g
+    }
+
+    #[test]
+    fn a_zoomed_scene_matches_between_the_software_and_gpu_rasterizers() {
+        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        for (zoom, name) in [(2.0, "_zoom2"), (1.5, "_zoom1_5"), (0.5, "_zoom0_5")] {
+            assert_same(&mut gpu, &zoomed_scene(zoom), name);
+        }
     }
 
     #[test]

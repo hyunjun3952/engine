@@ -354,6 +354,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         }
         drawn = true;
         gfx.cam = ctx.cam.offset();
+        gfx.zoom = ctx.cam.zoom();
         for s in &stack {
             s.draw(&mut gfx);
         }

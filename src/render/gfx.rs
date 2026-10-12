@@ -1,4 +1,4 @@
-use super::{DrawCmd, Font, Paint, font};
+use super::{DrawCmd, Font, Paint, Transform, font};
 use std::sync::{
     Arc, RwLock, RwLockReadGuard,
     atomic::{AtomicU64, Ordering},
@@ -53,12 +53,14 @@ pub struct Gfx {
     pub h: usize,
     pub debug: bool,
     pub cam: (f32, f32),
+    /// Magnification of what `draw` is given (the camera's zoom); 1 leaves it as it is.
+    pub zoom: f32,
     cmds: Vec<DrawCmd>,
 }
 
 impl Gfx {
     pub(crate) fn new(w: usize, h: usize) -> Self {
-        Gfx { w, h, debug: false, cam: (0.0, 0.0), cmds: Vec::new() }
+        Gfx { w, h, debug: false, cam: (0.0, 0.0), zoom: 1.0, cmds: Vec::new() }
     }
 
     pub(crate) fn cmds(&self) -> &[DrawCmd] {
@@ -74,7 +76,7 @@ impl Gfx {
     }
 
     pub fn view(&self) -> Rect {
-        Rect { x: self.cam.0, y: self.cam.1, w: self.w as f32, h: self.h as f32 }
+        Rect { x: self.cam.0, y: self.cam.1, w: self.w as f32 / self.zoom, h: self.h as f32 / self.zoom }
     }
 
     pub fn clear(&mut self, c: u32) {
@@ -126,9 +128,85 @@ impl Gfx {
             if c.debug_only && !self.debug {
                 continue;
             }
-            c.rect.x -= self.cam.0;
-            c.rect.y -= self.cam.1;
-            self.cmds.push(c);
+            if self.zoom == 1.0 {
+                c.rect.x -= self.cam.0;
+                c.rect.y -= self.cam.1;
+                self.cmds.push(c);
+            } else {
+                self.push_zoomed(c);
+            }
+        }
+    }
+
+    // A world-space command as it lands on the screen at the current zoom. Edges are rounded to whole pixels, so
+    // neighbours that shared an edge still share it. Sprites and turned or scaled shapes are scaled by their
+    // `Transform`, which both backends already draw; text can only grow by whole numbers, so it is rounded.
+    fn push_zoomed(&mut self, c: DrawCmd) {
+        let (z, cam) = (self.zoom, self.cam);
+        let edge = |v: f32, o: f32| ((v - o) * z).round();
+        match &c.paint {
+            Paint::Clear(_) => self.cmds.push(c),
+            Paint::Tiles { sheet, size, tiles } => {
+                let k = *size as f32;
+                for &(gx, gy, id) in tiles {
+                    let src = Rect { x: ((id as u32 - 1) * size) as f32, y: 0.0, w: k, h: k };
+                    let at = Rect { x: c.rect.x + gx as f32 * k, y: c.rect.y + gy as f32 * k, w: k, h: k };
+                    let paint = Paint::Region { sheet: sheet.clone(), src, flip: false };
+                    self.push_zoomed(DrawCmd {
+                        layer: c.layer,
+                        rect: at,
+                        paint,
+                        debug_only: false,
+                        xform: Transform::IDENTITY,
+                    });
+                }
+            }
+            Paint::Mask { src, .. } => {
+                let k = ((c.rect.w / src.w).round().max(1.0) * z).round().max(1.0);
+                let rect = Rect { x: edge(c.rect.x, cam.0), y: edge(c.rect.y, cam.1), w: src.w * k, h: src.h * k };
+                self.cmds.push(DrawCmd { rect, ..c });
+            }
+            Paint::Glyph { ch, color, scale } => {
+                let k = (*scale as f32 * z).round().max(1.0);
+                let rect = Rect { x: edge(c.rect.x, cam.0), y: edge(c.rect.y, cam.1), w: 8.0 * k, h: 8.0 * k };
+                self.cmds.push(DrawCmd { rect, paint: Paint::Glyph { ch: *ch, color: *color, scale: k as u32 }, ..c });
+            }
+            Paint::Outline(_) => {
+                let (x0, y0) = (edge(c.rect.x, cam.0), edge(c.rect.y, cam.1));
+                let rect = Rect {
+                    x: x0,
+                    y: y0,
+                    w: edge(c.rect.x + c.rect.w, cam.0) - x0,
+                    h: edge(c.rect.y + c.rect.h, cam.1) - y0,
+                };
+                self.cmds.push(DrawCmd { rect, ..c });
+            }
+            Paint::Color(_) | Paint::Alpha(..) | Paint::Sprite(_) | Paint::Region { .. } => {
+                // The quad a command draws: its rect for flat colour, the sprite's own size at the rect's corner.
+                let (qw, qh) = c.paint.region().map_or((c.rect.w, c.rect.h), |(_, src, _)| (src.w, src.h));
+                let (cx, cy) = (c.rect.x + qw / 2.0, c.rect.y + qh / 2.0);
+                let t = c.xform;
+                let flat = matches!(c.paint, Paint::Color(_) | Paint::Alpha(..));
+                if t.angle != 0.0 {
+                    let (nx, ny) = ((cx - cam.0) * z, (cy - cam.1) * z);
+                    let rect = Rect { x: nx - qw / 2.0, y: ny - qh / 2.0, w: qw, h: qh };
+                    self.cmds.push(DrawCmd { rect, xform: Transform { sx: t.sx * z, sy: t.sy * z, ..t }, ..c });
+                    return;
+                }
+                let (ex, ey) = (qw * t.sx.abs() / 2.0, qh * t.sy.abs() / 2.0);
+                let (x0, y0) = (edge(cx - ex, cam.0), edge(cy - ey, cam.1));
+                let (x1, y1) = (edge(cx + ex, cam.0).max(x0 + 1.0), edge(cy + ey, cam.1).max(y0 + 1.0));
+                if flat {
+                    let rect = Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+                    return self.cmds.push(DrawCmd { rect, xform: Transform::IDENTITY, ..c });
+                }
+                let scale =
+                    Transform { angle: 0.0, sx: t.sx.signum() * (x1 - x0) / qw, sy: t.sy.signum() * (y1 - y0) / qh };
+                let (nx, ny) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+                let rect = Rect { x: nx - qw / 2.0, y: ny - qh / 2.0, w: qw, h: qh };
+                let xform = if scale.is_identity() { Transform::IDENTITY } else { scale };
+                self.cmds.push(DrawCmd { rect, xform, ..c });
+            }
         }
     }
 
@@ -265,6 +343,105 @@ mod tests {
         g.debug = true;
         g.draw([cmd(true)]);
         assert_eq!(g.cmds().len(), 2);
+    }
+
+    fn zoomed(zoom: f32, cam: (f32, f32)) -> Gfx {
+        let mut g = Gfx::new(100, 60);
+        (g.zoom, g.cam) = (zoom, cam);
+        g
+    }
+
+    fn at(g: &Gfx, i: usize) -> (f32, f32, f32, f32) {
+        let r = g.cmds()[i].rect;
+        (r.x, r.y, r.w, r.h)
+    }
+
+    #[test]
+    fn the_view_shrinks_with_the_zoom_and_flat_rects_land_on_whole_pixels() {
+        let mut g = zoomed(2.0, (8.0, 8.0));
+        assert_eq!((g.view().w, g.view().h), (50.0, 30.0));
+        g.draw([DrawCmd::new(Rect { x: 10.0, y: 10.0, w: 4.0, h: 4.0 }, Paint::Color(7))]);
+        assert_eq!(at(&g, 0), (4.0, 4.0, 8.0, 8.0));
+        assert!(g.cmds()[0].xform.is_identity(), "a flat rect is just a bigger rect, no per-pixel warp");
+    }
+
+    #[test]
+    fn rects_that_shared_an_edge_still_share_it_at_a_fractional_zoom() {
+        let mut g = zoomed(1.5, (0.0, 0.0));
+        let rects = (0..6).map(|i| DrawCmd::new(Rect { x: i as f32 * 3.0, y: 0.0, w: 3.0, h: 3.0 }, Paint::Color(i)));
+        g.draw(rects);
+        for i in 1..6 {
+            let (prev, now) = (at(&g, i - 1), at(&g, i));
+            assert_eq!(prev.0 + prev.2, now.0, "gap or overlap between rect {} and {i}", i - 1);
+        }
+        let tiny = DrawCmd::new(Rect { x: 0.0, y: 0.0, w: 0.2, h: 0.2 }, Paint::Color(1));
+        let mut g = zoomed(0.5, (0.0, 0.0));
+        g.draw([tiny]);
+        assert_eq!((at(&g, 0).2, at(&g, 0).3), (1.0, 1.0), "a small thing stays at least a pixel");
+    }
+
+    #[test]
+    fn a_sprite_is_scaled_about_its_centre_onto_exactly_the_rounded_pixels() {
+        let sheet = Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
+        let mut g = zoomed(2.5, (0.0, 0.0));
+        g.blit(&sheet, 10, 10);
+        let mut z = zoomed(2.5, (0.0, 0.0));
+        z.draw(g.cmds().to_vec());
+        let c = &z.cmds()[0];
+        // The sprite covers world 10..14, so 25..35 on the screen: ten pixels, a scale of 2.5 on a 4 px quad.
+        assert_eq!((c.xform.sx, c.xform.sy, c.xform.angle), (2.5, 2.5, 0.0));
+        let (cx, cy) = (c.rect.x + 2.0, c.rect.y + 2.0);
+        assert_eq!((cx, cy), (30.0, 30.0));
+        let mut whole = zoomed(1.0, (0.0, 0.0));
+        whole.draw([DrawCmd::new(Rect { x: 3.0, y: 3.0, w: 4.0, h: 4.0 }, Paint::Sprite(sheet))]);
+        assert!(whole.cmds()[0].xform.is_identity(), "no zoom leaves a sprite on the fast path");
+    }
+
+    #[test]
+    fn a_turned_and_mirrored_command_keeps_its_turn_and_grows_about_its_centre() {
+        let mut g = zoomed(2.0, (0.0, 0.0));
+        let turn = Transform { angle: 0.5, sx: -1.0, sy: 1.0 };
+        g.draw([DrawCmd { xform: turn, ..DrawCmd::new(Rect { x: 10.0, y: 10.0, w: 6.0, h: 4.0 }, Paint::Color(1)) }]);
+        let c = &g.cmds()[0];
+        assert_eq!((c.xform.angle, c.xform.sx, c.xform.sy), (0.5, -2.0, 2.0));
+        assert_eq!((c.rect.x + c.rect.w / 2.0, c.rect.y + c.rect.h / 2.0), (26.0, 24.0));
+    }
+
+    #[test]
+    fn a_tile_batch_becomes_one_region_per_tile_at_the_zoomed_grid() {
+        let sheet = Arc::new(Sprite::from_pixels(8, 4, vec![0xFFFF_FFFF; 32]));
+        let tiles = Paint::Tiles { sheet, size: 4, tiles: vec![(0, 0, 1), (1, 0, 2), (0, 1, 2)] };
+        let mut g = zoomed(2.0, (0.0, 0.0));
+        g.draw([DrawCmd::new(Rect { x: 8.0, y: 8.0, w: 8.0, h: 8.0 }, tiles)]);
+        assert_eq!(g.cmds().len(), 3);
+        let places: Vec<(f32, f32)> = g.cmds().iter().map(|c| (c.rect.x + 2.0 - 4.0, c.rect.y + 2.0 - 4.0)).collect();
+        // Each is a 4 px tile scaled to 8: the centres of the first row sit 8 apart.
+        assert_eq!(g.cmds()[1].rect.x - g.cmds()[0].rect.x, 8.0);
+        assert_eq!(g.cmds()[2].rect.y - g.cmds()[0].rect.y, 8.0);
+        assert!(places.iter().all(|p| p.0 >= 16.0 && p.1 >= 16.0));
+        assert!(
+            matches!(&g.cmds()[1].paint, Paint::Region { src, .. } if src.x == 4.0),
+            "tile id 2 is the second column"
+        );
+    }
+
+    #[test]
+    fn world_text_grows_by_whole_numbers_and_outlines_follow_the_rect() {
+        let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let mut plain = Gfx::new(100, 60);
+        plain.text_font(&font, "가", 10, 10, 0xffffff);
+        plain.text("A", 20, 20, 2, 0xffffff);
+        plain.outline(&Rect { x: 4.0, y: 4.0, w: 10.0, h: 6.0 }, 3);
+        let mut g = zoomed(1.6, (0.0, 0.0));
+        g.draw(plain.cmds().to_vec());
+        let sizes: Vec<f32> = g.cmds().iter().map(|c| c.rect.w).collect();
+        assert_eq!(sizes[0], plain.cmds()[0].rect.w * 2.0, "1.6 rounds to 2 for font pixels");
+        assert_eq!(sizes[1], 8.0 * 3.0, "scale 2 times 1.6 is 3.2, so 3");
+        assert_eq!(
+            at(&g, 2),
+            (6.0, 6.0, 16.0, 10.0),
+            "an outline is the rect with each edge rounded: 4 to 6.4, 14 to 22.4"
+        );
     }
 
     #[test]

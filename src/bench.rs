@@ -97,6 +97,17 @@ fn bench() {
     let tile_cmds = map.draw_list(full);
     time("soft: tiles", 200, || soft.render(black_box(&tile_cmds)));
 
+    let mut zoomed = Gfx::new(640, 360);
+    zoomed.zoom = 1.5;
+    let full: Vec<String> = (0..23).map(|_| "#".repeat(60)).collect();
+    let wide = Tilemap::from_ascii(&full.iter().map(String::as_str).collect::<Vec<_>>(), 16, Sprite::test_tiles());
+    time("gfx: draw a screen of tiles at zoom 1.5", 100, || {
+        zoomed.reset();
+        zoomed.draw(wide.draw_list(zoomed.view()));
+    });
+    println!("  zoomed cmds: {}", zoomed.cmds().len());
+    time("soft: render them", 100, || soft.render(black_box(zoomed.cmds())));
+
     let mut ents = World::new();
     for _ in 0..2000 {
         let rect = Rect { x: rng(&mut seed) * 640.0, y: rng(&mut seed) * 360.0, w: 8.0, h: 8.0 };
