@@ -1,6 +1,6 @@
 use super::collision::overlapping_pairs;
+use super::fx::{FxMap, FxSet};
 use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vel, World};
-use std::collections::{HashMap, HashSet};
 
 const REST_SPEED: f32 = 30.0;
 // How far, as a share of its smaller side, a body may move in one substep. Two bodies closing on each other
@@ -85,11 +85,11 @@ pub struct Physics {
     pub gravity: (f32, f32),
     pub iterations: usize,
     // Last step's contact impulses per body pair, replayed first so resting piles start the solve near its answer.
-    cache: HashMap<(u64, u64), Memory>,
+    cache: FxMap<(u64, u64), Memory>,
     joints: Vec<Joint>,
-    rest: HashMap<Entity, Rest>,
+    rest: FxMap<Entity, Rest>,
     // What the last step saw, to notice a body that vanished or a gravity change: sleepers must then be woken.
-    known: HashSet<Entity>,
+    known: FxSet<Entity>,
     last_gravity: V2,
     last_tiles: Option<u64>,
 }
@@ -99,10 +99,10 @@ impl Default for Physics {
         Physics {
             gravity: (0.0, 900.0),
             iterations: 10,
-            cache: HashMap::new(),
+            cache: FxMap::default(),
             joints: Vec::new(),
-            rest: HashMap::new(),
-            known: HashSet::new(),
+            rest: FxMap::default(),
+            known: FxSet::default(),
             last_gravity: (0.0, 900.0),
             last_tiles: None,
         }
@@ -284,7 +284,7 @@ impl Physics {
 
     // Turns sleepers into walls for this step, after waking any the game touched or a fast body is about to hit.
     fn freeze(&mut self, ents: &[Entity], nodes: &mut [Node], tiles: Option<u64>, dt: f32) {
-        let index: HashMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
+        let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
         self.rest.retain(|e, r| {
             let Some(&i) = index.get(e) else { return false };
             let n = &nodes[i];
@@ -319,7 +319,7 @@ impl Physics {
     }
 
     fn doze(&mut self, ents: &[Entity], nodes: &mut [Node], links: &[Link], dt: f32) {
-        let joined: HashSet<usize> = links.iter().flat_map(|l| [l.a, l.b]).collect();
+        let joined: FxSet<usize> = links.iter().flat_map(|l| [l.a, l.b]).collect();
         for (i, (e, n)) in ents.iter().zip(nodes.iter_mut()).enumerate() {
             if n.inv_mass == 0.0 {
                 continue;
@@ -448,7 +448,7 @@ fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
 }
 
 fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
-    let mut seen = HashSet::new();
+    let mut seen = FxSet::default();
     for i in 0..bodies {
         if nodes[i].inv_mass == 0.0 {
             continue;

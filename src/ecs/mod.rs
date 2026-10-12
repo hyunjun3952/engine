@@ -2,6 +2,7 @@ mod anim;
 mod collision;
 mod components;
 mod draw;
+mod fx;
 mod particles;
 mod physics;
 mod ray;
