@@ -214,7 +214,11 @@ impl Gpu {
 
     #[cfg(test)]
     pub(crate) fn offscreen(size: (u32, u32), allow_cpu: bool) -> Result<Gpu, String> {
-        let instance = wgpu::Instance::default();
+        // Debug builds name every object through VK_EXT_debug_utils, and creating devices on several test threads at
+        // once crashed inside the Vulkan loader's name call (about one run in ten); labels are not needed here.
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        desc.flags = wgpu::InstanceFlags::empty();
+        let instance = wgpu::Instance::new(desc);
         let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
         let adapter = best(adapters, allow_cpu)?;
         Gpu::new(adapter, wgpu::TextureFormat::Rgba8Unorm, size)
