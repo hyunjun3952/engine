@@ -8,6 +8,7 @@ const CORRECTION: f32 = 0.8;
 const CORRECTION_PASSES: usize = 4;
 const WARM_RANGE: f32 = 4.0;
 const SAME_NORMAL: f32 = 0.95;
+const MAX_SUBSTEPS: usize = 16;
 
 pub struct RigidBody {
     inv_mass: f32,
@@ -169,41 +170,65 @@ impl Physics {
     pub fn step(&mut self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();
-        self.integrate(&mut nodes, dt);
-        if let Some(map) = tiles {
-            add_tiles(&mut nodes, bodies, map);
+        let substeps = self.substeps(&nodes, dt);
+        for _ in 0..substeps {
+            nodes.truncate(bodies);
+            self.substep(&ents, &mut nodes, tiles, dt / substeps as f32);
         }
-        let mut hits = find_hits(&nodes, bodies, tiles);
-        for n in &mut nodes {
+        write_back(world, &ents, &nodes);
+    }
+
+    // A body that crosses more than half its own size in one step can pass through a thin wall, so the whole
+    // step is cut into shorter ones until none does; the cap keeps a stray huge velocity from freezing the game.
+    fn substeps(&self, nodes: &[Node], dt: f32) -> usize {
+        let gravity = self.gravity.0.hypot(self.gravity.1) * dt;
+        let worst = nodes
+            .iter()
+            .filter(|n| n.inv_mass > 0.0)
+            .map(|n| (n.vel.0.hypot(n.vel.1) + gravity) * dt / (n.rect.w.min(n.rect.h) / 2.0))
+            .fold(0.0, f32::max);
+        (worst.ceil() as usize).clamp(1, MAX_SUBSTEPS)
+    }
+
+    fn substep(&mut self, ents: &[Entity], nodes: &mut Vec<Node>, tiles: Option<&Tilemap>, dt: f32) {
+        let bodies = ents.len();
+        self.integrate(nodes, dt);
+        if let Some(map) = tiles {
+            add_tiles(nodes, bodies, map);
+        }
+        let mut hits = find_hits(nodes, bodies, tiles);
+        for n in nodes.iter_mut() {
             n.at = n.center();
         }
         for hit in &mut hits {
-            hit.key = (node_id(&ents, &nodes, hit.a), node_id(&ents, &nodes, hit.b));
-            let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
+            hit.key = (node_id(ents, nodes, hit.a), node_id(ents, nodes, hit.b));
+            let (a, b) = pair_mut(nodes, hit.a, hit.b);
             prepare(a, b, hit);
         }
         // After every contact has measured its bounce: replayed impulses change the velocities it reads.
         for hit in &mut hits {
-            let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
+            let (a, b) = pair_mut(nodes, hit.a, hit.b);
             warm_start(a, b, hit, self.cache.get(&hit.key));
         }
         for _ in 0..self.iterations {
             for hit in &mut hits {
-                let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
+                let (a, b) = pair_mut(nodes, hit.a, hit.b);
                 solve(a, b, hit);
             }
         }
         for _ in 0..CORRECTION_PASSES {
             for hit in &hits {
-                let (a, b) = pair_mut(&mut nodes, hit.a, hit.b);
+                let (a, b) = pair_mut(nodes, hit.a, hit.b);
                 separate(a, b, hit);
             }
         }
         self.cache = hits
             .iter()
-            .map(|h| (h.key, Memory { normal: h.normal, pts: h.pts.iter().map(|p| (p.at, p.jn, p.jt)).collect() }))
+            .map(|h| {
+                let pts = h.pts.iter().map(|p| (p.at, p.jn, p.jt)).collect();
+                (h.key, Memory { normal: h.normal, pts })
+            })
             .collect();
-        write_back(world, &ents, &nodes);
     }
 
     fn integrate(&self, nodes: &mut [Node], dt: f32) {
@@ -633,7 +658,7 @@ mod tests {
     #[test]
     fn free_fall_follows_semi_implicit_euler() {
         let (mut p, mut w) = (Physics::default(), World::new());
-        let e = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+        let e = boxed(&mut w, square(0.0, 0.0, 40.0), RigidBody::dynamic(1.0), (0.0, 0.0));
         run(&mut p, &mut w, None, 60);
         let expected = 900.0 * DT * DT * (60.0 * 61.0 / 2.0);
         assert!((state(&w, e).0.y - expected).abs() < 0.01, "{}", state(&w, e).0.y);
@@ -957,6 +982,22 @@ mod tests {
         run(&mut p, &mut w, None, 900);
         let speed: f32 = bodies.iter().map(|&e| state(&w, e).1.0.hypot(state(&w, e).1.1)).sum::<f32>() / 300.0;
         assert!(speed < 2.0, "mean speed after 20 s: {speed}");
+    }
+
+    #[test]
+    fn fast_bodies_do_not_pass_through_a_thin_floor() {
+        for circle in [false, true] {
+            for tilt in [0.0, 0.5] {
+                let (mut p, mut w) = (Physics::default(), World::new());
+                w.spawn((Body(Rect { x: -5000.0, y: 300.0, w: 10000.0, h: 4.0 }), RigidBody::fixed()));
+                let rb = if circle { RigidBody::dynamic(1.0).circle() } else { RigidBody::dynamic(1.0) };
+                let e = turning(&mut w, Rect { x: 100.0, y: 0.0, w: 8.0, h: 8.0 }, rb, tilt);
+                w.get::<&mut Vel>(e).unwrap().y = 2500.0;
+                run(&mut p, &mut w, None, 60);
+                let (r, _) = state(&w, e);
+                assert!(r.y + r.h <= 301.0, "circle {circle} tilt {tilt} went through: {r:?}");
+            }
+        }
     }
 
     fn turning(w: &mut World, rect: Rect, rb: RigidBody, angle: f32) -> Entity {
