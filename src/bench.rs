@@ -272,3 +272,26 @@ fn shake() {
         );
     }
 }
+
+#[test]
+#[ignore]
+fn joints() {
+    for (bodies, joints) in [(1000, 0), (1000, 200), (3000, 1000)] {
+        let mut seed = 7;
+        let (mut world, mut physics) = (World::new(), Physics::default());
+        physics.gravity = (0.0, 0.0);
+        let ents: Vec<_> = (0..bodies)
+            .map(|i| {
+                let rect = Rect { x: (i % 100) as f32 * 12.0, y: (i / 100) as f32 * 12.0, w: 8.0, h: 8.0 };
+                let vel = Vel { x: rng(&mut seed) * 4.0 - 2.0, y: rng(&mut seed) * 4.0 - 2.0 };
+                world.spawn((Body(rect), vel, RigidBody::dynamic(1.0)))
+            })
+            .collect();
+        for j in 0..joints {
+            physics.rope(ents[j], ents[(j + 1) % bodies], 14.0);
+        }
+        time(&format!("physics step, {bodies} bodies, {joints} joints"), 200, || {
+            physics.step(&mut world, None, 1.0 / 60.0)
+        });
+    }
+}
