@@ -1,12 +1,16 @@
 use crate::{Body, Collider, Entity, Filter, Rect, Transform, World};
 
-// The box a body covers once turned by its `Transform`, as physics and `raycast` see it.
-fn turned(r: Rect, t: Option<&Transform>) -> Rect {
-    let Some(t) = t.filter(|t| t.angle != 0.0) else { return r };
-    let (s, c) = t.angle.sin_cos();
-    let (ex, ey) = ((r.w * c.abs() + r.h * s.abs()) / 2.0, (r.w * s.abs() + r.h * c.abs()) / 2.0);
+/// The box that holds `r` turned about its centre by an angle given as `(sin, cos)`, grown by `pad` on every side.
+pub(crate) fn turned_box(r: Rect, (s, c): (f32, f32), pad: f32) -> Rect {
+    let (hw, hh) = (r.w / 2.0, r.h / 2.0);
+    let (ex, ey) = (hw * c.abs() + hh * s.abs() + pad, hw * s.abs() + hh * c.abs() + pad);
     let (cx, cy) = r.center();
     Rect { x: cx - ex, y: cy - ey, w: ex * 2.0, h: ey * 2.0 }
+}
+
+// The box a body covers once turned by its `Transform`, as physics and `raycast` see it.
+fn turned(r: Rect, t: Option<&Transform>) -> Rect {
+    t.filter(|t| t.angle != 0.0).map_or(r, |t| turned_box(r, t.angle.sin_cos(), 0.0))
 }
 
 pub struct Contact {

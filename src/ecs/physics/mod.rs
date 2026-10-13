@@ -1,4 +1,4 @@
-use super::collision::Sweep;
+use super::collision::{Sweep, turned_box};
 use super::fx::{FxMap, FxSet};
 use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vel, World};
 
@@ -180,11 +180,7 @@ impl Node {
         if self.angle == 0.0 || self.circle {
             return self.rect;
         }
-        let ((ux, uy), _) = self.axes();
-        let (hw, hh) = self.half();
-        let (ex, ey) = (hw * ux.abs() + hh * uy.abs(), hw * uy.abs() + hh * ux.abs());
-        let (cx, cy) = self.center();
-        Rect { x: cx - ex, y: cy - ey, w: ex * 2.0, h: ey * 2.0 }
+        turned_box(self.rect, self.angle.sin_cos(), 0.0)
     }
 
     fn velocity_at(&self, r: V2) -> V2 {
@@ -332,13 +328,13 @@ impl Physics {
     pub fn step(&mut self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();
-        self.freeze(&ents, &mut nodes, tiles.map(Tilemap::stamp), dt);
+        let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
+        self.freeze(&ents, &index, &mut nodes, tiles.map(Tilemap::stamp), dt);
         let substeps = self.substeps(&nodes, dt);
-        let at = |e| ents.iter().position(|&x| x == e);
         let links: Vec<Link> = self
             .joints
             .iter()
-            .filter_map(|j| Some(Link { a: at(j.a)?, b: at(j.b)?, length: j.length, rope: j.rope }))
+            .filter_map(|j| Some(Link { a: *index.get(&j.a)?, b: *index.get(&j.b)?, length: j.length, rope: j.rope }))
             .collect();
         for _ in 0..substeps {
             nodes.truncate(bodies);
@@ -349,8 +345,14 @@ impl Physics {
     }
 
     // Turns sleepers into walls for this step, after waking any the game touched or a fast body is about to hit.
-    fn freeze(&mut self, ents: &[Entity], nodes: &mut [Node], tiles: Option<u64>, dt: f32) {
-        let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
+    fn freeze(
+        &mut self,
+        ents: &[Entity],
+        index: &FxMap<Entity, usize>,
+        nodes: &mut [Node],
+        tiles: Option<u64>,
+        dt: f32,
+    ) {
         self.rest.retain(|e, r| {
             let Some(&i) = index.get(e) else { return false };
             let n = &nodes[i];

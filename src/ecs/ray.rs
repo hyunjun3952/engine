@@ -1,3 +1,4 @@
+use super::collision::turned_box;
 use crate::{Body, Collider, Entity, Filter, Rect, Transform, World};
 
 type V2 = (f32, f32);
@@ -28,11 +29,7 @@ impl Item {
 
     // The box's bounds once turned, a little larger so a ray along a cell edge cannot slip between cells.
     fn bounds(&self) -> Rect {
-        let (s, k) = self.turn;
-        let (hw, hh) = (self.rect.w / 2.0, self.rect.h / 2.0);
-        let (ex, ey) = (hw * k.abs() + hh * s.abs() + 0.01, hw * s.abs() + hh * k.abs() + 0.01);
-        let (cx, cy) = self.rect.center();
-        Rect { x: cx - ex, y: cy - ey, w: 2.0 * ex, h: 2.0 * ey }
+        turned_box(self.rect, self.turn, 0.01)
     }
 }
 
