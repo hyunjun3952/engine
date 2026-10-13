@@ -79,7 +79,8 @@ impl Soft {
                 }
                 self.warp(quad, t, |d, u, v| {
                     let u = if flip { src.w - u } else { u } + SAMPLE_BIAS;
-                    let (u, v) = ((u as usize).min(w - 1), ((v + SAMPLE_BIAS) as usize).min(h - 1));
+                    // Through i32: a float to usize cast is a long sequence on x86_64, and u and v are small and not negative here.
+                    let (u, v) = ((u as i32 as usize).min(w - 1), ((v + SAMPLE_BIAS) as i32 as usize).min(h - 1));
                     put(d, img.px[(sy0 + v) * img.w + sx0 + u]);
                 });
             }
@@ -144,16 +145,24 @@ impl Soft {
         }
         let (iu, iv) = (1.0 / t.sx, 1.0 / t.sy);
         let (du, dv) = (c * iu, -s * iv);
+        let n = x1 - x0;
+        let (ru, rv) = (du.recip(), dv.recip());
         for py in y0..y1 {
             let (dx, dy) = (x0 as f32 + 0.5 - cx, py as f32 + 0.5 - cy);
-            let mut u = (dx * c + dy * s) * iu + quad.w / 2.0;
-            let mut v = (dy * c - dx * s) * iv + quad.h / 2.0;
-            for d in &mut self.buf[py * self.w + x0..py * self.w + x1] {
+            let (u0, v0) = ((dx * c + dy * s) * iu + quad.w / 2.0, (dy * c - dx * s) * iv + quad.h / 2.0);
+            // Only the stretch of the row that can lie inside the quad is walked; the test below stays exact.
+            let ((lo_u, hi_u), (lo_v, hi_v)) = (inside(u0, du, ru, quad.w, n), inside(v0, dv, rv, quad.h, n));
+            let (lo, hi) = (lo_u.max(lo_v), hi_u.min(hi_v));
+            if lo >= hi {
+                continue;
+            }
+            let mut step = lo as f32;
+            for d in &mut self.buf[py * self.w + x0 + lo..py * self.w + x0 + hi] {
+                let (u, v) = (u0 + du * step, v0 + dv * step);
+                step += 1.0;
                 if u >= 0.0 && u < quad.w && v >= 0.0 && v < quad.h {
                     shade(d, u, v);
                 }
-                u += du;
-                v += dv;
             }
         }
     }
@@ -259,6 +268,17 @@ impl Soft {
             }
         }
     }
+}
+
+// The steps `0..n` at which `o + step * d` can lie in `0..len` (`inv` is `1 / d`), widened so rounding never loses one.
+fn inside(o: f32, d: f32, inv: f32, len: f32, n: usize) -> (usize, usize) {
+    if d == 0.0 {
+        return if o >= 0.0 && o < len { (0, n) } else { (0, 0) };
+    }
+    let (a, b) = (-o * inv, (len - o) * inv);
+    // Truncating stands in for floor and ceil (a library call without SSE4.1): the slack of a pixel each way covers it.
+    let (lo, hi) = ((a.min(b) - 1.0).max(0.0) as usize, ((a.max(b) + 2.0).max(0.0) as usize).min(n));
+    (lo.min(hi), hi)
 }
 
 #[inline(always)]
@@ -606,5 +626,64 @@ mod tests {
         assert_eq!((s.buf[2 * 10 + 2], s.buf[6 * 10 + 6], s.buf[4 * 10 + 4]), (1, 1, 0));
         let s = run(4, 4, |g| g.clear(9));
         assert!(s.buf.iter().all(|&p| p == 9));
+    }
+
+    // Every pixel of the bounding box tested, none skipped: what the walk over just the inside of each row must equal.
+    fn warp_every_pixel(soft: &mut Soft, quad: Rect, t: &Transform, mut shade: impl FnMut(&mut u32, f32, f32)) {
+        if t.sx == 0.0 || t.sy == 0.0 {
+            return;
+        }
+        let (cx, cy) = quad.center();
+        let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
+        let (s, c) = t.angle.sin_cos();
+        let (ex, ey) = (hw * c.abs() + hh * s.abs(), hw * s.abs() + hh * c.abs());
+        let (x0, x1) = ((cx - ex).floor().max(0.0) as usize, ((cx + ex).ceil().max(0.0) as usize).min(soft.w));
+        let (y0, y1) = ((cy - ey).floor().max(0.0) as usize, ((cy + ey).ceil().max(0.0) as usize).min(soft.h));
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let (iu, iv) = (1.0 / t.sx, 1.0 / t.sy);
+        let (du, dv) = (c * iu, -s * iv);
+        for py in y0..y1 {
+            let (dx, dy) = (x0 as f32 + 0.5 - cx, py as f32 + 0.5 - cy);
+            let (u0, v0) = ((dx * c + dy * s) * iu + quad.w / 2.0, (dy * c - dx * s) * iv + quad.h / 2.0);
+            let mut step = 0.0f32;
+            for d in &mut soft.buf[py * soft.w + x0..py * soft.w + x1] {
+                let (u, v) = (u0 + du * step, v0 + dv * step);
+                step += 1.0;
+                if u >= 0.0 && u < quad.w && v >= 0.0 && v < quad.h {
+                    shade(d, u, v);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn walking_only_the_part_of_each_row_inside_the_quad_draws_exactly_what_walking_all_of_it_draws() {
+        let mut rng = crate::Rng::new(11);
+        let (w, h) = (64, 48);
+        let mut rows_skipped = 0u32;
+        for case in 0..4000 {
+            let quad = Rect {
+                x: rng.range(-40.0, 90.0),
+                y: rng.range(-40.0, 70.0),
+                w: rng.range(1.0, 40.0),
+                h: rng.range(1.0, 40.0),
+            };
+            let angle = match case % 5 {
+                0 => 0.0,
+                1 => std::f32::consts::FRAC_PI_2,
+                _ => rng.range(-7.0, 7.0),
+            };
+            let t = Transform { angle, sx: rng.range(-3.0, 3.0), sy: rng.range(-3.0, 3.0) };
+            let paint =
+                |d: &mut u32, u: f32, v: f32| *d = 0xFF00_0000 | (((u * 64.0) as u32 * 4099) ^ (v * 64.0) as u32);
+            let (mut a, mut b) = (Soft::new(w, h, 1), Soft::new(w, h, 1));
+            a.warp(quad, &t, paint);
+            warp_every_pixel(&mut b, quad, &t, paint);
+            assert!(a.buf == b.buf, "case {case}: {quad:?} {t:?}");
+            rows_skipped += a.buf.iter().filter(|&&p| p == 0).count() as u32;
+        }
+        assert!(rows_skipped > 0);
     }
 }
