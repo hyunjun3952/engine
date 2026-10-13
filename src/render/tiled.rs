@@ -1,4 +1,4 @@
-use super::tilemap::Tilemap;
+use super::tilemap::{Slope, Tilemap};
 use crate::{Rect, Sprite};
 use std::sync::Arc;
 
@@ -179,7 +179,7 @@ impl TiledObject {
 ///
 /// The map must be orthogonal, finite, with square tiles and one tileset, and its layers saved as CSV. The sheet
 /// you pass is the tileset's image (its tiles number from 1 along each row, as Tiled counts them from 0), at most 255
-/// tiles. A tile is solid when it has a bool property `solid`, is solid only from above when it has `one_way`, and is drawn over entities when it has `front`.
+/// tiles. A tile is solid when it has a bool property `solid`, is solid only from above when it has `one_way`, a triangle when its string property `slope` is `bl`, `br`, `tl` or `tr` (the corner with the right angle), and is drawn over entities when it has `front`.
 /// Flipped or rotated tiles are not supported.
 pub struct Tiled {
     pub layers: Vec<(String, Tilemap)>,
@@ -232,6 +232,7 @@ impl Tiled {
         let mut solid = [false; 256];
         let mut front = [false; 256];
         let mut one_way = [false; 256];
+        let mut slope = [None; 256];
         for tile in tileset.kids("tile") {
             let id: usize = tile.number("id")?;
             if let Some(n) = (id + 1 < 256).then_some(id + 1) {
@@ -240,6 +241,15 @@ impl Tiled {
                         "solid" => solid[n] = value == "true",
                         "front" => front[n] = value == "true",
                         "one_way" => one_way[n] = value == "true",
+                        "slope" => {
+                            slope[n] = Some(match value.as_str() {
+                                "bl" => Slope::BottomLeft,
+                                "br" => Slope::BottomRight,
+                                "tl" => Slope::TopLeft,
+                                "tr" => Slope::TopRight,
+                                other => return Err(format!("tile {id}: slope {other:?} is not bl, br, tl or tr")),
+                            })
+                        }
                         _ => {}
                     }
                 }
@@ -285,7 +295,7 @@ impl Tiled {
                 });
             }
             let map = Tilemap::from_ids(w, h, tw, sheet.clone(), tiles, |id| {
-                (solid[id as usize], front[id as usize], one_way[id as usize])
+                (solid[id as usize], front[id as usize], one_way[id as usize], slope[id as usize])
             });
             layers.push((name, map));
         }
@@ -391,6 +401,20 @@ mod tests {
         let ground = &t.layers[0].1;
         assert!(ground.one_way(0, 0) && !ground.one_way(1, 0));
         assert!(!ground.solid_in(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }).is_empty(), "it still counts as a tile");
+    }
+
+    #[test]
+    fn a_tile_with_the_slope_property_is_a_triangle_and_a_bad_corner_is_refused() {
+        let tsx = |v: &str| {
+            format!(
+                r#"<tileset name="t" tilewidth="16" tileheight="16" tilecount="4" columns="4"><tile id="1"><properties><property name="slope" value="{v}"/></properties></tile></tileset>"#
+            )
+        };
+        let map = r#"<map orientation="orthogonal" width="2" height="1" tilewidth="16" tileheight="16"><tileset firstgid="1" source="t.tsx"/><layer name="a" width="2" height="1"><data encoding="csv">2,0</data></layer></map>"#;
+        let load = |v: &str| Tiled::parse(map, |_| Ok(tsx(v)), Sprite::test_tiles());
+        assert_eq!(load("tl").unwrap().layers[0].1.slope(0, 0), Some(Slope::TopLeft));
+        assert_eq!(load("br").unwrap().layers[0].1.slope(0, 0), Some(Slope::BottomRight));
+        assert!(load("diagonal").err().unwrap().contains("slope"));
     }
 
     #[test]

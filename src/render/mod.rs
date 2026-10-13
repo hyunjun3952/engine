@@ -19,4 +19,4 @@ pub use gfx::{Gfx, Rect, Sprite};
 pub(crate) use gpu::Gpu;
 pub(crate) use soft::Soft;
 pub use tiled::{Tiled, TiledObject};
-pub use tilemap::{Tile, TileHit, Tilemap};
+pub use tilemap::{Slope, Tile, TileHit, Tilemap};

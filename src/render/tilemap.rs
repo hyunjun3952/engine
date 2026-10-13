@@ -10,11 +10,52 @@ const SOLID: u8 = 1;
 const FRONT: u8 = 2;
 const AUTO: u8 = 4;
 const ONE_WAY: u8 = 8;
+const SLOPE: u8 = 16;
+const SLOPE_LEFT: u8 = 32;
+const SLOPE_TOP: u8 = 64;
 // Above entities (the debug outlines are on `i32::MAX`); tiles behind them sit at `i32::MIN`.
 const FRONT_LAYER: i32 = i32::MAX - 1;
 
+/// A tile cut along a diagonal into a solid right triangle, named by the corner that holds the right angle:
+/// `BottomRight` is a floor rising to the right (`/`), `BottomLeft` one rising to the left (`\`), and the top
+/// corners are ceilings. Physics sees the exact triangle; `slide`, rays and paths still treat the tile as a full block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slope {
+    BottomLeft,
+    BottomRight,
+    TopLeft,
+    TopRight,
+}
+
+impl Slope {
+    fn bits(self) -> u8 {
+        SLOPE
+            | if matches!(self, Slope::BottomLeft | Slope::TopLeft) { SLOPE_LEFT } else { 0 }
+            | if matches!(self, Slope::TopLeft | Slope::TopRight) { SLOPE_TOP } else { 0 }
+    }
+
+    fn from_bits(flags: u8) -> Option<Slope> {
+        (flags & SLOPE != 0).then_some(match (flags & SLOPE_LEFT != 0, flags & SLOPE_TOP != 0) {
+            (true, false) => Slope::BottomLeft,
+            (false, false) => Slope::BottomRight,
+            (true, true) => Slope::TopLeft,
+            (false, true) => Slope::TopRight,
+        })
+    }
+
+    /// The triangle inside the tile `r`: the right-angle corner first, then the two others.
+    pub(crate) fn triangle(self, r: &Rect) -> [(f32, f32); 3] {
+        let left = matches!(self, Slope::BottomLeft | Slope::TopLeft);
+        let top = matches!(self, Slope::TopLeft | Slope::TopRight);
+        let (cx, ax) = if left { (r.x, r.x + r.w) } else { (r.x + r.w, r.x) };
+        let (cy, ay) = if top { (r.y, r.y + r.h) } else { (r.y + r.h, r.y) };
+        [(cx, cy), (ax, cy), (cx, ay)]
+    }
+}
+
 /// What a level-file character means: sheet tile id (from 1), solid or not, drawn over entities or behind.
 /// A `one_way` tile is solid only from above: bodies pass it sideways and from below, and land on its top.
+/// A `slope` tile is a solid triangle for physics.
 /// With `auto`, `id` starts 16 sheet tiles chosen by joined neighbours (up 1, right 2, down 4, left 8).
 #[derive(Clone, Copy, Debug)]
 pub struct Tile {
@@ -24,13 +65,14 @@ pub struct Tile {
     pub front: bool,
     pub auto: bool,
     pub one_way: bool,
+    pub slope: Option<Slope>,
 }
 
 impl Tile {
     /// `#` ground and `+` brick, both solid and drawn behind entities: what `Tilemap::load` uses.
     pub const DEFAULT: [Tile; 2] = [
-        Tile { ch: b'#', id: 1, solid: true, front: false, auto: false, one_way: false },
-        Tile { ch: b'+', id: 2, solid: true, front: false, auto: false, one_way: false },
+        Tile { ch: b'#', id: 1, solid: true, front: false, auto: false, one_way: false, slope: None },
+        Tile { ch: b'+', id: 2, solid: true, front: false, auto: false, one_way: false, slope: None },
     ];
 }
 
@@ -113,7 +155,8 @@ impl Tilemap {
         }
         let mut flags = [SOLID; 256];
         for t in legend {
-            let own = if t.solid || t.one_way { SOLID } else { 0 }
+            let own = if t.solid || t.one_way || t.slope.is_some() { SOLID } else { 0 }
+                | t.slope.map_or(0, Slope::bits)
                 | if t.front { FRONT } else { 0 }
                 | if t.one_way { ONE_WAY } else { 0 };
             let span = if t.auto { 16 } else { 1 };
@@ -151,12 +194,13 @@ impl Tilemap {
         size: usize,
         sheet: Arc<Sprite>,
         tiles: Vec<u8>,
-        flags: impl Fn(u8) -> (bool, bool, bool),
+        flags: impl Fn(u8) -> (bool, bool, bool, Option<Slope>),
     ) -> Self {
         let mut table = [0u8; 256];
         for id in 1..=255u8 {
-            let (solid, front, one_way) = flags(id);
-            table[id as usize] = if solid || one_way { SOLID } else { 0 }
+            let (solid, front, one_way, slope) = flags(id);
+            table[id as usize] = if solid || one_way || slope.is_some() { SOLID } else { 0 }
+                | slope.map_or(0, Slope::bits)
                 | if front { FRONT } else { 0 }
                 | if one_way { ONE_WAY } else { 0 };
         }
@@ -221,6 +265,12 @@ impl Tilemap {
     pub fn one_way(&self, tx: i32, ty: i32) -> bool {
         let inside = tx >= 0 && ty >= 0 && tx < self.w as i32 && ty < self.h as i32;
         inside && self.flags[self.tiles[ty as usize * self.w + tx as usize] as usize] & ONE_WAY != 0
+    }
+
+    /// The slope of a tile, if it is one; none outside the map.
+    pub fn slope(&self, tx: i32, ty: i32) -> Option<Slope> {
+        let inside = tx >= 0 && ty >= 0 && tx < self.w as i32 && ty < self.h as i32;
+        inside.then(|| Slope::from_bits(self.flags[self.tiles[ty as usize * self.w + tx as usize] as usize])).flatten()
     }
 
     // Whether the map has any one-way tile kind (a cheap, conservative check on the flag table).
@@ -410,7 +460,7 @@ mod tests {
 
     #[test]
     fn an_autotile_shows_the_tile_that_matches_its_joined_neighbours() {
-        let legend = [Tile { ch: b'#', id: 3, solid: true, front: false, auto: true, one_way: false }];
+        let legend = [Tile { ch: b'#', id: 3, solid: true, front: false, auto: true, one_way: false, slope: None }];
         let map = Tilemap::try_from_ascii_with(&["###", "#.#", "###", "..."], 2, wide_sheet(), &legend).unwrap();
         // Masks, row by row: 15 11 15 / 13 - 7 / 11 10 11 (the map edge counts as joined, a gap or empty cell does not).
         let want = [[18, 14, 18], [16, 0, 10], [14, 13, 14], [0, 0, 0]];
@@ -419,10 +469,10 @@ mod tests {
 
     #[test]
     fn an_autotile_must_fit_the_sheet_and_own_its_sixteen_ids() {
-        let auto = |id| Tile { ch: b'#', id, solid: true, front: false, auto: true, one_way: false };
+        let auto = |id| Tile { ch: b'#', id, solid: true, front: false, auto: true, one_way: false, slope: None };
         let err = Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(6)]).err().unwrap();
         assert!(err.contains("needs tiles 6..=21"), "{err}");
-        let other = Tile { ch: b'+', id: 9, solid: true, front: false, auto: false, one_way: false };
+        let other = Tile { ch: b'+', id: 9, solid: true, front: false, auto: false, one_way: false, slope: None };
         let err = Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(3), other]).err().unwrap();
         assert!(err.contains("owns"), "{err}");
         assert!(Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(5)]).is_ok());
@@ -430,7 +480,7 @@ mod tests {
 
     #[test]
     fn an_autotile_in_front_draws_all_its_variants_in_front() {
-        let front = Tile { ch: b'#', id: 3, solid: false, front: true, auto: true, one_way: false };
+        let front = Tile { ch: b'#', id: 3, solid: false, front: true, auto: true, one_way: false, slope: None };
         let map = Tilemap::try_from_ascii_with(&["#.#"], 2, wide_sheet(), &[front]).unwrap();
         let cmds = map.draw_list(Rect { x: 0.0, y: 0.0, w: 6.0, h: 2.0 });
         assert_eq!((cmds.len(), cmds[0].layer), (1, i32::MAX - 1));
@@ -517,8 +567,8 @@ mod tests {
     fn legend() -> [Tile; 3] {
         [
             Tile::DEFAULT[0],
-            Tile { ch: b':', id: 3, solid: false, front: false, auto: false, one_way: false },
-            Tile { ch: b'v', id: 4, solid: false, front: true, auto: false, one_way: false },
+            Tile { ch: b':', id: 3, solid: false, front: false, auto: false, one_way: false, slope: None },
+            Tile { ch: b'v', id: 4, solid: false, front: true, auto: false, one_way: false, slope: None },
         ]
     }
 
@@ -541,7 +591,7 @@ mod tests {
 
     #[test]
     fn a_one_way_tile_stops_what_falls_onto_it_and_lets_everything_else_through() {
-        let one_way = Tile { ch: b'=', id: 3, solid: false, front: false, auto: false, one_way: true };
+        let one_way = Tile { ch: b'=', id: 3, solid: false, front: false, auto: false, one_way: true, slope: None };
         let map =
             Tilemap::try_from_ascii_with(&["...", "...", ".=.", "..."], 16, Sprite::test_tiles(), &[one_way]).unwrap();
         assert!(map.one_way(1, 2) && !map.one_way(0, 2) && !map.one_way(-1, 2) && !map.one_way(1, 9));
@@ -557,11 +607,34 @@ mod tests {
     }
 
     #[test]
+    fn a_slope_tile_reports_its_corner_and_counts_as_a_tile_for_the_rest() {
+        let slope = Tile {
+            ch: b'/',
+            id: 3,
+            solid: false,
+            front: false,
+            auto: false,
+            one_way: false,
+            slope: Some(Slope::BottomRight),
+        };
+        let map =
+            Tilemap::try_from_ascii_with(&["...", ".//", "###"], 16, Sprite::test_tiles(), &[Tile::DEFAULT[0], slope])
+                .unwrap();
+        assert_eq!(map.slope(1, 1), Some(Slope::BottomRight));
+        assert_eq!((map.slope(0, 1), map.slope(0, 2), map.slope(-1, 1), map.slope(1, 9)), (None, None, None, None));
+        assert_eq!(map.solid_in(Rect { x: 16.0, y: 16.0, w: 32.0, h: 16.0 }).len(), 2, "it still occupies its cell");
+        let triangle = Slope::BottomRight.triangle(&Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 });
+        assert_eq!(triangle, [(16.0, 16.0), (0.0, 16.0), (16.0, 0.0)]);
+        let top = Slope::TopLeft.triangle(&Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 });
+        assert_eq!(top, [(0.0, 0.0), (16.0, 0.0), (0.0, 16.0)]);
+    }
+
+    #[test]
     fn a_legend_that_hides_empty_tiles_is_an_error() {
         let sheet = Sprite::test_tiles();
-        let bad = [Tile { ch: b'.', id: 1, solid: true, front: false, auto: false, one_way: false }];
+        let bad = [Tile { ch: b'.', id: 1, solid: true, front: false, auto: false, one_way: false, slope: None }];
         assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &bad).is_err());
-        let zero = [Tile { ch: b'#', id: 0, solid: true, front: false, auto: false, one_way: false }];
+        let zero = [Tile { ch: b'#', id: 0, solid: true, front: false, auto: false, one_way: false, slope: None }];
         assert!(Tilemap::try_from_ascii_with(&["#"], 16, sheet, &zero).is_err());
     }
 
@@ -569,7 +642,15 @@ mod tests {
     fn a_tile_the_sheet_does_not_have_is_refused_instead_of_crashing_the_renderer() {
         let sheet = Sprite::test_tiles();
         let columns = tile_count(&sheet, 16);
-        let past = [Tile { ch: b'#', id: columns as u8 + 1, solid: true, front: false, auto: false, one_way: false }];
+        let past = [Tile {
+            ch: b'#',
+            id: columns as u8 + 1,
+            solid: true,
+            front: false,
+            auto: false,
+            one_way: false,
+            slope: None,
+        }];
         let err = Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &past).err().unwrap();
         assert!(err.contains("the sheet has"), "{err}");
         let mut map = Tilemap::from_ascii(&["..", "##"], 16, sheet);
@@ -593,7 +674,7 @@ mod tests {
         assert_eq!((map.tile(2, 0), map.tile(0, 5)), (0, 0));
         assert!(Tilemap::try_from_ascii(&["#"], 0, wide_sheet()).is_err());
         let wide = Arc::new(Sprite::from_pixels(600, 2, vec![0; 1200]));
-        let auto = Tile { ch: b'#', id: 250, solid: true, front: false, auto: true, one_way: false };
+        let auto = Tile { ch: b'#', id: 250, solid: true, front: false, auto: true, one_way: false, slope: None };
         assert!(Tilemap::try_from_ascii_with(&["#"], 2, wide, &[auto]).is_err());
     }
 
@@ -684,7 +765,15 @@ mod tests {
         let legend: Vec<Tile> = b"abcd"
             .iter()
             .enumerate()
-            .map(|(i, &ch)| Tile { ch, id: i as u8 + 1, solid: true, front: false, auto: false, one_way: false })
+            .map(|(i, &ch)| Tile {
+                ch,
+                id: i as u8 + 1,
+                solid: true,
+                front: false,
+                auto: false,
+                one_way: false,
+                slope: None,
+            })
             .collect();
         let map = Tilemap::try_from_ascii_with(&["abcd"], 2, sheet, &legend).unwrap();
         let mut soft = crate::render::Soft::new(8, 2, 1);

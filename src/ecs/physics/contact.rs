@@ -13,6 +13,9 @@ pub(super) struct Touch {
 // Normal points from a to b. Untilted boxes use where they were before the step (see `hit_along_x`);
 // everything else only has current positions, so a fast circle or tilted box can still tunnel.
 pub(super) fn touch(a: &Node, b: &Node, tile_axes_only: bool) -> Option<Touch> {
+    if let Some(slope) = b.slope {
+        return slope_touch(a, slope.triangle(&b.rect));
+    }
     match (a.circle, b.circle) {
         (false, false) if a.angle == 0.0 && b.angle == 0.0 => axis_aligned(a, b),
         (false, false) => tilted_boxes(a, b, tile_axes_only),
@@ -164,4 +167,125 @@ fn push_direction((a_lo, a_hi, b_lo, b_hi): (f32, f32, f32, f32), now_a: f32, no
     } else {
         -1.0
     }
+}
+
+// A convex polygon of up to four corners.
+struct Poly {
+    v: [V2; 4],
+    n: usize,
+}
+
+impl Poly {
+    fn of_box(node: &Node) -> Poly {
+        let (c, (ux, uy), (hw, hh)) = (node.center(), node.axes(), node.half());
+        let corner = |sx: f32, sy: f32| (c.0 + ux.0 * hw * sx + uy.0 * hh * sy, c.1 + ux.1 * hw * sx + uy.1 * hh * sy);
+        Poly { v: [corner(-1.0, -1.0), corner(1.0, -1.0), corner(1.0, 1.0), corner(-1.0, 1.0)], n: 4 }
+    }
+
+    fn of_triangle(t: [V2; 3]) -> Poly {
+        Poly { v: [t[0], t[1], t[2], t[2]], n: 3 }
+    }
+
+    fn corners(&self) -> &[V2] {
+        &self.v[..self.n]
+    }
+
+    // The unit normal of edge `i` (corner i to the next), pointing out of the polygon.
+    fn normal(&self, i: usize) -> V2 {
+        let (p, q) = (self.v[i], self.v[(i + 1) % self.n]);
+        let (ex, ey) = sub(q, p);
+        let len = (ex * ex + ey * ey).sqrt().max(1e-9);
+        let n = (ey / len, -ex / len);
+        let centre = self.corners().iter().fold((0.0, 0.0), |s, c| (s.0 + c.0, s.1 + c.1));
+        let inside = sub((centre.0 / self.n as f32, centre.1 / self.n as f32), p);
+        if dot(n, inside) > 0.0 { (-n.0, -n.1) } else { n }
+    }
+
+    // How far the other polygon is past the deepest edge of this one: the least overlap, and the edge that gives it.
+    fn gap(&self, other: &Poly) -> (f32, usize) {
+        let mut best = (f32::MIN, 0);
+        for i in 0..self.n {
+            let (n, p) = (self.normal(i), self.v[i]);
+            let apart = other.corners().iter().map(|&c| dot(sub(c, p), n)).fold(f32::MAX, f32::min);
+            if apart > best.0 {
+                best = (apart, i);
+            }
+        }
+        best
+    }
+}
+
+// A box or circle against the triangle of a slope tile (the normal points from `a` to the tile `b`).
+fn slope_touch(a: &Node, triangle: [V2; 3]) -> Option<Touch> {
+    let tri = Poly::of_triangle(triangle);
+    if a.circle {
+        return circle_triangle(a, &tri);
+    }
+    let boxed = Poly::of_box(a);
+    let ((gap_a, ia), (gap_b, ib)) = (boxed.gap(&tri), tri.gap(&boxed));
+    if gap_a >= 0.0 || gap_b >= 0.0 {
+        return None;
+    }
+    // The tile's own face is the reference unless the box's face is clearly the shallower way out.
+    let ref_is_b = -gap_b < 0.95 * -gap_a - 0.01;
+    let (r, i, edge) = if ref_is_b { (&tri, &boxed, ib) } else { (&boxed, &tri, ia) };
+    let nr = r.normal(edge);
+    let (r0, r1) = (r.v[edge], r.v[(edge + 1) % r.n]);
+    let incident = (0..i.n).min_by(|&x, &y| dot(i.normal(x), nr).total_cmp(&dot(i.normal(y), nr))).unwrap();
+    let mut seg = [i.v[incident], i.v[(incident + 1) % i.n]];
+    let (tx, ty) = (r1.0 - r0.0, r1.1 - r0.1);
+    let len = (tx * tx + ty * ty).sqrt().max(1e-9);
+    let t = (tx / len, ty / len);
+    for (from, sign) in [(r0, 1.0), (r1, -1.0)] {
+        let inside = |p: V2| sign * dot(sub(p, from), t);
+        let (d0, d1) = (inside(seg[0]), inside(seg[1]));
+        if d0 < 0.0 && d1 < 0.0 {
+            return None;
+        }
+        if d0 < 0.0 || d1 < 0.0 {
+            let (keep, cut, dk, dc) = if d0 < 0.0 { (1, 0, d1, d0) } else { (0, 1, d0, d1) };
+            let f = dk / (dk - dc);
+            let (pk, pc) = (seg[keep], seg[cut]);
+            seg[cut] = (pk.0 + (pc.0 - pk.0) * f, pk.1 + (pc.1 - pk.1) * f);
+        }
+    }
+    let normal = if ref_is_b { (-nr.0, -nr.1) } else { nr };
+    let mut pts: Pts = seg.into_iter().map(|p| Pt::new(p, -dot(sub(p, r0), nr))).collect();
+    pts.retain(|p| p.depth > 0.0);
+    (!pts.is_empty()).then_some(Touch { normal, pts, whole_face: false })
+}
+
+// The closest point of the triangle to the circle's centre decides; a centre inside leaves by the nearest edge.
+fn circle_triangle(circle: &Node, tri: &Poly) -> Option<Touch> {
+    let (c, r) = (circle.center(), circle.radius());
+    let mut nearest = (f32::MAX, (0.0, 0.0));
+    for i in 0..tri.n {
+        let (p, q) = (tri.v[i], tri.v[(i + 1) % tri.n]);
+        let (ex, ey) = sub(q, p);
+        let f = (dot(sub(c, p), (ex, ey)) / (ex * ex + ey * ey).max(1e-9)).clamp(0.0, 1.0);
+        let at = (p.0 + ex * f, p.1 + ey * f);
+        let (dx, dy) = sub(c, at);
+        let d2 = dx * dx + dy * dy;
+        if d2 < nearest.0 {
+            nearest = (d2, at);
+        }
+    }
+    let (d2, at) = nearest;
+    let inside = (0..tri.n).all(|i| dot(sub(c, tri.v[i]), tri.normal(i)) <= 0.0);
+    if inside {
+        let (depth_to_edge, edge) =
+            (0..tri.n).map(|i| (-dot(sub(c, tri.v[i]), tri.normal(i)), i)).min_by(|x, y| x.0.total_cmp(&y.0)).unwrap();
+        let out = tri.normal(edge);
+        return Some(Touch {
+            normal: (-out.0, -out.1),
+            pts: Pts::one(Pt::new(at, r + depth_to_edge)),
+            whole_face: false,
+        });
+    }
+    if d2 >= r * r {
+        return None;
+    }
+    let dist = d2.sqrt().max(1e-9);
+    let normal = ((at.0 - c.0) / dist, (at.1 - c.1) / dist);
+    Some(Touch { normal, pts: Pts::one(Pt::new(at, r - dist)), whole_face: false })
 }

@@ -995,7 +995,15 @@ mod tests {
         let legend: Vec<Tile> = b"12345678"
             .iter()
             .enumerate()
-            .map(|(i, &ch)| Tile { ch, id: i as u8 + 1, solid: false, front: false, auto: false, one_way: false })
+            .map(|(i, &ch)| Tile {
+                ch,
+                id: i as u8 + 1,
+                solid: false,
+                front: false,
+                auto: false,
+                one_way: false,
+                slope: None,
+            })
             .collect();
         let map = Tilemap::try_from_ascii_with(&["1234", "5678", "8765"], 16, sheet, &legend).unwrap();
         let mut g = Gfx::new(640, 360);

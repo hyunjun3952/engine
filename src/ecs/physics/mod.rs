@@ -223,6 +223,8 @@ struct Node {
     filter: Filter,
     moves: bool,
     one_way: bool,
+    // A tile cut into a triangle; only tiles have one.
+    slope: Option<crate::Slope>,
 }
 
 impl Node {
@@ -242,6 +244,7 @@ impl Node {
             filter: Filter { group: Filter::TERRAIN, mask: u32::MAX },
             moves: false,
             one_way: false,
+            slope: None,
         }
     }
 
@@ -753,6 +756,7 @@ fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
                 filter: filter.copied().unwrap_or_default(),
                 moves: vel.is_some() && rb.kinematic,
                 one_way: rb.one_way,
+                slope: None,
             };
             (e, node)
         })
@@ -773,7 +777,8 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
                 let one_way = map.one_way((tile.x / s).floor() as i32, (tile.y / s).floor() as i32);
                 let group = if one_way { Filter::PLATFORM } else { Filter::TERRAIN };
                 let filter = Filter { group, mask: u32::MAX };
-                nodes.push(Node { restitution: map.bounce, one_way, filter, ..Node::wall(tile) });
+                let slope = map.slope((tile.x / s).floor() as i32, (tile.y / s).floor() as i32);
+                nodes.push(Node { restitution: map.bounce, one_way, slope, filter, ..Node::wall(tile) });
             }
         }
     }
@@ -793,7 +798,7 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>, sweep: &mut
             if !passes_one_way(&nodes[a], &nodes[b], touch.normal) {
                 return None;
             }
-            if let Some(map) = tiles.filter(|_| b >= bodies) {
+            if let Some(map) = tiles.filter(|_| b >= bodies && nodes[b].slope.is_none()) {
                 let tile = &nodes[b].rect;
                 if touch.whole_face {
                     let (nx, ny) = touch.normal;

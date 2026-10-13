@@ -20,7 +20,7 @@ pub use ecs::{
     raycasts,
 };
 pub use render::{
-    Blend, Camera, DrawCmd, Font, Gfx, Paint, Rect, Sprite, Style, Tile, TileHit, Tiled, TiledObject, Tilemap,
+    Blend, Camera, DrawCmd, Font, Gfx, Paint, Rect, Slope, Sprite, Style, Tile, TileHit, Tiled, TiledObject, Tilemap,
     Transform,
 };
 pub use ui::{Button, Checkbox, Menu, Rebind, TextField, clicked, draw_bar, draw_panel, hovered, slider};
