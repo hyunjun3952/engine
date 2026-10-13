@@ -14,4 +14,4 @@ pub use draw::draw_list;
 pub use hecs::{Entity, World};
 pub use particles::{Burst, burst, particles};
 pub use physics::{ContactEvent, Physics, RigidBody};
-pub use ray::{RayIndex, raycast};
+pub use ray::{RayIndex, raycast, raycasts};

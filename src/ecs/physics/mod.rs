@@ -23,7 +23,6 @@ const MAX_SUBSTEPS: usize = 16;
 const SLEEP_SPEED: f32 = 5.0;
 // Above SLEEP_SPEED, so a body still creeping at the edge of sleeping does not keep waking the ones it touches.
 const WAKE_SPEED: f32 = 20.0;
-const SLEEP_SPIN: f32 = 0.1;
 const SLEEP_TIME: f32 = 0.5;
 
 #[derive(Debug)]
@@ -582,7 +581,10 @@ impl Physics {
                 continue;
             }
             let r = self.rest.entry(*e).or_default();
-            if joined.contains(&i) || speed(n) > SLEEP_SPEED || n.spin.abs() > SLEEP_SPIN {
+            if joined.contains(&i)
+                || speed(n) > SLEEP_SPEED
+                || n.spin.abs() * n.rect.w.hypot(n.rect.h) / 2.0 > SLEEP_SPEED
+            {
                 r.calm = 0.0;
                 continue;
             }

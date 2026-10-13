@@ -15,7 +15,8 @@ type Row<'a> = (Entity, &'a Body, Option<&'a Filter>, Option<&'a Transform>, &'a
 
 impl Item {
     fn new((e, b, f, x, _): Row) -> Self {
-        Item { e, rect: b.0, turn: x.map_or(0.0, |t| t.angle).sin_cos(), group: f.map_or(u32::MAX, |f| f.group) }
+        let turn = x.map_or((0.0, 1.0), |t| if t.angle == 0.0 { (0.0, 1.0) } else { t.angle.sin_cos() });
+        Item { e, rect: b.0, turn, group: f.map_or(u32::MAX, |f| f.group) }
     }
 
     // Where the ray enters the box (turned about its centre), if it does within 0..=max.
@@ -60,6 +61,18 @@ pub fn raycast(world: &World, from: V2, dir: V2, max: f32, mask: u32) -> Option<
         }
     }
     best
+}
+
+// Building a `RayIndex` costs about as much as five scans, so fewer rays than this are scanned.
+const INDEX_FROM: usize = 8;
+
+/// `raycast` for many rays at once, each `(from, dir, max, mask)`; from a handful of rays on it builds a `RayIndex`.
+pub fn raycasts(world: &World, rays: &[(V2, V2, f32, u32)]) -> Vec<Option<(Entity, f32)>> {
+    if rays.len() < INDEX_FROM {
+        return rays.iter().map(|&(from, dir, max, mask)| raycast(world, from, dir, max, mask)).collect();
+    }
+    let index = RayIndex::new(world);
+    rays.iter().map(|&(from, dir, max, mask)| index.cast(from, dir, max, mask)).collect()
 }
 
 /// The colliders on a uniform grid for many rays against one snapshot; rebuild it after bodies move.
@@ -244,6 +257,28 @@ mod tests {
             hits += scan.is_some() as u32;
         }
         assert!((300..1700).contains(&hits), "{hits} of 2000 rays hit, so the test checks too little");
+    }
+
+    #[test]
+    fn raycasts_agree_with_raycast_below_and_above_the_index_threshold() {
+        let (mut rng, mut w) = (Rng::new(3), World::new());
+        for _ in 0..100 {
+            let rect = Rect { x: rng.range(0.0, 600.0), y: rng.range(0.0, 400.0), w: 20.0, h: 20.0 };
+            w.spawn((Body(rect), Collider));
+        }
+        let rays: Vec<_> = (0..40)
+            .map(|i| {
+                let a = i as f32 * 0.157;
+                ((300.0, 200.0), (a.cos(), a.sin()), 300.0, u32::MAX)
+            })
+            .collect();
+        for n in [0, 1, INDEX_FROM - 1, INDEX_FROM, 40] {
+            let got = raycasts(&w, &rays[..n]);
+            assert_eq!(got.len(), n);
+            for (r, h) in rays.iter().zip(&got) {
+                assert_eq!(h.map(|h| h.1), raycast(&w, r.0, r.1, r.2, r.3).map(|h| h.1));
+            }
+        }
     }
 
     #[test]

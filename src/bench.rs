@@ -1,7 +1,7 @@
 use crate::render::Soft;
 use crate::{
     Body, Burst, Collider, DrawCmd, Font, Gfx, Look, Paint, Physics, RayIndex, Rect, RigidBody, Rng, Sprite, Tilemap,
-    Transform, Vel, World, burst, collisions, draw_list, particles, raycast,
+    Transform, Vel, World, burst, collisions, draw_list, particles, raycast, raycasts,
 };
 use std::hint::black_box;
 use std::time::Instant;
@@ -61,6 +61,16 @@ fn bench() {
             let a = i as f32 * 0.0628;
             black_box(index.cast((320.0, 180.0), (a.cos(), a.sin()), 400.0, u32::MAX));
         }
+    });
+
+    let rays: Vec<_> = (0..100)
+        .map(|i| {
+            let a = i as f32 * 0.0628;
+            ((320.0, 180.0), (a.cos(), a.sin()), 400.0, u32::MAX)
+        })
+        .collect();
+    time("raycasts 3000 colliders, 100 rays (builds the index)", 100, || {
+        black_box(raycasts(&world, black_box(&rays)));
     });
 
     time("font load, 11324 glyphs", 5, || {
@@ -221,8 +231,8 @@ fn shake() {
             let (mut rng, mut w, mut p) = (Rng::new(seed), World::new(), Physics::default());
             let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), RigidBody::fixed());
             w.spawn(wall(0.0, 340.0, 640.0, 20.0));
-            w.spawn(wall(0.0, 0.0, 10.0, 360.0));
-            w.spawn(wall(630.0, 0.0, 10.0, 360.0));
+            w.spawn(wall(0.0, -2000.0, 10.0, 2360.0));
+            w.spawn(wall(630.0, -2000.0, 10.0, 2360.0));
             let mut ents = Vec::new();
             for i in 0..n {
                 let size = rng.range(14.0, 34.0);
