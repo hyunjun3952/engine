@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `ENGINE_MUTE=1` silences audio, `ENGINE_STATS=1` logs frame timings, `ENGINE_RENDERER=soft|gpu|auto` picks the renderer, `ENGINE_SCALE=n` scales the window, `ENGINE_RECORD=path` / `ENGINE_REPLAY=path` record and replay input. The window needs an X display (WSLg works); `minifb` is built with the `x11` feature only, because its Wayland backend spams EGL/Zink errors under WSL.
 
-Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (`feat|fix|refactor|perf|test|docs|chore|ci|build`, optional scope), plus `cargo fmt --check` and clippy with `-D warnings` for both the default and the `--no-default-features` build. There is no CI; run `cargo test` yourself.
+Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (`feat|fix|refactor|perf|test|docs|chore|ci|build`, optional scope), plus `cargo fmt --check` and clippy with `-D warnings` for both the default and the `--no-default-features` build. There is no CI; run `cargo test` yourself. When asked to commit and push, commit on `main` and push `main` directly (no feature branch, no PR), with no `Co-Authored-By` trailer.
 
 ## Project conventions
 
@@ -56,7 +56,7 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 - Rotation is opt-in by adding a `Transform`: physics reads and writes `angle` and turns the body about the centre of its (unturned) `Body` rect. A `fixed` body with a `Transform` is a tilted wall. `sx`/`sy` are ignored.
 - Two bodies bounce by the smaller restitution, so walls need one too (`RigidBody::fixed().with_bounce(e)`, `Tilemap::bounce`).
 - The step: gravity, semi-implicit Euler, solid tiles near each body joined as fixed boxes, pairs from `Sweep`, `touch`, sequential-impulse passes with accumulated impulses and Coulomb friction, then positional correction. Contacts are warm-started from `cache`; every `prepare` must run before any replay or piles explode.
-- Untilted boxes take their contact direction from where the boxes were *before* the step, not from the current overlap (two regression tests; each fails without it). `step` cuts the step into substeps until no body moves more than `TRAVEL` (an eighth of its smaller side), up to `MAX_SUBSTEPS`; past that a fast body can still pass a thin wall. No true CCD.
+- Untilted boxes take their contact direction from where the boxes were *before* the step, not from the current overlap (two regression tests; each fails without it). `step` cuts the step into substeps until no body moves more than `TRAVEL` (an eighth of its smaller side), up to `MAX_SUBSTEPS`; past that a fast body can still pass a thin wall. No true CCD. Only a fast body whose swept bounds meet another node or a solid tile counts (`substeps`), so a body that fell out of the world or flies through empty space does not keep every step at 16 substeps.
 - Tile contacts are filtered so floors have no ghost bumps (`behind` in `find_hits`, `is_hidden`); tiles always go second in a pair.
 - Sleeping: a body below 5 px/s for half a second sleeps (acts as a wall, `Vel` zeroed). It wakes when a body faster than `WAKE_SPEED` overlaps it, when the game changes its `Body`/`Vel`/spin/angle, or when gravity, the tile map (`Tilemap::stamp`) or a supporting body changed. Jointed bodies never sleep. `physics.asleep(e)` / `wake(e)`.
 - Joints: `rod(a, b, length)` and `rope(a, b, length)` between body centres, looked up by entity each step (a despawned end disables the joint), until `clear_joints()`.
