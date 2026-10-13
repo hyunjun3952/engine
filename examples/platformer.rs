@@ -1,7 +1,10 @@
 use engine::{
-    Anim, AnimStates, Body, Clip, Command, Config, Console, Ctx, DrawCmd, Entity, Filter, Gfx, Inspector, Key, Look,
-    Paint, Physics, Rect, RigidBody, Scene, Slope, Style, Tile, Tilemap, Timer, Trans, Vel, World, draw_list,
+    Anim, AnimStates, Body, Clip, Command, Config, Console, Ctx, DrawCmd, Entity, Filter, Gfx, Inspector, Key, Light,
+    LightMap, Look, Paint, Physics, Rect, RigidBody, Scene, Slope, Sprite, Style, Tile, Tilemap, Timer, Trans, Vel,
+    World, draw_list, vignette,
 };
+
+use std::{cell::RefCell, sync::Arc};
 
 const DROP_GROUP: u32 = 2;
 
@@ -15,6 +18,9 @@ struct Platformer {
     drop: Option<Timer>,
     console: Console,
     inspector: Inspector,
+    night: bool,
+    lights: RefCell<LightMap>,
+    vignette: Arc<Sprite>,
 }
 
 impl Platformer {
@@ -61,6 +67,9 @@ impl Platformer {
             drop: None,
             console: Console::new(),
             inspector: Inspector::new(),
+            night: false,
+            lights: RefCell::new(LightMap::new(640, 360)),
+            vignette: vignette(640, 360, 0.7),
         }
     }
 
@@ -99,6 +108,9 @@ impl Scene for Platformer {
         let typing = self.console.is_open();
         if !typing && ctx.input().pressed("back") {
             return Trans::Quit;
+        }
+        if !typing && ctx.input().pressed("night") {
+            self.night = !self.night;
         }
         // The moving platform turns round at either end.
         {
@@ -174,9 +186,18 @@ impl Scene for Platformer {
         g.draw_parallax(hills, (0.4, 0.0));
         g.draw(self.map.draw_list(g.view()));
         g.draw(draw_list(&self.world));
+        if self.night {
+            // The torch is in the world, so it follows the camera; the lights go on after everything they light.
+            let player = self.world.get::<&Body>(self.player).unwrap().0.center();
+            let mut lights = self.lights.borrow_mut();
+            lights.clear(0x141c38);
+            lights.add_world(g, Light::new(player.0, player.1, 110.0).colored(0xffc070));
+            lights.draw(g);
+            g.multiply(&self.vignette);
+        }
         self.inspector.draw(g, &self.world);
         g.text(
-            "arrows: walk   space: jump   down: drop through planks   F: flash   F4: inspector   `: console",
+            "arrows: walk   space: jump   down: drop through planks   N: night   F: flash   F4: inspector   `: console",
             8,
             8,
             1,
@@ -192,6 +213,7 @@ fn main() {
         ctx.bind("jump", &[Key::Space, Key::Up, Key::W]);
         ctx.bind("down", &[Key::Down, Key::S]);
         ctx.bind("flash", &[Key::F]);
+        ctx.bind("night", &[Key::N]);
         ctx.bind("back", &[Key::Escape]);
         Box::new(Platformer::new(ctx))
     });

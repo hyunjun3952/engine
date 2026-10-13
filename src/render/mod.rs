@@ -5,6 +5,7 @@ mod font;
 mod gfx;
 #[cfg(feature = "gpu")]
 mod gpu;
+mod light;
 mod path;
 mod soft;
 mod tiled;
@@ -17,6 +18,7 @@ pub(crate) use gfx::letterbox;
 pub use gfx::{Gfx, Rect, Sprite};
 #[cfg(feature = "gpu")]
 pub(crate) use gpu::Gpu;
+pub use light::{Light, LightMap, scanlines, vignette};
 pub(crate) use soft::Soft;
 pub use tiled::{Tiled, TiledObject};
 pub use tilemap::{Slope, Tile, TileHit, Tilemap};

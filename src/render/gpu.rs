@@ -37,6 +37,13 @@ fn fs(i: Out) -> @location(0) vec4<f32> {
     let t = textureSample(tex, samp, i.uv) * i.color;
     return vec4<f32>(mix(t.rgb, i.flash.rgb, i.flash.a), t.a);
 }
+
+// Multiplying: the blend state multiplies the output by what is behind, so white (transparent) leaves it alone.
+@fragment
+fn fs_mul(i: Out) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, i.uv) * i.color;
+    return vec4<f32>(mix(vec3<f32>(1.0), mix(t.rgb, i.flash.rgb, i.flash.a), t.a), 1.0);
+}
 ";
 
 #[repr(C)]
@@ -56,15 +63,35 @@ enum Tex {
     Sprite(usize),
 }
 
+// How a batch joins the picture behind it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Alpha,
+    Add,
+    Multiply,
+}
+
+impl From<Blend> for Mode {
+    fn from(b: Blend) -> Mode {
+        match b {
+            Blend::Alpha => Mode::Alpha,
+            Blend::Add => Mode::Add,
+            Blend::Multiply => Mode::Multiply,
+        }
+    }
+}
+
 struct Batch {
     tex: Tex,
-    add: bool,
+    mode: Mode,
     start: u32,
     end: u32,
 }
 
 struct Uploaded {
     _keep: Arc<Sprite>,
+    tex: wgpu::Texture,
+    size: (u32, u32),
     bind: wgpu::BindGroup,
     version: u64,
 }
@@ -87,9 +114,10 @@ pub(crate) struct Gpu {
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
     additive: wgpu::RenderPipeline,
+    multiply: wgpu::RenderPipeline,
     // The style of the command being built, which every quad of it carries.
     flash: [f32; 4],
-    add: bool,
+    mode: Mode,
     globals_bind: wgpu::BindGroup,
     tex_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -119,6 +147,17 @@ fn flat_color(col: u32, alpha: f32, st: &Style) -> [f32; 4] {
     [r + (fr - r) * k, g + (fg - g) * k, b + (fb - b) * k, alpha * st.opacity as f32 / 255.0]
 }
 
+// The pixels of a sprite written over a texture of its size.
+fn write_pixels(queue: &wgpu::Queue, tex: &wgpu::Texture, px: &[u32], (w, h): (u32, u32)) {
+    let bytes: Vec<u8> = px.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, (p >> 24) as u8]).collect();
+    queue.write_texture(
+        tex.as_image_copy(),
+        &bytes,
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * w), rows_per_image: Some(h) },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+}
+
 fn upload(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -126,11 +165,10 @@ fn upload(
     sampler: &wgpu::Sampler,
     px: &[u32],
     (w, h): (u32, u32),
-) -> wgpu::BindGroup {
-    let extent = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+) -> (wgpu::Texture, wgpu::BindGroup) {
     let tex = device.create_texture(&wgpu::TextureDescriptor {
         label: None,
-        size: extent,
+        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -138,22 +176,17 @@ fn upload(
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    let bytes: Vec<u8> = px.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, (p >> 24) as u8]).collect();
-    queue.write_texture(
-        tex.as_image_copy(),
-        &bytes,
-        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * w), rows_per_image: Some(h) },
-        extent,
-    );
+    write_pixels(queue, &tex, px, (w, h));
     let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout,
         entries: &[
             wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
         ],
-    })
+    });
+    (tex, bind)
 }
 
 fn vertex_buffer(device: &wgpu::Device, cap: usize) -> wgpu::Buffer {
@@ -296,7 +329,7 @@ impl Gpu {
             immediate_size: 0,
         });
         let attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4];
-        let make = |blend: wgpu::BlendState| {
+        let make = |blend: wgpu::BlendState, fs: &str| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
                 layout: Some(&layout),
@@ -315,7 +348,7 @@ impl Gpu {
                 multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs"),
+                    entry_point: Some(fs),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
@@ -327,20 +360,24 @@ impl Gpu {
                 cache: None,
             })
         };
-        let pipeline = make(wgpu::BlendState::ALPHA_BLENDING);
+        let pipeline = make(wgpu::BlendState::ALPHA_BLENDING, "fs");
         let add = wgpu::BlendComponent {
             src_factor: wgpu::BlendFactor::SrcAlpha,
             dst_factor: wgpu::BlendFactor::One,
             operation: wgpu::BlendOperation::Add,
         };
-        let additive = make(wgpu::BlendState {
-            color: add,
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        });
+        let keep_alpha = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Zero,
+            dst_factor: wgpu::BlendFactor::One,
+            operation: wgpu::BlendOperation::Add,
+        };
+        let additive = make(wgpu::BlendState { color: add, alpha: keep_alpha }, "fs");
+        let times = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Dst,
+            dst_factor: wgpu::BlendFactor::Zero,
+            operation: wgpu::BlendOperation::Add,
+        };
+        let multiply = make(wgpu::BlendState { color: times, alpha: keep_alpha }, "fs_mul");
 
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
@@ -359,7 +396,7 @@ impl Gpu {
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-        let white = upload(&device, &queue, &tex_layout, &sampler, &[0xffff_ffff], (1, 1));
+        let (_, white) = upload(&device, &queue, &tex_layout, &sampler, &[0xffff_ffff], (1, 1));
         let atlas: Vec<u32> = (0..8)
             .flat_map(|row| {
                 (0..font::GLYPHS).flat_map(move |ch| {
@@ -368,7 +405,7 @@ impl Gpu {
                 })
             })
             .collect();
-        let font = upload(&device, &queue, &tex_layout, &sampler, &atlas, (font::GLYPHS as u32 * 8, 8));
+        let (_, font) = upload(&device, &queue, &tex_layout, &sampler, &atlas, (font::GLYPHS as u32 * 8, 8));
         let vcap = 4096;
         let vbuf = vertex_buffer(&device, vcap);
         Ok(Gpu {
@@ -376,8 +413,9 @@ impl Gpu {
             queue,
             pipeline,
             additive,
+            multiply,
             flash: [0.0; 4],
-            add: false,
+            mode: Mode::Alpha,
             globals_bind,
             tex_layout,
             sampler,
@@ -424,10 +462,10 @@ impl Gpu {
             v(br, [u1, v1]),
             v(bl, [u0, v1]),
         ]);
-        let add = self.add;
+        let mode = self.mode;
         match self.batches.last_mut() {
-            Some(b) if b.tex == tex && b.add == add => b.end = at + 6,
-            _ => self.batches.push(Batch { tex, add, start: at, end: at + 6 }),
+            Some(b) if b.tex == tex && b.mode == mode => b.end = at + 6,
+            _ => self.batches.push(Batch { tex, mode, start: at, end: at + 6 }),
         }
     }
 
@@ -455,15 +493,18 @@ impl Gpu {
         let version = s.version();
         if self.textures.get(&key).is_none_or(|t| t.version != version) {
             let img = s.image();
-            let bind = upload(
-                &self.device,
-                &self.queue,
-                &self.tex_layout,
-                &self.sampler,
-                &img.px,
-                (img.w as u32, img.h as u32),
-            );
-            self.textures.insert(key, Uploaded { _keep: s.clone(), bind, version });
+            let size = (img.w as u32, img.h as u32);
+            // A sprite remade every frame (a light map) keeps its texture and only gets new pixels.
+            match self.textures.get_mut(&key).filter(|t| t.size == size) {
+                Some(t) => {
+                    write_pixels(&self.queue, &t.tex, &img.px, size);
+                    t.version = version;
+                }
+                None => {
+                    let (tex, bind) = upload(&self.device, &self.queue, &self.tex_layout, &self.sampler, &img.px, size);
+                    self.textures.insert(key, Uploaded { _keep: s.clone(), tex, size, bind, version });
+                }
+            }
         }
         let (w, h) = s.size();
         (Tex::Sprite(key), (w as f32, h as f32))
@@ -479,14 +520,14 @@ impl Gpu {
             let r = &c.rect;
             let t = &c.xform;
             let st = &c.style;
-            (self.flash, self.add) = ([0.0; 4], false);
+            (self.flash, self.mode) = ([0.0; 4], Mode::Alpha);
             let fill = match &c.paint {
                 Paint::Color(col) => Some((*col, 1.0)),
                 Paint::Alpha(col, a) => Some((*col, *a as f32 / 255.0)),
                 _ => None,
             };
             if let Some((col, a)) = fill {
-                self.add = st.blend == Blend::Add;
+                self.mode = st.blend.into();
                 let color = flat_color(col, a, st);
                 match t.is_identity() {
                     true => self.solid(r, color),
@@ -495,7 +536,7 @@ impl Gpu {
                 continue;
             }
             if let Some((sheet, src, flip)) = c.paint.region() {
-                self.add = st.blend == Blend::Add;
+                self.mode = st.blend.into();
                 let color = [1.0, 1.0, 1.0, st.opacity as f32 / 255.0];
                 if st.flash_amount > 0 {
                     let [r, g, b, _] = rgba(st.flash, 1.0);
@@ -582,11 +623,15 @@ impl Gpu {
             pass.set_viewport(v.x, v.y, v.w, v.h, 0.0, 1.0);
             pass.set_bind_group(0, &self.globals_bind, &[]);
             pass.set_vertex_buffer(0, self.vbuf.slice(..));
-            let mut adding = None;
+            let mut current = None;
             for b in &self.batches {
-                if adding != Some(b.add) {
-                    pass.set_pipeline(if b.add { &self.additive } else { &self.pipeline });
-                    adding = Some(b.add);
+                if current != Some(b.mode) {
+                    pass.set_pipeline(match b.mode {
+                        Mode::Alpha => &self.pipeline,
+                        Mode::Add => &self.additive,
+                        Mode::Multiply => &self.multiply,
+                    });
+                    current = Some(b.mode);
                 }
                 let bind = match b.tex {
                     Tex::White => &self.white,
@@ -958,6 +1003,9 @@ mod tests {
             Style::PLAIN.additive(),
             Style::PLAIN.additive().faded(120),
             Style::PLAIN.flashed(0x00ff80, 90).faded(200),
+            Style::PLAIN.multiplied(),
+            Style::PLAIN.multiplied().faded(120),
+            Style::PLAIN.multiplied().flashed(0xff8000, 100),
         ];
         let turns = [
             Transform::IDENTITY,
@@ -978,6 +1026,27 @@ mod tests {
         }
         g.draw(cmds);
         assert_same(&mut gpu, &g, "_styles");
+    }
+
+    #[test]
+    fn a_lit_scene_with_a_vignette_and_scanlines_matches_between_the_backends_and_follows_a_moving_light() {
+        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let mut map = crate::LightMap::new(640, 360);
+        let (vignette, lines) = (crate::vignette(640, 360, 0.8), crate::scanlines(640, 360, 50));
+        for (frame, x) in [200.0, 420.0].into_iter().enumerate() {
+            let mut g = zoomed_scene(1.0);
+            map.clear(0x303850);
+            map.add(crate::Light::new(x, 150.0, 90.0).colored(0xffd080));
+            map.add(crate::Light::new(300.0, 250.0, 60.0).colored(0x4080ff).intensity(0.7));
+            map.draw(&mut g);
+            g.multiply(&vignette);
+            g.multiply(&lines);
+            g.text("HUD after the light", 10, 340, 1, 0xffffff);
+            assert_same(&mut gpu, &g, &format!("_lit{frame}"));
+        }
     }
 
     #[test]

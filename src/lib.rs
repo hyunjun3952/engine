@@ -20,8 +20,8 @@ pub use ecs::{
     particles, query_rect, raycast, raycasts,
 };
 pub use render::{
-    Blend, Camera, DrawCmd, Font, Gfx, Paint, Rect, Slope, Sprite, Style, Tile, TileHit, Tiled, TiledObject, Tilemap,
-    Transform,
+    Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Rect, Slope, Sprite, Style, Tile, TileHit, Tiled,
+    TiledObject, Tilemap, Transform, scanlines, vignette,
 };
 pub use ui::{
     Button, Checkbox, Focus, Layout, Menu, Rebind, ScrollList, TextField, clicked, draw_bar, draw_panel, draw_wrapped,

@@ -63,6 +63,9 @@ pub enum Blend {
     Alpha,
     /// The picture's colour, scaled by its alpha, is added to what is behind it and stops at white: glows, fire.
     Add,
+    /// The picture's colour, mixed to white by its transparency, multiplies what is behind it: shadows, tints, dark
+    /// overlays and the light maps of `LightMap`. White leaves the picture as it is, black makes it black.
+    Multiply,
 }
 
 /// How a sprite or a flat colour is shown: a flash towards a colour (a hit), a fade, and how it joins the picture
@@ -95,6 +98,10 @@ impl Style {
 
     pub fn additive(self) -> Style {
         Style { blend: Blend::Add, ..self }
+    }
+
+    pub fn multiplied(self) -> Style {
+        Style { blend: Blend::Multiply, ..self }
     }
 }
 

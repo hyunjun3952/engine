@@ -73,6 +73,7 @@ impl Soft {
             (Blend::Alpha, 255) => self.fill_with(&c.rect, |_| col),
             (Blend::Alpha, _) => self.fill_alpha(&c.rect, col, a),
             (Blend::Add, _) => self.fill_with(&c.rect, |d| add_flat(d, col, a)),
+            (Blend::Multiply, _) => self.fill_with(&c.rect, |d| mul_flat(d, col, a)),
         }
     }
 
@@ -90,6 +91,7 @@ impl Soft {
                     (Blend::Alpha, 255) => self.warp(*r, t, |d, _, _| *d = col),
                     (Blend::Alpha, _) => self.warp(*r, t, |d, _, _| *d = blend(col, *d, a)),
                     (Blend::Add, _) => self.warp(*r, t, |d, _, _| *d = add_flat(*d, col, a)),
+                    (Blend::Multiply, _) => self.warp(*r, t, |d, _, _| *d = mul_flat(*d, col, a)),
                 }
             }
             return true;
@@ -351,6 +353,7 @@ fn put_with(d: &mut u32, p: u32, st: &Style) {
     match st.blend {
         Blend::Alpha => put(d, p),
         Blend::Add => *d = add_flat(*d, p & 0xFF_FFFF, p >> 24),
+        Blend::Multiply => *d = mul_flat(*d, p & 0xFF_FFFF, p >> 24),
     }
 }
 
@@ -358,6 +361,16 @@ fn put_with(d: &mut u32, p: u32, st: &Style) {
 #[inline(always)]
 fn add_flat(dst: u32, col: u32, a: u32) -> u32 {
     let ch = |shift: u32| (((dst >> shift & 255) + ((col >> shift & 255) * a + 127) / 255).min(255)) << shift;
+    ch(16) | ch(8) | ch(0)
+}
+
+// `dst` times `col` (each channel out of 255), laid over `dst` by `a` out of 255.
+#[inline(always)]
+fn mul_flat(dst: u32, col: u32, a: u32) -> u32 {
+    let ch = |shift: u32| {
+        let (d, c) = (dst >> shift & 255, col >> shift & 255);
+        ((d * (255 - a) + (d * c + 127) / 255 * a + 127) / 255) << shift
+    };
     ch(16) | ch(8) | ch(0)
 }
 

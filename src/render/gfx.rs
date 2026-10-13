@@ -107,6 +107,11 @@ impl Gfx {
         });
     }
 
+    /// Multiplies the whole picture drawn so far by `s` (a `vignette`, `scanlines` or any image of the canvas's size).
+    pub fn multiply(&mut self, s: &Arc<Sprite>) {
+        self.blit_styled(s, 0, 0, Style::PLAIN.multiplied());
+    }
+
     pub fn blit_region(&mut self, s: &Arc<Sprite>, src: Rect, x: i32, y: i32, flip: bool) {
         let paint = Paint::Region { sheet: s.clone(), src, flip };
         self.push(Rect { x: x as f32, y: y as f32, w: src.w, h: src.h }, paint);
@@ -340,6 +345,16 @@ impl Sprite {
     #[cfg(any(feature = "gpu", test))]
     pub(crate) fn version(&self) -> u64 {
         self.version.load(Ordering::Acquire)
+    }
+
+    /// Swaps the pixels with `px` (the same number of them) and marks the sprite changed: a picture that is remade
+    /// every frame without a new texture each time. `px` gets the old pixels back to be written over.
+    pub(crate) fn swap_pixels(&self, px: &mut Vec<u32>) {
+        let mut image = self.image.write().unwrap();
+        assert_eq!(image.px.len(), px.len(), "a swapped picture keeps its size");
+        std::mem::swap(&mut image.px, px);
+        drop(image);
+        self.version.fetch_add(1, Ordering::AcqRel);
     }
 
     pub(crate) fn reload(&self, path: &str) -> Result<(), String> {
