@@ -12,6 +12,9 @@ fn rng(seed: &mut u64) -> f32 {
 }
 
 fn time(name: &str, runs: u32, mut f: impl FnMut()) {
+    if runs > 1 {
+        f();
+    }
     let t = Instant::now();
     for _ in 0..runs {
         f();
@@ -47,6 +50,12 @@ fn bench() {
         black_box(RayIndex::new(&world));
     });
     let index = RayIndex::new(&world);
+    for i in 0..100 {
+        let (dir, from) = (i as f32 * 0.0628, (320.0, 180.0));
+        let dir = (dir.cos(), dir.sin());
+        let (scan, grid) = (raycast(&world, from, dir, 400.0, u32::MAX), index.cast(from, dir, 400.0, u32::MAX));
+        assert_eq!(scan.map(|h| h.1), grid.map(|h| h.1), "ray {i}: the index and the scan disagree");
+    }
     time("raycast grid, 100 rays", 100, || {
         for i in 0..100 {
             let a = i as f32 * 0.0628;
@@ -123,6 +132,7 @@ fn bench() {
     let spec = Burst { count: 500, color: 0xffffff, speed: 100.0, life: 100.0, size: 3.0, gravity: 0.0 };
     burst(&mut pw, &mut Rng::new(3), (320.0, 180.0), &spec);
     time("particles update 500", 200, || particles(black_box(&mut pw), 1.0 / 60.0));
+    assert_eq!(pw.len(), 500, "particles died during the timing, so it measured a shrinking set");
 
     for scale in [2, 3, 4] {
         let mut up = Soft::new(640, 360, scale);
@@ -157,14 +167,41 @@ fn bench() {
         for _ in 0..600 {
             physics.step(&mut arena, None, 1.0 / 60.0);
         }
-        let (mut fast, mut out, mut sum) = (0, 0, 0.0f32);
+        // Any part of a body inside a wall (floor top 300, side walls 10 and 630) by more than a pixel counts.
+        let (mut fast, mut out, mut sum, mut count) = (0, 0, 0.0f32, 0);
         for (v, b, _) in arena.query::<(&Vel, &Body, &RigidBody)>().iter() {
+            let r = b.0;
             sum += v.x.hypot(v.y);
+            count += 1;
             fast += (v.x.hypot(v.y) > 5.0) as u32;
-            out += (b.0.y > 360.0 || b.0.x < 0.0 || b.0.x > 640.0) as u32;
+            out += (r.x < 9.0 || r.x + r.w > 631.0 || r.y + r.h > 301.0) as u32;
         }
-        println!("  {n}: mean speed {:.1}, over 5px/s: {fast}, outside the arena: {out}", sum / n as f32);
+        assert_eq!(count, n, "every body should have been counted");
+        println!("  {n}: mean speed {:.1}, over 5px/s: {fast}, in or past a wall: {out}", sum / count as f32);
         time(&format!("physics step, {n} settled bodies"), 60, || physics.step(&mut arena, None, 1.0 / 60.0));
+    }
+
+    let floor: Vec<String> = (0..23).map(|r| if r < 21 { ".".repeat(40) } else { "#".repeat(40) }).collect();
+    let ground = Tilemap::from_ascii(&floor.iter().map(String::as_str).collect::<Vec<_>>(), 16, Sprite::test_tiles());
+    for n in [100, 300] {
+        let (mut arena, mut physics) = (World::new(), Physics::default());
+        for i in 0..n {
+            let rect = Rect { x: 20.0 + rng(&mut seed) * 590.0, y: -(i as f32) * 0.5, w: 8.0, h: 8.0 };
+            let body = RigidBody::dynamic(1.0).with_bounce(0.2);
+            let body = if i % 2 == 0 { body.circle() } else { body };
+            arena.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, body, Transform::IDENTITY));
+        }
+        time(&format!("tile physics, {n} bodies falling and settling (600 steps)"), 1, || {
+            for _ in 0..600 {
+                physics.step(&mut arena, Some(&ground), 1.0 / 60.0);
+            }
+        });
+        for _ in 0..600 {
+            physics.step(&mut arena, Some(&ground), 1.0 / 60.0);
+        }
+        time(&format!("tile physics step, {n} settled bodies"), 60, || {
+            physics.step(&mut arena, Some(&ground), 1.0 / 60.0)
+        });
     }
 }
 
@@ -172,12 +209,14 @@ fn bench() {
 #[ignore]
 fn shake() {
     // Visible shaking in the physics example's scene (bodies start apart): over 8 seeds, how often an awake body's
-    // centre moves more than 1.5 px (or 6 px) in one step after the first second, when the pile is asleep, how many
-    // bodies end under the floor, and what a step costs.
-    let seeds: u32 = std::env::var("SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+    // centre moves more than 1.5 px (or 6 px) in one step after the first second, when the pile is asleep for good
+    // (a body under the floor does not count as awake; `under the floor` reports those), how many bodies end under
+    // the floor, and what a step costs.
+    let seeds: u32 = std::env::var("SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
     for n in [100, 200, 300] {
         let (mut small, mut big, mut calm, mut below, mut worst_ms, mut total_ms) =
             (0u32, 0u32, 0.0f32, 0, 0.0f64, 0.0f64);
+        let mut settled = 0;
         for seed in 1..=seeds {
             let (mut rng, mut w, mut p) = (Rng::new(seed), World::new(), Physics::default());
             let wall = |x, y, w, h| (Body(Rect { x, y, w, h }), RigidBody::fixed());
@@ -196,7 +235,7 @@ fn shake() {
                 ents.push(w.spawn((Body(Rect { x, y, w: size, h: size }), Vel::default(), body, turn)));
             }
             let mut last: Vec<(f32, f32)> = ents.iter().map(|&e| w.get::<&Body>(e).unwrap().0.center()).collect();
-            let mut calm_at = 20.0;
+            let mut last_awake = None;
             for step in 0..1200 {
                 let t = Instant::now();
                 p.step(&mut w, None, 1.0 / 60.0);
@@ -216,16 +255,19 @@ fn shake() {
                         big += (moved > 6.0) as u32;
                     }
                 }
-                if awake == 0 && calm_at == 20.0 {
-                    calm_at = step as f32 / 60.0;
+                if awake > 0 {
+                    last_awake = Some(step);
                 }
             }
-            calm += calm_at;
+            // Settled means asleep from some step to the end, not just asleep once: a sleeper can be woken again.
+            if let Some(at) = last_awake.map_or(Some(0), |s| (s + 1 < 1200).then_some(s + 1)) {
+                (calm, settled) = (calm + at as f32 / 60.0, settled + 1);
+            }
             below += ents.iter().filter(|&&e| w.get::<&Body>(e).unwrap().0.center().1 > 360.0).count();
         }
         println!(
-            "  n={n}: jumps > 1.5 px {small}, > 6 px {big}; asleep after {:.1} s on average; under the floor {below}; step {:.3} ms on average, {worst_ms:.1} ms at worst",
-            calm / seeds as f32,
+            "  n={n}: jumps > 1.5 px {small}, > 6 px {big}; asleep for good after {:.1} s on average ({settled} of {seeds} seeds got there); under the floor {below}; step {:.3} ms on average, {worst_ms:.1} ms at worst",
+            calm / settled.max(1) as f32,
             total_ms / (seeds as f64 * 1200.0)
         );
     }
