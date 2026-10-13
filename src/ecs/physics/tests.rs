@@ -1077,3 +1077,58 @@ fn a_joint_to_a_despawned_body_is_dropped() {
     p.step(&mut w, None, DT);
     assert!(p.joints.is_empty());
 }
+
+fn platform_map() -> Tilemap {
+    let one_way = crate::Tile { ch: b'=', id: 3, solid: false, front: false, auto: false, one_way: true };
+    let legend = [crate::Tile::DEFAULT[0], one_way];
+    let rows = ["......", "......", "......", ".====.", "......", "......", "######"];
+    Tilemap::try_from_ascii_with(&rows, 16, Sprite::test_tiles(), &legend).unwrap()
+}
+
+#[test]
+fn a_body_lands_on_a_one_way_tile_and_rests_there() {
+    let (mut w, mut p, map) = (World::new(), Physics::default(), platform_map());
+    let b = boxed(&mut w, square(40.0, 0.0, 12.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    run(&mut p, &mut w, Some(&map), 240);
+    assert!((state(&w, b).0.y + 12.0 - 48.0).abs() < 1.0, "rests on the platform top: {:?}", state(&w, b).0);
+    assert!(p.grounded(b));
+}
+
+#[test]
+fn a_body_rises_through_a_one_way_tile_and_lands_on_top() {
+    let (mut w, mut p, map) = (World::new(), Physics::default(), platform_map());
+    let b = boxed(&mut w, square(40.0, 64.0, 12.0), RigidBody::dynamic(1.0), (0.0, -400.0));
+    run(&mut p, &mut w, Some(&map), 300);
+    assert!((state(&w, b).0.y + 12.0 - 48.0).abs() < 1.0, "came up through it and settled on it: {:?}", state(&w, b).0);
+}
+
+#[test]
+fn a_body_walks_into_a_one_way_tile_from_the_side() {
+    let (mut w, mut p, map) = (World::new(), Physics::default(), platform_map());
+    p.gravity = (0.0, 0.0);
+    let b = boxed(&mut w, square(0.0, 40.0, 12.0), RigidBody::dynamic(1.0), (200.0, 0.0));
+    run(&mut p, &mut w, Some(&map), 30);
+    assert!(state(&w, b).0.x > 60.0, "it passed through the platform's row: {:?}", state(&w, b).0);
+}
+
+#[test]
+fn clearing_the_platform_bit_drops_a_body_through_but_not_through_the_ground() {
+    let (mut w, mut p, map) = (World::new(), Physics::default(), platform_map());
+    let b = boxed(&mut w, square(40.0, 0.0, 12.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    w.insert_one(b, Filter { group: 1, mask: !Filter::PLATFORM }).unwrap();
+    run(&mut p, &mut w, Some(&map), 240);
+    assert!(
+        (state(&w, b).0.y + 12.0 - 96.0).abs() < 1.0,
+        "fell past the platform onto the ground: {:?}",
+        state(&w, b).0
+    );
+}
+
+#[test]
+fn a_ghost_that_ignores_terrain_ignores_one_way_tiles_with_the_platform_bit_cleared_too() {
+    let (mut w, mut p, map) = (World::new(), Physics::default(), platform_map());
+    let b = boxed(&mut w, square(40.0, 0.0, 12.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    w.insert_one(b, Filter { group: 1, mask: !(Filter::TERRAIN | Filter::PLATFORM) }).unwrap();
+    run(&mut p, &mut w, Some(&map), 240);
+    assert!(state(&w, b).0.y > 100.0, "no tile held it: {:?}", state(&w, b).0);
+}

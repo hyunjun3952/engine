@@ -626,7 +626,8 @@ impl Physics {
         if let Some(map) = tiles {
             let (gx, gy, size) = (self.gravity.0 * dt, self.gravity.1 * dt, map.size as f32);
             let (mw, mh) = map.pixel_size();
-            for i in (0..nodes.len()).filter(|&i| fast(i) && nodes[i].filter.mask & Filter::TERRAIN != 0) {
+            let meets = Filter::TERRAIN | if map.has_one_way() { Filter::PLATFORM } else { 0 };
+            for i in (0..nodes.len()).filter(|&i| fast(i) && nodes[i].filter.mask & meets != 0) {
                 if need[i] <= worst {
                     continue;
                 }
@@ -768,7 +769,11 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
         let near = Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 };
         for tile in map.solid_in(near) {
             if seen.insert((tile.x as i32, tile.y as i32)) {
-                nodes.push(Node { restitution: map.bounce, ..Node::wall(tile) });
+                let s = map.size as f32;
+                let one_way = map.one_way((tile.x / s).floor() as i32, (tile.y / s).floor() as i32);
+                let group = if one_way { Filter::PLATFORM } else { Filter::TERRAIN };
+                let filter = Filter { group, mask: u32::MAX };
+                nodes.push(Node { restitution: map.bounce, one_way, filter, ..Node::wall(tile) });
             }
         }
     }

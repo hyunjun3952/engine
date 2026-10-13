@@ -30,8 +30,10 @@ impl Default for Filter {
 }
 
 impl Filter {
-    /// The group of every tile; clear this bit in a mask to pass through the map.
+    /// The group of every solid tile; clear this bit in a mask to pass through the map.
     pub const TERRAIN: u32 = 1 << 31;
+    /// The group of one-way tiles: clear this bit to drop through them while still standing on solid ground.
+    pub const PLATFORM: u32 = 1 << 30;
 
     pub fn meets(&self, other: &Filter) -> bool {
         self.group & other.mask != 0 && other.group & self.mask != 0
