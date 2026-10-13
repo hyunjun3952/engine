@@ -179,7 +179,9 @@ impl TiledObject {
 ///
 /// The map must be orthogonal, finite, with square tiles and one tileset, and its layers saved as CSV. The sheet
 /// you pass is the tileset's image (its tiles number from 1 along each row, as Tiled counts them from 0), at most 255
-/// tiles. A tile is solid when it has a bool property `solid`, is solid only from above when it has `one_way`, a triangle when its string property `slope` is `bl`, `br`, `tl` or `tr` (the corner with the right angle), and is drawn over entities when it has `front`.
+/// tiles. A tile is solid when it has a bool property `solid`, is solid only from above when it has `one_way`, a
+/// triangle when its string property `slope` is `bl`, `br`, `tl` or `tr` (the corner with the right angle), and is
+/// drawn over entities when it has `front`.
 /// Flipped or rotated tiles are not supported.
 pub struct Tiled {
     pub layers: Vec<(String, Tilemap)>,
