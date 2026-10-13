@@ -123,7 +123,7 @@ impl Gfx {
         for &(sy, dy, h) in &ys {
             for &(sx, dx, w) in &xs {
                 let part = Rect { x: src.x + sx, y: src.y + sy, w, h };
-                self.blit_region(s, part, (dest.x + dx) as i32, (dest.y + dy) as i32, false);
+                self.blit_region(s, part, (dest.x + dx).floor() as i32, (dest.y + dy).floor() as i32, false);
             }
         }
     }

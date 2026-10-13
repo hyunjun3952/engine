@@ -1,4 +1,13 @@
-use crate::{Body, Collider, Entity, Filter, Rect, World};
+use crate::{Body, Collider, Entity, Filter, Rect, Transform, World};
+
+// The box a body covers once turned by its `Transform`, as physics and `raycast` see it.
+fn turned(r: Rect, t: Option<&Transform>) -> Rect {
+    let Some(t) = t.filter(|t| t.angle != 0.0) else { return r };
+    let (s, c) = t.angle.sin_cos();
+    let (ex, ey) = ((r.w * c.abs() + r.h * s.abs()) / 2.0, (r.w * s.abs() + r.h * c.abs()) / 2.0);
+    let (cx, cy) = r.center();
+    Rect { x: cx - ex, y: cy - ey, w: ex * 2.0, h: ey * 2.0 }
+}
 
 pub struct Contact {
     pub a: Entity,
@@ -92,9 +101,9 @@ pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)>
 pub fn collisions(world: &World) -> Vec<Contact> {
     let mut ents = Vec::new();
     let (mut rects, mut filters) = (Vec::new(), Vec::new());
-    for (e, b, f, _) in world.query::<(Entity, &Body, Option<&Filter>, &Collider)>().iter() {
+    for (e, b, f, _, t) in world.query::<(Entity, &Body, Option<&Filter>, &Collider, Option<&Transform>)>().iter() {
         ents.push(e);
-        rects.push(b.0);
+        rects.push(turned(b.0, t));
         filters.push(f.copied().unwrap_or_default());
     }
     overlapping_pairs(&rects)
@@ -105,7 +114,12 @@ pub fn collisions(world: &World) -> Vec<Contact> {
 }
 
 pub fn query_rect(world: &World, area: &Rect) -> Vec<Entity> {
-    world.query::<(Entity, &Body, &Collider)>().iter().filter(|(_, b, _)| b.0.overlaps(area)).map(|(e, ..)| e).collect()
+    world
+        .query::<(Entity, &Body, &Collider, Option<&Transform>)>()
+        .iter()
+        .filter(|(_, b, _, t)| turned(b.0, *t).overlaps(area))
+        .map(|(e, ..)| e)
+        .collect()
 }
 
 #[cfg(test)]
@@ -217,5 +231,17 @@ mod tests {
         let body = w.spawn((Body(Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }), Collider, crate::RigidBody::fixed()));
         let zone = boxed(&mut w, 5.0, true);
         assert_eq!(collisions(&w)[0].other(body), Some(zone));
+    }
+
+    #[test]
+    fn collisions_and_queries_see_a_body_as_turned() {
+        let mut w = World::new();
+        let plank = w.spawn((
+            Body(Rect { x: 0.0, y: 0.0, w: 100.0, h: 10.0 }),
+            Collider,
+            Transform { angle: std::f32::consts::FRAC_PI_2, ..Default::default() },
+        ));
+        let probe = Rect { x: 45.0, y: 40.0, w: 10.0, h: 10.0 };
+        assert_eq!(query_rect(&w, &probe), vec![plank]);
     }
 }

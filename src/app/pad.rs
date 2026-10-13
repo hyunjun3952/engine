@@ -100,7 +100,7 @@ impl PadState {
             }
             (2, 0 | 1) => self.stick[n] = value,
             (2, 3 | 4) => self.right[n - 3] = value,
-            (2, 2 | 5) => self.trigger[n / 5] = (i32::from(value) + 32767) as u16,
+            (2, 2 | 5) => self.trigger[n / 5] = (i32::from(value) + 32767).clamp(0, 65534) as u16,
             (2, 6 | 7) => self.dpad[n - 6] = value,
             _ => {}
         }
@@ -199,5 +199,12 @@ mod tests {
         assert_eq!((p.axis(PadAxis::RightX), p.axis(PadAxis::RightY), p.axis(PadAxis::LeftX)), (0.0, -1.0, 1.0));
         p.apply(ev(19660, 2, 1));
         assert!((p.axis(PadAxis::LeftY) - 0.5).abs() < 0.01, "0.6 deflection is 0.5 after a 0.2 dead zone");
+    }
+
+    #[test]
+    fn a_trigger_at_the_lowest_raw_value_reads_released() {
+        let mut p = PadState::default();
+        p.apply(ev(i16::MIN, 2, 2));
+        assert_eq!(p.axis(PadAxis::LeftTrigger), 0.0);
     }
 }

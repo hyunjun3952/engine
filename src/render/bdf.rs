@@ -54,7 +54,8 @@ impl Font {
                 "FONT_ASCENT" => ascent = val.trim().parse().map_err(|e| format!("FONT_ASCENT: {e}"))?,
                 "FONT_DESCENT" => descent = val.trim().parse().map_err(|e| format!("FONT_DESCENT: {e}"))?,
                 "ENCODING" => {
-                    let code: i64 = val.trim().parse().map_err(|e| format!("ENCODING: {e}"))?;
+                    let code: i64 =
+                        val.split_whitespace().next().unwrap_or("").parse().map_err(|e| format!("ENCODING: {e}"))?;
                     let ch = u32::try_from(code).ok().and_then(char::from_u32);
                     cur = ch.map(|ch| Raw { ch, advance: 0, bbx: [0; 4], rows: bits.len()..bits.len() });
                     in_bitmap = false;
@@ -104,7 +105,9 @@ impl Font {
         if raws.is_empty() || ascent + descent <= 0 {
             return Err("no glyphs or no FONT_ASCENT/FONT_DESCENT".into());
         }
-        let (mut x, mut y, row_h) = (0, 0, (ascent + descent) as usize);
+        // A glyph taller than the font box would write past its atlas row.
+        let tallest = raws.iter().map(|g| g.bbx[1]).max().unwrap_or(0);
+        let (mut x, mut y, row_h) = (0, 0, (ascent + descent).max(tallest) as usize);
         let mut placed = Vec::new();
         for g in &raws {
             let w = g.bbx[0] as usize;
@@ -211,5 +214,14 @@ mod tests {
     fn a_bad_file_is_an_error_not_a_panic() {
         assert!(Font::parse("garbage").is_err());
         assert!(Font::parse("FONT_ASCENT 1\nFONT_DESCENT 0\nENCODING 65\nBBX 1 1 0 0\nBITMAP\nZZ\nENDCHAR\n").is_err());
+    }
+
+    #[test]
+    fn a_tall_glyph_and_an_unencoded_glyph_with_an_index_load() {
+        let tall = "FONT_ASCENT 1\nFONT_DESCENT 0\nENCODING 65\nDWIDTH 1 0\nBBX 1 3 0 0\nBITMAP\n80\n80\n80\nENDCHAR\n";
+        assert!(Font::parse(tall).is_ok());
+        let none = "FONT_ASCENT 1\nFONT_DESCENT 0\nENCODING -1 5\nDWIDTH 1 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n";
+        let text = format!("{none}ENCODING 65\nDWIDTH 1 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n");
+        assert_eq!(Font::parse(&text).unwrap().width("A"), 1);
     }
 }

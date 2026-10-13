@@ -7,6 +7,11 @@ use std::{collections::HashMap, io::Cursor, sync::Arc};
 
 const MAX_SOUNDS: usize = 32;
 
+// `clamp` lets NaN through.
+fn unit(v: f32) -> f32 {
+    if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) }
+}
+
 // The numbers behind the sound, kept apart from the device so the silent build and the tests share them.
 struct Mix {
     volume: f32,
@@ -98,7 +103,7 @@ impl Audio {
 
     /// Master volume, 0..=1, for sounds started from now on and for the music.
     pub fn set_volume(&mut self, v: f32) {
-        self.mix.volume = v.clamp(0.0, 1.0);
+        self.mix.volume = unit(v);
         self.retune();
     }
 
@@ -109,7 +114,7 @@ impl Audio {
     /// The volume of sounds started from now on, 0..=1, on top of the master volume; a sound already playing keeps
     /// the volume it started with.
     pub fn set_sfx_volume(&mut self, v: f32) {
-        self.mix.sfx_volume = v.clamp(0.0, 1.0);
+        self.mix.sfx_volume = unit(v);
     }
 
     pub fn music_volume(&self) -> f32 {
@@ -118,7 +123,7 @@ impl Audio {
 
     /// The music's own volume, 0..=1, on top of the master volume.
     pub fn set_music_volume(&mut self, v: f32) {
-        self.mix.music_volume = v.clamp(0.0, 1.0);
+        self.mix.music_volume = unit(v);
         self.retune();
     }
 
@@ -267,5 +272,12 @@ mod tests {
         let mut a = Audio::disabled();
         a.set_max_sounds(0);
         assert_eq!(a.mix.max_sounds, 1);
+    }
+
+    #[test]
+    fn a_volume_that_is_not_a_number_is_silence() {
+        let mut a = Audio::disabled();
+        a.set_volume(f32::NAN);
+        assert_eq!(a.volume(), 0.0);
     }
 }

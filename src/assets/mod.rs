@@ -11,7 +11,8 @@ pub(crate) use watch::Watcher;
 
 /// The text of a file, with the path in the error.
 pub(crate) fn read_text(path: &str) -> Result<String, String> {
-    std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    Ok(text.strip_prefix('\u{feff}').map(str::to_string).unwrap_or(text))
 }
 
 /// Writes beside the target, flushes to disk and renames over it, so a crash leaves the old file or the whole new
@@ -28,7 +29,7 @@ pub(crate) fn write_atomic(path: &str, text: &str) -> std::io::Result<()> {
 /// Like `read_text`, but a file that does not exist is `Ok(None)`.
 pub(crate) fn read_text_if_exists(path: &str) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
+        Ok(text) => Ok(Some(text.strip_prefix('\u{feff}').map(str::to_string).unwrap_or(text))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("{path}: {e}")),
     }
@@ -124,5 +125,15 @@ mod tests {
     fn same_path_loads_once() {
         let mut a = Assets::default();
         assert!(Arc::ptr_eq(&a.sprite("assets/images/ball.png"), &a.sprite("assets/images/ball.png")));
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_the_text() {
+        let path = std::env::temp_dir().join(format!("engine-bom-{}.txt", std::process::id()));
+        let path = path.to_str().unwrap();
+        std::fs::write(path, "\u{feff}a = 1\n").unwrap();
+        assert_eq!(read_text(path).unwrap(), "a = 1\n");
+        assert_eq!(read_text_if_exists(path).unwrap().unwrap(), "a = 1\n");
+        std::fs::remove_file(path).unwrap();
     }
 }

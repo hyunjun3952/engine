@@ -69,6 +69,9 @@ impl Tilemap {
         if let Some(t) = legend.iter().find(|t| t.id == 0 || matches!(t.ch, b'.' | b' ')) {
             return Err(format!("legend entry {:?} would hide an empty tile or the id 0", t.ch as char));
         }
+        if size == 0 {
+            return Err("the tile size must be positive".into());
+        }
         let columns = sheet.size().0 / size;
         if let Some(t) = legend.iter().find(|t| t.id as usize > columns) {
             return Err(format!(
@@ -77,7 +80,8 @@ impl Tilemap {
             ));
         }
         for t in legend.iter().filter(|t| t.auto) {
-            if t.id as usize + 15 > columns {
+            // The flag table has 256 entries, so ids past 240 cannot own 16.
+            if t.id as usize + 15 > columns.min(255) {
                 return Err(format!(
                     "autotile {:?} needs tiles {}..={} but the sheet has {columns}",
                     t.ch as char,
@@ -146,9 +150,9 @@ impl Tilemap {
         self.stamp
     }
 
-    /// The tile id at a grid cell, 0 for empty.
+    /// The tile id at a grid cell, 0 for empty (and for a cell outside the map).
     pub fn tile(&self, tx: usize, ty: usize) -> u8 {
-        self.tiles[ty * self.w + tx]
+        if tx < self.w && ty < self.h { self.tiles[ty * self.w + tx] } else { 0 }
     }
 
     /// Replaces a tile, for digging or building (the id must be on the sheet, or 0 to empty the cell). Physics
@@ -233,6 +237,7 @@ impl Tilemap {
         let (tx0, ty0) = ((view.x / s).floor().max(0.0) as usize, (view.y / s).floor().max(0.0) as usize);
         let tx1 = (((view.x + view.w) / s).ceil().max(0.0) as usize).min(self.w);
         let ty1 = (((view.y + view.h) / s).ceil().max(0.0) as usize).min(self.h);
+        let (tx0, ty0) = (tx0.min(tx1), ty0.min(ty1));
         let (mut back, mut front) = (Vec::new(), Vec::new());
         for ty in ty0..ty1 {
             for tx in tx0..tx1 {
@@ -434,5 +439,16 @@ mod tests {
         let sheet = Sprite::test_tiles();
         let mut map = Tilemap::from_ascii(&["."], 16, sheet);
         map.set(0, 0, 200);
+    }
+
+    #[test]
+    fn a_view_past_the_map_a_cell_outside_it_and_bad_sizes_do_not_panic() {
+        let map = Tilemap::from_ascii(&["#.", "#."], 2, wide_sheet());
+        assert!(map.draw_list(Rect { x: 1000.0, y: 1000.0, w: 64.0, h: 64.0 }).is_empty());
+        assert_eq!((map.tile(2, 0), map.tile(0, 5)), (0, 0));
+        assert!(Tilemap::try_from_ascii(&["#"], 0, wide_sheet()).is_err());
+        let wide = Arc::new(Sprite::from_pixels(600, 2, vec![0; 1200]));
+        let auto = Tile { ch: b'#', id: 250, solid: true, front: false, auto: true };
+        assert!(Tilemap::try_from_ascii_with(&["#"], 2, wide, &[auto]).is_err());
     }
 }

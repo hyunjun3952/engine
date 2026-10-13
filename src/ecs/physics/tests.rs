@@ -781,3 +781,19 @@ fn turning_a_sleeping_body_wakes_it() {
     run(&mut p, &mut w, None, 1);
     assert!(!p.asleep(e), "a body the game turned stayed asleep inside the floor");
 }
+
+#[test]
+fn a_sleeper_wakes_when_the_game_moves_the_fixed_body_it_rests_on() {
+    let (mut w, mut p) = (World::new(), Physics::default());
+    let plat = w.spawn((Body(Rect { x: 0.0, y: 100.0, w: 200.0, h: 10.0 }), RigidBody::fixed()));
+    let b = boxed(&mut w, square(50.0, 80.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    for _ in 0..120 {
+        p.step(&mut w, None, DT);
+    }
+    assert!(p.asleep(b));
+    w.get::<&mut Body>(plat).unwrap().0.x = 1000.0;
+    for _ in 0..60 {
+        p.step(&mut w, None, DT);
+    }
+    assert!(state(&w, b).0.y > 200.0, "it must fall once the platform is gone");
+}

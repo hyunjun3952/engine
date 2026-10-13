@@ -376,7 +376,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         // display, bandwidth) on an identical picture.
         if !ticked && drawn {
             win.update();
-            std::thread::sleep(std::time::Duration::from_secs_f32((dt - acc).clamp(0.001, dt)));
+            std::thread::sleep(std::time::Duration::from_secs_f32((dt - acc).max(0.001).min(dt)));
             continue;
         }
         drawn = true;

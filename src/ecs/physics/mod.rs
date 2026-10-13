@@ -97,6 +97,8 @@ pub struct Physics {
     known: Vec<Entity>,
     last_gravity: V2,
     last_tiles: Option<u64>,
+    // Where the immovable bodies were last step: one the game moved must wake what sleeps near it.
+    walls: FxMap<Entity, Rect>,
     sweep: Sweep,
 }
 
@@ -111,6 +113,7 @@ impl Default for Physics {
             known: Vec::new(),
             last_gravity: (0.0, 900.0),
             last_tiles: None,
+            walls: FxMap::default(),
             sweep: Sweep::default(),
         }
     }
@@ -373,6 +376,17 @@ impl Physics {
             .filter(|(e, n)| n.inv_mass > 0.0 && !self.asleep(**e) && speed(n) > WAKE_SPEED)
             .map(|(_, n)| grow(n.bounds(), speed(n) * dt + 1.0))
             .collect();
+        let mut movers = movers;
+        let mut walls = FxMap::default();
+        for (e, n) in ents.iter().zip(nodes.iter()).filter(|(_, n)| n.inv_mass == 0.0) {
+            if let Some(old) = self.walls.get(e).filter(|old| **old != n.rect) {
+                let (x, y) = (old.x.min(n.rect.x), old.y.min(n.rect.y));
+                let (x1, y1) = ((old.x + old.w).max(n.rect.x + n.rect.w), (old.y + old.h).max(n.rect.y + n.rect.h));
+                movers.push(grow(Rect { x, y, w: x1 - x, h: y1 - y }, 1.0));
+            }
+            walls.insert(*e, n.rect);
+        }
+        self.walls = walls;
         for (e, n) in ents.iter().zip(nodes.iter_mut()) {
             if self.asleep(*e) && movers.iter().any(|m| m.overlaps(&n.bounds())) {
                 self.rest.remove(e);

@@ -91,6 +91,7 @@ impl Camera {
     }
 
     pub fn shake(&mut self, amplitude: f32, secs: f32) {
+        let amplitude = if amplitude.is_finite() { amplitude.max(0.0) } else { 0.0 };
         self.shake = Some((amplitude, Timer::once(secs.max(0.0))));
     }
 
@@ -252,5 +253,16 @@ mod tests {
             c.tick(0.02);
         }
         assert_eq!(c.offset(), (450.0, 0.0));
+    }
+
+    #[test]
+    fn a_shake_that_is_not_a_finite_amount_does_nothing() {
+        for amplitude in [f32::NAN, f32::INFINITY, -3.0] {
+            let mut c = Camera::new(100.0, 100.0);
+            c.shake(amplitude, 0.1);
+            c.tick(0.05);
+            c.tick(0.05);
+            assert_eq!(c.offset(), (0.0, 0.0), "{amplitude}");
+        }
     }
 }
