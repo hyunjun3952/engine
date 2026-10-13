@@ -13,7 +13,7 @@ pub use app::{
     Actions, Config, Ctx, Ease, Held, Input, Key, Lockstep, MouseButton, Packet, Pad, PadAxis, RenderMode, Rng, Save,
     Scene, StepInput, Timer, Trans, Tween, Udp, run,
 };
-pub use assets::{Assets, Atlas, Audio, Sound};
+pub use assets::{Assets, Atlas, Audio, Bus, Sound};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
     Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, Persist,
