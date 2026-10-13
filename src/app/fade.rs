@@ -18,7 +18,8 @@ impl Fade {
 
     // `secs` is the whole fade, half going dark and half coming back.
     pub(crate) fn start(&mut self, trans: Trans, secs: f32) {
-        self.0 = Phase::Out(Timer::once(secs / 2.0), Box::new(trans), secs / 2.0);
+        let half = secs.max(0.0) / 2.0;
+        self.0 = Phase::Out(Timer::once(half), Box::new(trans), half);
     }
 
     pub(crate) fn blocking(&self) -> bool {

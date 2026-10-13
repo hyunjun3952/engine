@@ -48,7 +48,7 @@ impl Camera {
 
     /// Eases the zoom to `z` over `secs` seconds, from the fixed update (`tick`).
     pub fn zoom_to(&mut self, z: f32, secs: f32) {
-        if secs <= 0.0 {
+        if secs.is_nan() || secs <= 0.0 {
             return self.set_zoom(z);
         }
         self.zooming = Some(Tween::new(self.zoom, z.clamp(MIN_ZOOM, MAX_ZOOM), secs, Ease::OutQuad));
@@ -91,7 +91,7 @@ impl Camera {
     }
 
     pub fn shake(&mut self, amplitude: f32, secs: f32) {
-        self.shake = Some((amplitude, Timer::once(secs)));
+        self.shake = Some((amplitude, Timer::once(secs.max(0.0))));
     }
 
     pub(crate) fn tick(&mut self, dt: f32) {
@@ -184,6 +184,16 @@ mod tests {
         c.set_zoom(0.5);
         c.follow(&at(500.0), (100.0, 100.0), 10.0);
         assert_eq!(c.offset(), (0.0, 0.0), "a view bigger than the world stays at its corner");
+    }
+
+    #[test]
+    fn a_negative_or_missing_duration_is_not_a_crash() {
+        let mut c = Camera::new(100.0, 100.0);
+        c.shake(4.0, -1.0);
+        c.shake(4.0, f32::NAN);
+        c.zoom_to(2.0, f32::NAN);
+        assert_eq!(c.zoom(), 2.0);
+        c.tick(0.1);
     }
 
     #[test]

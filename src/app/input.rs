@@ -17,6 +17,10 @@ pub struct Input {
     mouse_prev: Option<(f32, f32)>,
     buttons: [bool; 5],
     buttons_prev: [bool; 5],
+    // What was seen held at any poll since the last step, so a tap that ends between two steps still counts.
+    latched: HashSet<Key>,
+    latched_pad: HashSet<Pad>,
+    latched_buttons: [bool; 5],
     wheel: f32,
     typed: Vec<char>,
     typing: Arc<Mutex<Vec<char>>>,
@@ -52,18 +56,27 @@ impl Input {
     }
 
     pub(crate) fn poll(&mut self, win: &minifb::Window, canvas: (usize, usize)) {
-        self.down = win.get_keys().into_iter().collect();
-        self.pad_down = self.pad.poll();
+        let (keys, pads) = (win.get_keys().into_iter().collect(), self.pad.poll());
+        let buttons = MOUSE.map(|b| win.get_mouse_down(b));
+        self.observe(keys, pads, buttons);
         let (ww, wh) = win.get_size();
         let (win_size, canvas) = ((ww as f32, wh as f32), (canvas.0 as f32, canvas.1 as f32));
         let at = win.get_unscaled_mouse_pos(minifb::MouseMode::Discard);
         self.mouse = at.and_then(|p| canvas_pos(p, win_size, canvas));
-        self.buttons = MOUSE.map(|b| win.get_mouse_down(b));
         self.wheel += win.get_scroll_wheel().map_or(0.0, |(_, y)| y);
         if let Ok(mut chars) = self.typing.lock() {
             self.typed.extend(chars.drain(..).filter(|c| !c.is_control()));
         }
     }
+    // The step sees everything held since the last one, not just what is held at the final poll.
+    fn observe(&mut self, keys: HashSet<Key>, pads: HashSet<Pad>, buttons: [bool; 5]) {
+        self.latched.extend(keys);
+        self.latched_pad.extend(pads);
+        self.latched_buttons = std::array::from_fn(|i| self.latched_buttons[i] || buttons[i]);
+        (self.down, self.pad_down, self.buttons) =
+            (self.latched.clone(), self.latched_pad.clone(), self.latched_buttons);
+    }
+
     #[cfg(test)]
     pub(crate) fn hold(&mut self, keys: &[Key]) {
         self.down = keys.iter().copied().collect();
@@ -93,6 +106,7 @@ impl Input {
         self.prev = self.down.clone();
         self.pad_prev = self.pad_down.clone();
         self.buttons_prev = self.buttons;
+        (self.latched, self.latched_pad, self.latched_buttons) = Default::default();
         self.mouse_prev = self.mouse;
         self.wheel = 0.0;
         self.typed.clear();
@@ -106,12 +120,24 @@ impl Input {
         self.pad_actions.insert(action.to_string(), pads.to_vec());
     }
 
+    #[cfg(test)]
     pub(crate) fn load_text(&mut self, text: &str) -> Result<(), String> {
-        for (action, keys, pads) in parse(text)? {
-            self.bind(&action, &keys);
-            self.bind_pad(&action, &pads);
+        self.load_over(text, &[])
+    }
+
+    /// Puts `base` back first, so an action whose line left the file gets its default again; nothing changes if the
+    /// text does not parse.
+    pub(crate) fn load_over(&mut self, text: &str, base: &[Binding]) -> Result<(), String> {
+        let parsed = parse(text)?;
+        for (action, keys, pads) in base.iter().chain(&parsed) {
+            self.bind(action, keys);
+            self.bind_pad(action, pads);
         }
         Ok(())
+    }
+
+    pub(crate) fn bindings(&self) -> Vec<Binding> {
+        self.actions().into_iter().map(|a| (a.to_string(), self.keys(a).to_vec(), self.pads(a).to_vec())).collect()
     }
 
     pub(crate) fn to_text(&self) -> String {
@@ -315,7 +341,8 @@ key_names!(
     RightSuper,
 );
 
-type Parsed = Vec<(String, Vec<Key>, Vec<Pad>)>;
+pub(crate) type Binding = (String, Vec<Key>, Vec<Pad>);
+type Parsed = Vec<Binding>;
 
 fn parse(text: &str) -> Result<Parsed, String> {
     let mut out = Vec::new();
@@ -378,6 +405,28 @@ mod tests {
         assert_eq!(input_with(&[Key::A]).axis("left", "right"), -1.0);
         assert_eq!(input_with(&[Key::Right]).axis("left", "right"), 1.0);
         assert_eq!(input_with(&[Key::A, Key::D]).axis("left", "right"), 0.0);
+    }
+
+    #[test]
+    fn a_tap_that_ends_before_the_step_still_counts_once() {
+        let mut i = input_with(&[]);
+        i.observe([Key::Space].into(), HashSet::new(), [true, false, false, false, false]);
+        i.observe(HashSet::new(), HashSet::new(), [false; 5]);
+        assert!(i.pressed("jump") && i.mouse_pressed(MouseButton::Left));
+        i.end_step();
+        i.observe(HashSet::new(), HashSet::new(), [false; 5]);
+        assert!(!i.down("jump") && !i.pressed("jump") && !i.mouse_down(MouseButton::Left));
+        assert!(i.mouse_released(MouseButton::Left));
+    }
+
+    #[test]
+    fn a_reloaded_file_puts_back_the_default_of_an_action_it_no_longer_names() {
+        let (mut i, base) = (input_with(&[]), input_with(&[]).bindings());
+        i.load_over("jump = Z\nleft = A\n", &base).unwrap();
+        i.load_over("jump = Z\n", &base).unwrap();
+        assert_eq!((i.describe("jump"), i.describe("left")), ("Z".into(), "Left A".into()));
+        assert!(i.load_over("jump = nonsense\n", &base).is_err());
+        assert_eq!(i.describe("jump"), "Z", "a file that does not parse changes nothing");
     }
 
     #[test]

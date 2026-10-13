@@ -31,11 +31,11 @@ impl Mix {
 
     fn fade_in(&mut self, secs: f32) {
         self.fade_gain = 0.0;
-        self.fade = Some((Tween::new(0.0, 1.0, secs, Ease::Linear), false));
+        self.fade = Some((Tween::new(0.0, 1.0, secs.max(0.0), Ease::Linear), false));
     }
 
     fn fade_out(&mut self, secs: f32) {
-        self.fade = Some((Tween::new(self.fade_gain, 0.0, secs, Ease::Linear), true));
+        self.fade = Some((Tween::new(self.fade_gain, 0.0, secs.max(0.0), Ease::Linear), true));
     }
 
     // Advances a fade and says whether the music should stop now.

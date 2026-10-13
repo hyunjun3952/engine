@@ -77,6 +77,8 @@ pub struct Ctx {
     pub(crate) bindings_path: Option<String>,
     // The bindings as the game set them before the first file was applied, so a save keeps only the player's changes.
     defaults: Option<String>,
+    // The same defaults as bindings, to put back what a reloaded file no longer mentions.
+    base: Option<Vec<input::Binding>>,
     pub(crate) dt: f32,
     pub(crate) w: usize,
     pub(crate) h: usize,
@@ -93,6 +95,7 @@ impl Ctx {
             rng: Rng::new(1),
             bindings_path: None,
             defaults: None,
+            base: None,
             dt,
             w,
             h,
@@ -111,10 +114,9 @@ impl Ctx {
         self.bindings_path = Some(path.to_string());
         self.defaults.get_or_insert_with(|| self.input.to_text());
         self.watch(path);
-        match crate::assets::read_text_if_exists(path)? {
-            Some(text) => self.input.load_text(&text).map_err(|e| format!("{path}: {e}")),
-            None => Ok(()),
-        }
+        let base = self.base.get_or_insert_with(|| self.input.bindings());
+        let text = crate::assets::read_text_if_exists(path)?.unwrap_or_default();
+        self.input.load_over(&text, base).map_err(|e| format!("{path}: {e}"))
     }
 
     /// Writes the bindings, only those that differ from what the game had bound when it first called

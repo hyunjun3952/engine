@@ -27,7 +27,7 @@ pub fn burst(world: &mut World, rng: &mut Rng, at: (f32, f32), b: &Burst) {
             Particle {
                 vx: angle.cos() * speed,
                 vy: angle.sin() * speed,
-                life: Timer::once(b.life),
+                life: Timer::once(b.life.max(0.0)),
                 gravity: b.gravity,
             },
         ));

@@ -44,7 +44,7 @@ impl Save {
     fn to_text(&self) -> String {
         let mut out = String::new();
         for (k, v) in &self.map {
-            out += &format!("{k} = {}\n", v.replace('\\', "\\\\").replace('\n', "\\n"));
+            out += &format!("{k} = {}\n", v.replace('\\', "\\\\").replace('\n', "\\n").replace('\r', "\\r"));
         }
         out
     }
@@ -68,7 +68,7 @@ impl Save {
 }
 
 fn valid_key(key: &str) -> bool {
-    !key.is_empty() && !key.contains(['=', '#']) && key.trim() == key
+    !key.is_empty() && !key.contains(['=', '#', '\n', '\r']) && key.trim() == key
 }
 
 fn unescape(s: &str) -> String {
@@ -78,6 +78,10 @@ fn unescape(s: &str) -> String {
         match (c, chars.clone().next()) {
             ('\\', Some('n')) => {
                 out.push('\n');
+                chars.next();
+            }
+            ('\\', Some('r')) => {
+                out.push('\r');
                 chars.next();
             }
             ('\\', Some('\\')) => {
@@ -105,6 +109,14 @@ mod tests {
         assert_eq!(back.get::<u32>("score"), Some(120));
         assert_eq!(back.get::<f32>("speed"), Some(1.5));
         assert_eq!(back.get::<String>("name").as_deref(), Some("한글 이름 = a # b\nsecond \\n line "));
+    }
+
+    #[test]
+    fn a_carriage_return_survives_and_a_key_with_a_line_break_is_refused() {
+        let mut s = Save::new();
+        s.set("k", "x\r\ny\r");
+        assert_eq!(Save::parse(&s.to_text()).unwrap().get::<String>("k").as_deref(), Some("x\r\ny\r"));
+        assert!(!valid_key("a\nb") && !valid_key("a\rb"));
     }
 
     #[test]

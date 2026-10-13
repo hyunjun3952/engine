@@ -478,13 +478,13 @@ impl Gpu {
                     self.quad(Tex::Font, (x, y, x + size, y + size), (u0, 0.0, u1, 1.0), rgba(*color, 1.0));
                 }
                 Paint::Tiles { sheet, size, tiles } => {
-                    let (tex, (sw, _)) = self.texture(sheet);
+                    let (tex, (sw, sh)) = self.texture(sheet);
                     let sz = *size as f32;
                     for &(gx, gy, id) in tiles {
                         let (x, y) = (r.x.trunc() + (gx * size) as f32, r.y.trunc() + (gy * size) as f32);
                         let src = Paint::tile_src(id, *size);
                         let u0 = src.x / sw;
-                        self.quad(tex, (x, y, x + sz, y + sz), (u0, 0.0, u0 + sz / sw, 1.0), [1.0; 4]);
+                        self.quad(tex, (x, y, x + sz, y + sz), (u0, 0.0, u0 + sz / sw, sz / sh), [1.0; 4]);
                     }
                 }
                 Paint::Mask { sheet, src, color } => {
@@ -662,6 +662,24 @@ mod tests {
             off.iter().map(|i| i / 640).min().zip(off.iter().map(|i| i / 640).max()),
             off.first().map(|i| (i % 640, i / 640))
         );
+    }
+
+    #[test]
+    fn tiles_cut_from_a_sheet_taller_than_a_tile_match_between_the_backends() {
+        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let px = (0..64 * 32).map(|i| {
+            let (x, y) = (i % 64, i / 64);
+            let shade = (x as u32 / 16 + 1) * 60;
+            if y < 16 { 0xFF00_0000 | (shade << 16) | ((shade / 2) << 8) } else { 0xFF00_FF00 }
+        });
+        let sheet = Arc::new(Sprite::from_pixels(64, 32, px.collect()));
+        let map = Tilemap::from_ascii(&["#+#+", "+#+#"], 16, sheet);
+        let mut g = Gfx::new(640, 360);
+        g.draw(map.draw_list(g.view()));
+        assert_same(&mut gpu, &g, "");
     }
 
     #[test]
