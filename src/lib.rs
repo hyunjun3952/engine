@@ -23,5 +23,8 @@ pub use render::{
     Blend, Camera, DrawCmd, Font, Gfx, Paint, Rect, Slope, Sprite, Style, Tile, TileHit, Tiled, TiledObject, Tilemap,
     Transform,
 };
-pub use ui::{Button, Checkbox, Menu, Rebind, TextField, clicked, draw_bar, draw_panel, hovered, slider};
+pub use ui::{
+    Button, Checkbox, Focus, Layout, Menu, Rebind, ScrollList, TextField, clicked, draw_bar, draw_panel, draw_wrapped,
+    grid, hovered, slider, wrap,
+};
 pub use vec2::Vec2;

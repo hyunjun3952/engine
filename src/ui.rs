@@ -252,6 +252,258 @@ impl Menu {
     }
 }
 
+/// Splits an area into consecutive rectangles along one axis, `gap` pixels apart, each as wide (or tall) as the
+/// area is across.
+pub struct Layout {
+    area: Rect,
+    vertical: bool,
+    gap: f32,
+    used: f32,
+}
+
+impl Layout {
+    /// Rectangles stacked from the top.
+    pub fn column(area: Rect, gap: f32) -> Self {
+        Layout { area, vertical: true, gap, used: 0.0 }
+    }
+
+    /// Rectangles laid from the left.
+    pub fn row(area: Rect, gap: f32) -> Self {
+        Layout { area, vertical: false, gap, used: 0.0 }
+    }
+
+    /// The next `size` along the axis, cut short by what is left (and empty once nothing is).
+    pub fn next(&mut self, size: f32) -> Rect {
+        let along = if self.vertical { self.area.h } else { self.area.w };
+        let size = size.min((along - self.used).max(0.0)).max(0.0);
+        let r = if self.vertical {
+            Rect { y: self.area.y + self.used, h: size, ..self.area }
+        } else {
+            Rect { x: self.area.x + self.used, w: size, ..self.area }
+        };
+        self.used += size + self.gap;
+        r
+    }
+
+    /// Whatever is left.
+    pub fn rest(&mut self) -> Rect {
+        let along = if self.vertical { self.area.h } else { self.area.w };
+        self.next(along - self.used)
+    }
+}
+
+/// `cols` by `rows` equal cells filling `area`, left to right and then down, `gap` apart.
+pub fn grid(area: Rect, cols: usize, rows: usize, gap: f32) -> Vec<Rect> {
+    let (cols, rows) = (cols.max(1), rows.max(1));
+    let w = (area.w - gap * (cols - 1) as f32) / cols as f32;
+    let h = (area.h - gap * (rows - 1) as f32) / rows as f32;
+    (0..cols * rows)
+        .map(|i| Rect { x: area.x + (i % cols) as f32 * (w + gap), y: area.y + (i / cols) as f32 * (h + gap), w, h })
+        .collect()
+}
+
+/// Breaks `text` into lines at most `max` pixels wide: at spaces, at line breaks, and inside a word that is too long
+/// for a line (a run of Korean without spaces, say). A line always holds at least one character.
+pub fn wrap(font: &Font, text: &str, max: i32) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        let mut line = String::new();
+        for word in paragraph.split(' ') {
+            let joined = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+            if font.width(&joined) <= max {
+                line = joined;
+                continue;
+            }
+            if !line.is_empty() {
+                lines.push(std::mem::take(&mut line));
+            }
+            for ch in word.chars() {
+                let longer = format!("{line}{ch}");
+                if !line.is_empty() && font.width(&longer) > max {
+                    lines.push(std::mem::replace(&mut line, ch.to_string()));
+                } else {
+                    line = longer;
+                }
+            }
+        }
+        lines.push(line);
+    }
+    lines
+}
+
+/// Draws `text` wrapped to the width of `r` and as many lines as fit its height; returns the number of lines the
+/// whole text takes, so a caller can tell it was cut off.
+pub fn draw_wrapped(gfx: &mut Gfx, font: &Font, text: &str, r: &Rect, color: u32) -> usize {
+    let lines = wrap(font, text, r.w as i32);
+    let fit = ((r.h as i32) / font.line_height().max(1)).max(0) as usize;
+    for (i, line) in lines.iter().take(fit).enumerate() {
+        gfx.text_font(font, line, r.x as i32, r.y as i32 + i as i32 * font.line_height(), color);
+    }
+    lines.len()
+}
+
+/// A list too long for its rectangle: arrow keys (as actions) move the highlight, the wheel scrolls, a click picks.
+pub struct ScrollList {
+    items: Vec<String>,
+    sel: usize,
+    top: usize,
+}
+
+impl ScrollList {
+    pub fn new(items: &[&str]) -> Self {
+        ScrollList { items: items.iter().map(|s| s.to_string()).collect(), sel: 0, top: 0 }
+    }
+
+    pub fn selected(&self) -> usize {
+        self.sel
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    fn rows(r: &Rect, font: &Font) -> usize {
+        ((r.h as i32) / row_metrics(font).0).max(1) as usize
+    }
+
+    // Keeps the window on the list and the highlighted row inside it.
+    fn settle(&mut self, rows: usize) {
+        self.sel = self.sel.min(self.items.len().saturating_sub(1));
+        self.top = self.top.min(self.items.len().saturating_sub(rows));
+        if self.sel < self.top {
+            self.top = self.sel;
+        } else if self.sel >= self.top + rows {
+            self.top = self.sel + 1 - rows;
+        }
+    }
+
+    /// Moves the highlight by `delta` rows (not wrapping), keeping it in view.
+    pub fn select(&mut self, delta: isize, r: &Rect, font: &Font) {
+        self.sel = (self.sel as isize + delta).clamp(0, self.items.len().saturating_sub(1) as isize) as usize;
+        self.settle(Self::rows(r, font));
+    }
+
+    /// `up`/`down` move the highlight and bring it into view, the wheel over `r` scrolls three rows a notch (the
+    /// highlight may leave the view), a click on a row highlights it and returns its index, as does `accept` for the
+    /// highlighted row.
+    pub fn update(
+        &mut self,
+        input: &Input,
+        r: &Rect,
+        font: &Font,
+        up: &str,
+        down: &str,
+        accept: &str,
+    ) -> Option<usize> {
+        let (rows, step) = (Self::rows(r, font), row_metrics(font).0);
+        if input.pressed(up) {
+            self.select(-1, r, font);
+        }
+        if input.pressed(down) {
+            self.select(1, r, font);
+        }
+        if hovered(input, r) && input.wheel() != 0.0 {
+            let max = self.items.len().saturating_sub(rows) as isize;
+            self.top = (self.top as isize - 3 * input.wheel().signum() as isize).clamp(0, max) as usize;
+        }
+        self.sel = self.sel.min(self.items.len().saturating_sub(1));
+        self.top = self.top.min(self.items.len().saturating_sub(rows));
+        if let Some((_, y)) = input.mouse().filter(|_| clicked(input, r)) {
+            let row = self.top + ((y - r.y) as i32 / step) as usize;
+            if row < self.items.len() {
+                self.sel = row;
+                return Some(row);
+            }
+        }
+        input.pressed(accept).then_some(self.sel).filter(|_| !self.items.is_empty())
+    }
+
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, r: &Rect, color: u32, active: u32) {
+        let (rows, (step, indent)) = (Self::rows(r, font), row_metrics(font));
+        for (n, item) in self.items.iter().enumerate().skip(self.top).take(rows) {
+            let y = r.y as i32 + (n - self.top) as i32 * step;
+            let (mark, shade) = if n == self.sel { (">", active) } else { (" ", color) };
+            gfx.text_font(font, mark, r.x as i32, y, shade);
+            gfx.text_font(font, item, r.x as i32 + indent, y, shade);
+        }
+        if self.items.len() > rows {
+            let (track, total) = (r.h, self.items.len() as f32);
+            let thumb = Rect {
+                x: r.x + r.w - 2.0,
+                y: r.y + track * self.top as f32 / total,
+                w: 2.0,
+                h: (track * rows as f32 / total).max(3.0),
+            };
+            gfx.fill(&thumb, EDGE);
+        }
+    }
+}
+
+/// Which of several widgets has the keyboard or pad focus: arrows (as actions) jump to the nearest rectangle in
+/// that direction, hovering one with the mouse takes the focus, and accept (or a click) picks it.
+#[derive(Default)]
+pub struct Focus {
+    index: usize,
+}
+
+impl Focus {
+    pub fn new() -> Self {
+        Focus::default()
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// `dirs` are the actions for left, right, up and down. Returns the focused index on accept, or on a click.
+    pub fn update(&mut self, input: &Input, rects: &[Rect], dirs: [&str; 4], accept: &str) -> Option<usize> {
+        if rects.is_empty() {
+            return None;
+        }
+        self.index = self.index.min(rects.len() - 1);
+        let steps = [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)];
+        for (action, dir) in dirs.iter().zip(steps) {
+            if input.pressed(action) {
+                self.index = Self::nearest(rects, self.index, dir).unwrap_or(self.index);
+            }
+        }
+        if input.mouse_moved() {
+            if let Some(over) = rects.iter().position(|r| hovered(input, r)) {
+                self.index = over;
+            }
+        }
+        let click = input.mouse().is_some() && clicked(input, &rects[self.index]);
+        (input.pressed(accept) || click).then_some(self.index)
+    }
+
+    // The rectangle ahead in `dir` whose centre is closest, counting sideways drift double so a neighbour in line wins.
+    fn nearest(rects: &[Rect], from: usize, dir: (f32, f32)) -> Option<usize> {
+        let (cx, cy) = rects[from].center();
+        rects
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i != from)
+            .filter_map(|(i, r)| {
+                let (x, y) = r.center();
+                let (ahead, aside) = ((x - cx) * dir.0 + (y - cy) * dir.1, (x - cx) * dir.1 + (y - cy) * dir.0);
+                (ahead > 0.5).then_some((i, ahead + 2.0 * aside.abs()))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+
+    /// An outline around the focused rectangle, two pixels out.
+    pub fn draw(&self, gfx: &mut Gfx, rects: &[Rect], color: u32) {
+        if let Some(r) = rects.get(self.index) {
+            gfx.outline(&Rect { x: r.x - 2.0, y: r.y - 2.0, w: r.w + 4.0, h: r.h + 4.0 }, color);
+        }
+    }
+}
+
 /// A key remapping screen with fixed Up/Down/Enter/Escape so it cannot lock the player out; `update` is true on a change.
 pub struct Rebind {
     menu: Menu,
@@ -525,5 +777,141 @@ mod tests {
         let rows = &screen.menu.items;
         assert_eq!((rows[0].as_str(), rows[1].as_str()), ("fire: Z", "jump: A  (also left)"), "{rows:?}");
         assert_eq!(rows[2], "left: Left A  (also jump)");
+    }
+
+    #[test]
+    fn a_column_hands_out_rectangles_down_the_area_and_runs_dry_politely() {
+        let mut col = Layout::column(Rect { x: 10.0, y: 20.0, w: 100.0, h: 50.0 }, 4.0);
+        assert_eq!(col.next(10.0), Rect { x: 10.0, y: 20.0, w: 100.0, h: 10.0 });
+        assert_eq!(col.next(10.0), Rect { x: 10.0, y: 34.0, w: 100.0, h: 10.0 });
+        assert_eq!(col.rest(), Rect { x: 10.0, y: 48.0, w: 100.0, h: 22.0 });
+        assert_eq!(col.next(10.0).h, 0.0, "nothing left");
+        let mut row = Layout::row(Rect { x: 0.0, y: 0.0, w: 30.0, h: 8.0 }, 0.0);
+        assert_eq!(row.next(20.0).w, 20.0);
+        assert_eq!(row.next(20.0), Rect { x: 20.0, y: 0.0, w: 10.0, h: 8.0 }, "cut short at the edge");
+    }
+
+    #[test]
+    fn a_grid_fills_the_area_with_equal_cells() {
+        let cells = grid(Rect { x: 0.0, y: 0.0, w: 22.0, h: 10.0 }, 2, 2, 2.0);
+        assert_eq!(cells.len(), 4);
+        assert_eq!(cells[0], Rect { x: 0.0, y: 0.0, w: 10.0, h: 4.0 });
+        assert_eq!(cells[3], Rect { x: 12.0, y: 6.0, w: 10.0, h: 4.0 });
+        assert_eq!(grid(Rect { x: 0.0, y: 0.0, w: 5.0, h: 5.0 }, 0, 0, 1.0).len(), 1, "never empty from a zero count");
+    }
+
+    #[test]
+    fn wrapped_lines_fit_keep_the_words_and_break_a_long_run_of_korean_anywhere() {
+        let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let max = font.width("aaaa bbbb");
+        assert_eq!(wrap(&font, "aaaa bbbb cccc", max), ["aaaa bbbb", "cccc"]);
+        assert_eq!(wrap(&font, "a\n\nb", 100), ["a", "", "b"], "line breaks stay");
+        assert_eq!(wrap(&font, "", 100), [""]);
+        let long = "가나다라마바사아자차";
+        let lines = wrap(&font, long, font.width("가나다"));
+        assert!(lines.len() >= 4 && lines.iter().all(|l| font.width(l) <= font.width("가나다")), "{lines:?}");
+        assert_eq!(lines.concat(), long, "no character lost or added");
+        assert_eq!(wrap(&font, "가나", 1), ["가", "나"], "a width below one glyph still moves on");
+    }
+
+    #[test]
+    fn drawing_wrapped_text_stops_at_the_height_and_reports_the_full_length() {
+        let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let mut g = Gfx::new(200, 100);
+        let r = Rect { x: 0.0, y: 0.0, w: font.width("aaaa") as f32, h: font.line_height() as f32 * 2.0 };
+        let total = draw_wrapped(&mut g, &font, "aaaa bbbb cccc dddd", &r, 0xffffff);
+        assert_eq!(total, 4);
+        let ys: std::collections::BTreeSet<_> = g.cmds().iter().map(|c| c.rect.y as i32).collect();
+        assert_eq!(ys.len(), 2, "only two lines fit: {ys:?}");
+    }
+
+    fn list(n: usize) -> (ScrollList, Rect, Font) {
+        let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let items: Vec<String> = (0..n).map(|i| format!("item {i}")).collect();
+        let r = Rect { x: 0.0, y: 0.0, w: 100.0, h: (row_metrics(&font).0 * 3) as f32 };
+        (ScrollList::new(&items.iter().map(String::as_str).collect::<Vec<_>>()), r, font)
+    }
+
+    #[test]
+    fn a_scroll_list_keeps_the_highlight_in_view_and_does_not_wrap() {
+        let (mut l, r, font) = list(10);
+        let mut input = menu_input();
+        for _ in 0..5 {
+            press(&mut input, Key::Down);
+            l.update(&input, &r, &font, "up", "down", "ok");
+        }
+        assert_eq!((l.selected(), l.top), (5, 3), "scrolled so row 5 is the last of three");
+        l.select(100, &r, &font);
+        assert_eq!((l.selected(), l.top), (9, 7), "clamped at the end");
+        l.select(-100, &r, &font);
+        assert_eq!((l.selected(), l.top), (0, 0));
+    }
+
+    #[test]
+    fn the_wheel_scrolls_a_list_under_the_cursor_and_a_click_picks_the_row_under_it() {
+        let (mut l, r, font) = list(10);
+        let mut input = menu_input();
+        at(&mut input, 5.0, 5.0, false);
+        input.scroll(-1.0);
+        l.update(&input, &r, &font, "up", "down", "ok");
+        assert_eq!(l.top, 3, "a notch down moves three rows");
+        input.scroll(-1.0);
+        l.update(&input, &r, &font, "up", "down", "ok");
+        input.scroll(-1.0);
+        l.update(&input, &r, &font, "up", "down", "ok");
+        assert_eq!(l.top, 7, "and stops at the last window");
+        let step = row_metrics(&font).0 as f32;
+        input.scroll(0.0);
+        at(&mut input, 5.0, step + 1.0, true);
+        assert_eq!(l.update(&input, &r, &font, "up", "down", "ok"), Some(8), "the second visible row");
+        at(&mut input, 500.0, 5.0, false);
+        input.scroll(1.0);
+        l.update(&input, &r, &font, "up", "down", "ok");
+        assert_eq!(l.top, 7, "the wheel off the list does nothing");
+    }
+
+    fn four_buttons() -> [Rect; 4] {
+        let r = |x, y| Rect { x, y, w: 40.0, h: 12.0 };
+        [r(0.0, 0.0), r(60.0, 0.0), r(0.0, 30.0), r(60.0, 30.0)]
+    }
+
+    fn pad_input() -> Input {
+        let mut i = Input::default();
+        i.bind("left", &[Key::Left]);
+        i.bind("right", &[Key::Right]);
+        i.bind("up", &[Key::Up]);
+        i.bind("down", &[Key::Down]);
+        i.bind("ok", &[Key::Enter]);
+        i
+    }
+
+    #[test]
+    fn focus_jumps_to_the_neighbour_in_the_pressed_direction_and_picks_on_accept() {
+        let (rects, mut focus, mut input) = (four_buttons(), Focus::new(), pad_input());
+        let dirs = ["left", "right", "up", "down"];
+        press(&mut input, Key::Right);
+        assert_eq!(focus.update(&input, &rects, dirs, "ok"), None);
+        assert_eq!(focus.index(), 1);
+        press(&mut input, Key::Down);
+        focus.update(&input, &rects, dirs, "ok");
+        assert_eq!(focus.index(), 3);
+        press(&mut input, Key::Right);
+        focus.update(&input, &rects, dirs, "ok");
+        assert_eq!(focus.index(), 3, "nothing further right: it stays");
+        press(&mut input, Key::Left);
+        focus.update(&input, &rects, dirs, "ok");
+        press(&mut input, Key::Enter);
+        assert_eq!(focus.update(&input, &rects, dirs, "ok"), Some(2));
+    }
+
+    #[test]
+    fn the_mouse_takes_the_focus_and_a_click_picks_and_an_empty_set_is_harmless() {
+        let (rects, mut focus, mut input) = (four_buttons(), Focus::new(), pad_input());
+        at(&mut input, 70.0, 35.0, false);
+        assert_eq!(focus.update(&input, &rects, ["left", "right", "up", "down"], "ok"), None);
+        assert_eq!(focus.index(), 3);
+        at(&mut input, 70.0, 35.0, true);
+        assert_eq!(focus.update(&input, &rects, ["left", "right", "up", "down"], "ok"), Some(3));
+        assert_eq!(focus.update(&input, &[], ["left", "right", "up", "down"], "ok"), None);
     }
 }

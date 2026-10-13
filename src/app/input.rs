@@ -219,6 +219,10 @@ impl Input {
         self.down.contains(&key) && !self.prev.contains(&key)
     }
     #[cfg(test)]
+    pub(crate) fn scroll(&mut self, amount: f32) {
+        self.wheel = amount;
+    }
+    #[cfg(test)]
     pub(crate) fn type_chars(&mut self, s: &str) {
         self.typed = s.chars().collect();
     }
