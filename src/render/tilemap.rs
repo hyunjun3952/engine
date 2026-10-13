@@ -18,7 +18,7 @@ const FRONT_LAYER: i32 = i32::MAX - 1;
 
 /// A tile cut along a diagonal into a solid right triangle, named by the corner that holds the right angle:
 /// `BottomRight` is a floor rising to the right (`/`), `BottomLeft` one rising to the left (`\`), and the top
-/// corners are ceilings. Physics sees the exact triangle; `slide`, rays and paths still treat the tile as a full block.
+/// corners are ceilings. Physics and `slide` see the exact triangle; rays and paths still treat the tile as a full block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Slope {
     BottomLeft,
@@ -41,6 +41,31 @@ impl Slope {
             (true, true) => Slope::TopLeft,
             (false, true) => Slope::TopRight,
         })
+    }
+
+    fn floor(self) -> bool {
+        matches!(self, Slope::BottomLeft | Slope::BottomRight)
+    }
+
+    // The side of the tile that holds the right angle, which is where a box meets the diagonal first.
+    fn at_right(self) -> bool {
+        matches!(self, Slope::BottomRight | Slope::TopRight)
+    }
+
+    // The height of the diagonal above `x` in the tile `t`.
+    fn surface(self, t: &Rect, x: f32) -> f32 {
+        if matches!(self, Slope::BottomRight | Slope::TopLeft) { t.y + t.h - (x - t.x) } else { t.y + (x - t.x) }
+    }
+
+    // How far (vertically) the box `r` reaches into the solid triangle of the tile `t`; zero or less when it does not.
+    fn sink(self, t: &Rect, r: &Rect) -> f32 {
+        const E: f32 = 0.001;
+        if r.x + r.w <= t.x + E || r.x >= t.x + t.w - E || r.y + r.h <= t.y + E || r.y >= t.y + t.h - E {
+            return 0.0;
+        }
+        let x = if self.at_right() { (r.x + r.w).min(t.x + t.w) } else { r.x.max(t.x) };
+        let line = self.surface(t, x);
+        if self.floor() { r.y + r.h - line } else { line - r.y }
     }
 
     /// The triangle inside the tile `r`: the right-angle corner first, then the two others.
@@ -285,27 +310,106 @@ impl Tilemap {
         let (y0, y1) = ((r.y / s).floor() as i32, ((r.y + r.h - 0.001) / s).floor() as i32);
         (y0..=y1).any(|ty| {
             (x0..=x1).any(|tx| {
-                self.solid(tx, ty) && (!self.one_way(tx, ty) || landing.is_some_and(|b| b <= ty as f32 * s + 0.001))
+                self.solid(tx, ty)
+                    && self.slope(tx, ty).is_none()
+                    && (!self.one_way(tx, ty) || landing.is_some_and(|b| b <= ty as f32 * s + 0.001))
             })
         })
     }
 
+    /// Moves `r` by `dx`, then `dy`, stopping at solid tiles: the moved box and whether x and y were blocked. Slope
+    /// tiles are climbed (a step up as long as the step sideways) and followed down when the box stood on one; a
+    /// box that stands on a slope or lands on one reports a blocked y.
     pub fn slide(&self, r: &Rect, dx: f32, dy: f32) -> (Rect, bool, bool) {
-        let s = self.size as f32;
-        let mut r = *r;
-        let (mut hit_x, mut hit_y) = (false, false);
+        let on_slope = dx != 0.0 && dy >= 0.0 && self.resting_on_slope(r);
+        let (mut r, hit_x, lifted) = self.step_x(*r, dx);
+        let mut grounded = lifted && dy >= 0.0;
+        if on_slope && !hit_x && !lifted {
+            let (down, landed) = self.step_y(r, dx.abs() + 1.0);
+            if landed {
+                (r, grounded) = (down, true);
+            }
+        }
+        let (r, hit_y) = self.step_y(r, dy);
+        (r, hit_x, hit_y || grounded)
+    }
+
+    fn step_x(&self, mut r: Rect, dx: f32) -> (Rect, bool, bool) {
+        let (s, start) = (self.size as f32, r);
         r.x += dx;
+        let mut lifted = false;
+        for (slope, t) in self.slope_cells(&r) {
+            let sink = slope.sink(&t, &r);
+            if sink <= 0.0 {
+                continue;
+            }
+            if sink <= dx.abs() + 0.01 {
+                r.y += if slope.floor() { -sink } else { sink };
+                lifted |= slope.floor();
+            } else {
+                r.x = if dx > 0.0 { t.x - r.w } else { t.x + t.w };
+                return (r, true, lifted);
+            }
+        }
         if dx != 0.0 && self.blocked(&r, None) {
-            hit_x = true;
+            r = Rect { x: start.x + dx, ..start };
             r.x = if dx > 0.0 { ((r.x + r.w - 0.001) / s).floor() * s - r.w } else { ((r.x / s).floor() + 1.0) * s };
+            return (r, true, false);
         }
-        let bottom = r.y + r.h;
+        (r, false, lifted)
+    }
+
+    fn step_y(&self, mut r: Rect, dy: f32) -> (Rect, bool) {
+        let (s, start) = (self.size as f32, r);
         r.y += dy;
-        if dy != 0.0 && self.blocked(&r, (dy > 0.0).then_some(bottom)) {
-            hit_y = true;
-            r.y = if dy > 0.0 { ((r.y + r.h - 0.001) / s).floor() * s - r.h } else { ((r.y / s).floor() + 1.0) * s };
+        if dy == 0.0 {
+            return (r, false);
         }
-        (r, hit_x, hit_y)
+        let mut hit = false;
+        for (slope, t) in self.slope_cells(&r) {
+            let sink = slope.sink(&t, &r);
+            if sink <= 0.0 {
+                continue;
+            }
+            hit = true;
+            r.y = match (slope.floor(), dy > 0.0) {
+                (true, false) if start.y >= t.y + t.h - 0.001 => t.y + t.h,
+                (true, _) => r.y - sink,
+                (false, true) if start.y + start.h <= t.y + 0.001 => t.y - r.h,
+                (false, _) => r.y + sink,
+            };
+        }
+        if self.blocked(&r, (dy > 0.0).then_some(start.y + start.h)) {
+            r = Rect { y: start.y + dy, ..start };
+            r.y = if dy > 0.0 { ((r.y + r.h - 0.001) / s).floor() * s - r.h } else { ((r.y / s).floor() + 1.0) * s };
+            return (r, true);
+        }
+        (r, hit)
+    }
+
+    // The slope tiles the box overlaps the cell of, with their rectangles.
+    fn slope_cells(&self, r: &Rect) -> Vec<(Slope, Rect)> {
+        let s = self.size as f32;
+        let mut out = Vec::new();
+        if !self.flags.iter().any(|f| f & SLOPE != 0) {
+            return out;
+        }
+        let (x0, x1) = ((r.x / s).floor() as i32, ((r.x + r.w - 0.001) / s).floor() as i32);
+        let (y0, y1) = ((r.y / s).floor() as i32, ((r.y + r.h - 0.001) / s).floor() as i32);
+        for ty in y0..=y1 {
+            for tx in x0..=x1 {
+                if let Some(slope) = self.slope(tx, ty) {
+                    out.push((slope, Rect { x: tx as f32 * s, y: ty as f32 * s, w: s, h: s }));
+                }
+            }
+        }
+        out
+    }
+
+    // Whether the box stands on the diagonal of a floor slope (within a pixel of it).
+    fn resting_on_slope(&self, r: &Rect) -> bool {
+        let lower = Rect { y: r.y + 0.6, ..*r };
+        self.slope_cells(&lower).iter().any(|(slope, t)| slope.floor() && slope.sink(t, &lower) > 0.0)
     }
 
     /// The first solid tile the ray `from + t * dir`, `0 <= t <= max`, enters, seen the way bodies see the map (its
@@ -627,6 +731,85 @@ mod tests {
         assert_eq!(triangle, [(16.0, 16.0), (0.0, 16.0), (16.0, 0.0)]);
         let top = Slope::TopLeft.triangle(&Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 });
         assert_eq!(top, [(0.0, 0.0), (16.0, 0.0), (0.0, 16.0)]);
+    }
+
+    fn slope_map(rows: &[&str]) -> Tilemap {
+        let tile = |ch, id, slope| Tile { ch, id, solid: false, front: false, auto: false, one_way: false, slope };
+        let legend = [
+            Tile::DEFAULT[0],
+            tile(b'/', 2, Some(Slope::BottomRight)),
+            tile(b'\\', 3, Some(Slope::BottomLeft)),
+            tile(b'^', 4, Some(Slope::TopLeft)),
+        ];
+        Tilemap::try_from_ascii_with(rows, 16, Sprite::test_tiles(), &legend).unwrap()
+    }
+
+    // Rising to the right over two tiles from the floor (y = 64 at x = 32) to a plateau (y = 32 from x = 64).
+    fn ramp() -> Tilemap {
+        slope_map(&["........", "........", ".../####", "../#####", "########"])
+    }
+
+    #[test]
+    fn a_box_walks_up_a_ramp_onto_the_plateau_standing_on_the_diagonal_all_the_way() {
+        let map = ramp();
+        let mut r = Rect { x: 4.0, y: 54.0, w: 10.0, h: 10.0 };
+        let mut worst = 0.0f32;
+        for _ in 0..40 {
+            let (moved, hit_x, hit_y) = map.slide(&r, 2.0, 2.0);
+            let line = (64.0 - (moved.x + moved.w - 32.0)).clamp(32.0, 64.0);
+            if moved.x + moved.w > 34.0 && moved.x + moved.w < 64.0 {
+                worst = worst.max((moved.y + moved.h - line).abs());
+            }
+            assert!(!hit_x && hit_y, "grounded the whole way up: {moved:?}");
+            r = moved;
+        }
+        assert!(worst < 0.02, "its lower right corner rode the line: {worst}");
+        assert_eq!((r.y + r.h, r.x > 70.0), (32.0, true), "it ends on the plateau: {r:?}");
+    }
+
+    #[test]
+    fn a_box_walks_down_a_ramp_without_leaving_the_diagonal() {
+        let map = slope_map(&["........", "........", "####\\...", "#####\\..", "########"]);
+        let mut r = Rect { x: 40.0, y: 22.0, w: 10.0, h: 10.0 };
+        for _ in 0..40 {
+            let (moved, _, hit_y) = map.slide(&r, 2.0, 2.0);
+            assert!(hit_y, "it never floats above the slope on the way down: {moved:?}");
+            r = moved;
+        }
+        assert_eq!(r.y + r.h, 64.0, "it ends on the floor: {r:?}");
+    }
+
+    #[test]
+    fn a_slope_is_climbed_from_its_low_end_and_its_tall_side_is_a_wall() {
+        let (moved, hit_x, _) = ramp().slide(&Rect { x: 20.0, y: 54.0, w: 10.0, h: 10.0 }, 8.0, 0.0);
+        assert!(!hit_x && (moved.y + moved.h - 58.0).abs() < 0.01, "from the low end it climbs: {moved:?}");
+        let wall = slope_map(&["........", ".......\\", "########"]);
+        let (stopped, hit, _) = wall.slide(&Rect { x: 96.0, y: 22.0, w: 10.0, h: 10.0 }, 10.0, 0.0);
+        assert!(hit && stopped.x == 102.0, "the left leg of a falling slope stops a box walking into it: {stopped:?}");
+    }
+
+    #[test]
+    fn a_box_falls_onto_a_slope_and_rises_into_the_flat_underside() {
+        let map = ramp();
+        let (landed, _, hit_y) = map.slide(&Rect { x: 44.0, y: 20.0, w: 10.0, h: 10.0 }, 0.0, 14.0);
+        assert!(hit_y && (landed.y + landed.h - 42.0).abs() < 0.01, "lands on the line at its right edge: {landed:?}");
+        let floating = slope_map(&["........", "........", "..///...", "........"]);
+        let (stopped, _, hit) = floating.slide(&Rect { x: 40.0, y: 60.0, w: 10.0, h: 10.0 }, 0.0, -20.0);
+        assert!(hit && stopped.y == 48.0, "stops below the flat bottom of the tile: {stopped:?}");
+    }
+
+    #[test]
+    fn a_ceiling_slope_pushes_a_box_down_along_its_diagonal() {
+        let map = slope_map(&["^.......", "........", "........", "########"]);
+        let (moved, _, hit_y) = map.slide(&Rect { x: 2.0, y: 20.0, w: 8.0, h: 8.0 }, 0.0, -14.0);
+        assert!(hit_y && (moved.y - 14.0).abs() < 0.01, "its top rests on the diagonal at its left edge: {moved:?}");
+    }
+
+    #[test]
+    fn maps_without_slopes_slide_exactly_as_before() {
+        let map = Tilemap::from_ascii(&["......", "......", "######"], 16, Sprite::test_tiles());
+        let (moved, hit_x, hit_y) = map.slide(&Rect { x: 4.0, y: 20.0, w: 8.0, h: 8.0 }, 3.0, 9.0);
+        assert_eq!((moved.x, moved.y, hit_x, hit_y), (7.0, 24.0, false, true));
     }
 
     #[test]
