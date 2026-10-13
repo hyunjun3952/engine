@@ -207,13 +207,17 @@ impl Audio {
     }
 
     #[cfg(feature = "audio")]
-    fn open(&mut self, path: &str) -> Cursor<Arc<[u8]>> {
-        let bytes = self
-            .dev
-            .files
-            .entry(path.to_string())
-            .or_insert_with(|| std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}")).into());
-        Cursor::new(bytes.clone())
+    fn open(&mut self, path: &str) -> Option<Cursor<Arc<[u8]>>> {
+        if !self.dev.files.contains_key(path) {
+            match std::fs::read(path) {
+                Ok(bytes) => self.dev.files.insert(path.to_string(), bytes.into()),
+                Err(e) => {
+                    eprintln!("{path}: {e}");
+                    return None;
+                }
+            };
+        }
+        self.dev.files.get(path).map(|b| Cursor::new(b.clone()))
     }
 
     #[cfg(feature = "audio")]
@@ -227,7 +231,7 @@ impl Audio {
         if self.dev.out.is_none() {
             return;
         }
-        let data = self.open(path);
+        let Some(data) = self.open(path) else { return };
         let Some(out) = &self.dev.out else { return };
         self.dev.sounds.retain(|p| !p.empty());
         if self.dev.sounds.len() >= self.mix.max_sounds {
@@ -256,7 +260,7 @@ impl Audio {
         if self.dev.out.is_none() {
             return;
         }
-        let data = self.open(path);
+        let Some(data) = self.open(path) else { return };
         let Some(out) = &self.dev.out else { return };
         match Decoder::new(data) {
             Ok(src) => {

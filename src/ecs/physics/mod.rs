@@ -502,6 +502,7 @@ impl Physics {
         let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
         self.freeze(&ents, &index, &mut nodes, tiles.map(Tilemap::stamp), dt);
         let substeps = self.substeps(&nodes, tiles, dt);
+        self.joints.retain(|j| index.contains_key(&j.a) && index.contains_key(&j.b));
         let mut links: Vec<Link> = self
             .joints
             .iter()
@@ -621,8 +622,19 @@ impl Physics {
             }
         }
         if let Some(map) = tiles {
+            let (gx, gy, size) = (self.gravity.0 * dt, self.gravity.1 * dt, map.size as f32);
+            let (mw, mh) = map.pixel_size();
             for i in (0..nodes.len()).filter(|&i| fast(i) && nodes[i].filter.mask & Filter::TERRAIN != 0) {
-                if need[i] > worst && !map.solid_in(swept[i]).is_empty() {
+                if need[i] <= worst {
+                    continue;
+                }
+                // Its path, not a box grown on every side, and kept near the map: the side walls are solid at any
+                // height, so a body falling past the map must not reach them or make this query huge.
+                let (r, v) = (nodes[i].bounds(), nodes[i].vel);
+                let (dx, dy) = ((v.0 + gx) * dt, (v.1 + gy) * dt);
+                let (x0, x1) = (r.x.min(r.x + dx).max(-size), (r.x + r.w).max(r.x + r.w + dx).min(mw + size));
+                let (y0, y1) = (r.y.min(r.y + dy).max(-size), (r.y + r.h).max(r.y + r.h + dy).min(mh + size));
+                if x1 > x0 && y1 > y0 && !map.solid_in(Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }).is_empty() {
                     worst = need[i];
                 }
             }

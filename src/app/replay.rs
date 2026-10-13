@@ -128,13 +128,20 @@ impl Tape {
         }
     }
 
-    pub(crate) fn finish(&self) {
+    // Runs on drop, so a run that panics still leaves its recording.
+    fn finish(&self) {
         if let Tape::Record(path, r) = self {
             match crate::assets::write_atomic(path, &r.to_text()) {
                 Ok(()) => eprintln!("recorded {} steps to {path}", r.frames.len()),
                 Err(e) => eprintln!("{path}: {e}"),
             }
         }
+    }
+}
+
+impl Drop for Tape {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 
@@ -181,13 +188,17 @@ mod tests {
     #[test]
     fn a_tape_records_each_step_and_plays_it_back_until_it_runs_out() {
         let mut live = Input::default();
-        let mut tape = Tape::Record("unused".into(), Recording { seed: 9, frames: vec![] });
+        let sink = std::env::temp_dir().join(format!("engine-replay-sink-{}.rec", std::process::id()));
+        let mut tape = Tape::Record(sink.to_string_lossy().into_owned(), Recording { seed: 9, frames: vec![] });
         live.hold(&[Key::Space]);
         live.point(Some((3.0, 4.0)), true);
         assert!(tape.step(&mut live));
         live.hold(&[]);
         assert!(tape.step(&mut live));
-        let Tape::Record(_, rec) = tape else { panic!() };
+        let Tape::Record(_, recorded) = &mut tape else { panic!() };
+        let rec = std::mem::replace(recorded, Recording { seed: 0, frames: vec![] });
+        drop(tape);
+        std::fs::remove_file(&sink).ok();
         let mut play = Tape::Play(rec, 0);
         assert_eq!(play.seed(), Some(9));
         let mut fresh = Input::default();
@@ -208,7 +219,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("engine-replay-test-{}.rec", std::process::id()));
         let rec = Recording { seed: 3, frames: vec![frame(&[Key::A], None)] };
         let want = rec.to_text();
-        Tape::Record(path.to_string_lossy().into_owned(), rec).finish();
+        drop(Tape::Record(path.to_string_lossy().into_owned(), rec));
         let text = std::fs::read_to_string(&path).unwrap();
         std::fs::remove_file(&path).ok();
         assert_eq!(text, want);

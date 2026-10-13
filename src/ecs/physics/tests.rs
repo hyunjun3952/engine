@@ -1056,3 +1056,24 @@ fn a_body_standing_on_a_tile_floor_reports_the_tile_and_leaving_it_ends_the_cont
     p.step(&mut w, Some(&tiles), DT);
     assert!(!p.grounded(b), "in the air after jumping");
 }
+
+#[test]
+fn a_body_falling_past_the_map_does_not_reach_its_side_walls_however_fast_it_gets() {
+    let (mut p, tiles) = (Physics::default(), tile_floor());
+    let mut w = World::new();
+    boxed(&mut w, square(100.0, 1e9, 10.0), RigidBody::dynamic(1.0), (0.0, 2e7));
+    assert_eq!(substeps_of(&w, &mut p, Some(&tiles)), 1);
+}
+
+#[test]
+fn a_joint_to_a_despawned_body_is_dropped() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let a = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    let b = boxed(&mut w, square(30.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    p.rod(a, b, 30.0);
+    p.step(&mut w, None, DT);
+    assert_eq!(p.joints.len(), 1);
+    w.despawn(b).unwrap();
+    p.step(&mut w, None, DT);
+    assert!(p.joints.is_empty());
+}

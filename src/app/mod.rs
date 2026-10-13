@@ -433,7 +433,6 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         gfx.reset();
     }
     apply(&mut stack, Trans::Quit, &mut ctx);
-    tape.finish();
 }
 
 #[cfg(test)]
