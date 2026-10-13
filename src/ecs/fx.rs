@@ -22,6 +22,8 @@ impl Hasher for Fx {
             word[..chunk.len()].copy_from_slice(chunk);
             self.add(u64::from_le_bytes(word));
         }
+        // The zero padding of the last chunk would make [1] and [1, 0] equal.
+        self.add(bytes.len() as u64);
     }
 
     fn write_u8(&mut self, i: u8) {
@@ -52,6 +54,17 @@ pub(crate) type FxSet<K> = HashSet<K, BuildHasherDefault<Fx>>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_strings_that_differ_only_in_trailing_zeros_hash_differently() {
+        let hash = |bytes: &[u8]| {
+            let mut h = Fx::default();
+            h.write(bytes);
+            h.finish()
+        };
+        assert_ne!(hash(&[1]), hash(&[1, 0]));
+        assert_ne!(hash(&[]), hash(&[0]));
+    }
 
     #[test]
     fn keys_of_every_width_round_trip_and_a_run_of_ids_spreads_over_the_table() {
