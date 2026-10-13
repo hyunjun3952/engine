@@ -20,5 +20,8 @@ pollster = { version = "1.0.1", optional = true }
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "wav", "vorbis"], optional = true }
 wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "gles", "wgsl"], optional = true }
 
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+x11-dl = "2.21.0"
+
 [profile.dev]
 debug = "line-tables-only"

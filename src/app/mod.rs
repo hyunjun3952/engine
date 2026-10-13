@@ -1,4 +1,5 @@
 mod fade;
+mod fullscreen;
 mod input;
 mod net;
 mod pad;
@@ -40,6 +41,9 @@ pub struct Config {
     pub scale: usize,
     /// Lets the player drag the window to any size; the picture keeps its shape and the rest is black.
     pub resizable: bool,
+    /// Starts fullscreen (X11 only; elsewhere it is ignored with a line on stderr). F11 and `Ctx::toggle_fullscreen`
+    /// switch at any time; the picture keeps its shape and the rest is black.
+    pub fullscreen: bool,
 }
 
 impl Config {
@@ -65,6 +69,7 @@ impl Default for Config {
             hot_reload: cfg!(debug_assertions),
             scale: 1,
             resizable: true,
+            fullscreen: false,
         }
     }
 }
@@ -84,6 +89,9 @@ pub struct Ctx {
     pub(crate) dt: f32,
     pub(crate) w: usize,
     pub(crate) h: usize,
+    // Whether the window should be fullscreen, and whether `run` still has to ask for it.
+    fullscreen: bool,
+    fullscreen_asked: bool,
 }
 
 impl Ctx {
@@ -101,7 +109,25 @@ impl Ctx {
             dt,
             w,
             h,
+            fullscreen: false,
+            fullscreen_asked: false,
         }
+    }
+
+    /// Whether the window is (as far as has been asked) fullscreen.
+    pub fn fullscreen(&self) -> bool {
+        self.fullscreen
+    }
+
+    /// Asks for the window to go fullscreen or come back; the window manager has the last word.
+    pub fn set_fullscreen(&mut self, on: bool) {
+        if on != self.fullscreen {
+            (self.fullscreen, self.fullscreen_asked) = (on, true);
+        }
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
+        self.set_fullscreen(!self.fullscreen);
     }
 
     pub fn bind(&mut self, action: &str, keys: &[Key]) {
@@ -334,6 +360,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let dt = 1.0 / cfg.tick_hz;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
     let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
+    ctx.set_fullscreen(cfg.fullscreen);
     ctx.input.listen(&mut win);
     let mut tape = Tape::from_env(seed).unwrap_or_else(|e| panic!("{e}"));
     ctx.rng = Rng::new(tape.seed().unwrap_or(seed));
@@ -344,7 +371,8 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let (mut last, mut acc) = (Instant::now(), 0.0f32);
     let mut drawn = false;
     let mut win_size = win.get_size();
-    let (mut stats, mut since, mut f3) = (Stats::default(), Instant::now(), false);
+    let (mut stats, mut since, mut f3, mut f11) = (Stats::default(), Instant::now(), false, false);
+    let mut presented = 0u32;
     while win.is_open() && !stack.is_empty() {
         let now = Instant::now();
         acc = (acc + (now - last).as_secs_f32()).min(0.25);
@@ -368,6 +396,19 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             gfx.debug = !gfx.debug;
         }
         f3 = f3_down;
+        let f11_down = ctx.input.key_down(Key::F11);
+        if f11_down && !f11 {
+            ctx.toggle_fullscreen();
+        }
+        f11 = f11_down;
+        // The window has to be on screen before the window manager takes the request.
+        if ctx.fullscreen_asked && presented >= 2 {
+            ctx.fullscreen_asked = false;
+            if let Err(e) = fullscreen::set(win.get_window_handle(), ctx.fullscreen) {
+                eprintln!("fullscreen: {e}");
+                ctx.fullscreen = !ctx.fullscreen;
+            }
+        }
         let mut ticked = false;
         while acc >= dt && !stack.is_empty() {
             ticked = true;
@@ -432,6 +473,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             }
         }
         stats.present += presenting.elapsed().as_secs_f32();
+        presented += 1;
         gfx.reset();
     }
     apply(&mut stack, Trans::Quit, &mut ctx);
@@ -457,6 +499,21 @@ mod tests {
             assert!(message.contains(field), "{message}");
         }
     }
+    #[test]
+    fn fullscreen_is_asked_for_only_when_it_changes() {
+        let mut ctx = Ctx::new(10, 10, 0.016, Audio::disabled());
+        assert!(!ctx.fullscreen() && !ctx.fullscreen_asked);
+        ctx.set_fullscreen(false);
+        assert!(!ctx.fullscreen_asked, "no change, no request");
+        ctx.toggle_fullscreen();
+        assert!(ctx.fullscreen() && ctx.fullscreen_asked);
+        ctx.fullscreen_asked = false;
+        ctx.set_fullscreen(true);
+        assert!(!ctx.fullscreen_asked, "asking for what it already is does nothing");
+        ctx.toggle_fullscreen();
+        assert!(!ctx.fullscreen() && ctx.fullscreen_asked);
+    }
+
     use std::{cell::RefCell, rc::Rc};
 
     struct Probe(&'static str, Rc<RefCell<Vec<String>>>);

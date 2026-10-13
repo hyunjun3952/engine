@@ -322,6 +322,7 @@ dependencies = [
  "pollster",
  "rodio",
  "wgpu",
+ "x11-dl",
 ]
 
 [[package]]
