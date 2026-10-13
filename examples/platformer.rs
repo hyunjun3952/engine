@@ -1,6 +1,6 @@
 use engine::{
     Anim, AnimStates, Body, Clip, Command, Config, Console, Ctx, DrawCmd, Entity, Filter, Gfx, Inspector, Key, Look,
-    Paint, Physics, Rect, RigidBody, Scene, Style, Tilemap, Timer, Trans, Vel, World, draw_list,
+    Paint, Physics, Rect, RigidBody, Scene, Slope, Style, Tile, Tilemap, Timer, Trans, Vel, World, draw_list,
 };
 
 const DROP_GROUP: u32 = 2;
@@ -19,15 +19,16 @@ struct Platformer {
 
 impl Platformer {
     fn new(ctx: &mut Ctx) -> Self {
-        let rows: Vec<String> = (0..23)
-            .map(|y| {
-                (0..80)
-                    .map(|x| if y == 22 || x == 0 || x == 79 || (y == 17 && (34..46).contains(&x)) { '#' } else { '.' })
-                    .collect()
-            })
-            .collect();
-        let sheet = ctx.assets().sprite("assets/images/tiles.png");
-        let map = Tilemap::from_ascii(&rows.iter().map(String::as_str).collect::<Vec<_>>(), 16, sheet);
+        let sheet = ctx.assets().sprite("assets/images/platformer_tiles.png");
+        let tile = |ch, id, one_way, slope| Tile { ch, id, solid: false, front: false, auto: false, one_way, slope };
+        let legend = [
+            Tile::DEFAULT[0],
+            tile(b'=', 2, true, None),
+            tile(b'/', 3, false, Some(Slope::BottomRight)),
+            tile(b'\\', 4, false, Some(Slope::BottomLeft)),
+            Tile { ch: b'%', id: 5, ..Tile::DEFAULT[0] },
+        ];
+        let map = Tilemap::try_load_with("assets/levels/platformer.txt", 16, sheet, &legend).expect("platformer level");
         let mut world = World::new();
         let slab = |x, y, w, color| (Body(Rect { x, y, w, h: 8.0 }), Look::Color(color));
         let (body, look) = slab(200.0, 300.0, 56.0, 0x7a9a4a);
@@ -121,6 +122,9 @@ impl Scene for Platformer {
             vel.x = walk * 120.0 + carried;
             if jump && grounded {
                 vel.y = -330.0;
+            } else if grounded {
+                // Walking up a slope turns sideways speed into upward speed that would launch the player at the crest.
+                vel.y = vel.y.max(0.0);
             }
             if ctx.input().pressed("down") {
                 self.drop = Some(Timer::once(0.25));
@@ -129,12 +133,12 @@ impl Scene for Platformer {
                 self.flash = Some(Timer::once(0.15));
             }
         }
-        // Down drops through the blue platforms for a moment by leaving their group out of the player's mask.
+        // Down drops through the blue platforms and the plank tiles for a moment by leaving their groups out of the mask.
         let dropping = self.drop.as_mut().is_some_and(|t| !t.tick(dt) && !t.done());
         if !dropping {
             self.drop = None;
         }
-        let mask = if dropping { !DROP_GROUP } else { u32::MAX };
+        let mask = if dropping { !(DROP_GROUP | Filter::PLATFORM) } else { u32::MAX };
         self.world.insert_one(self.player, Filter { group: u32::MAX, mask }).unwrap();
         let flashing = self.flash.as_mut().is_some_and(|t| !t.tick(dt) && !t.done());
         if !flashing {
@@ -172,7 +176,7 @@ impl Scene for Platformer {
         g.draw(draw_list(&self.world));
         self.inspector.draw(g, &self.world);
         g.text(
-            "arrows: walk   space: jump   down: drop through   F: flash   F4: inspector   `: console",
+            "arrows: walk   space: jump   down: drop through planks   F: flash   F4: inspector   `: console",
             8,
             8,
             1,

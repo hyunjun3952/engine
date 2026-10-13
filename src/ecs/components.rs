@@ -17,7 +17,7 @@ pub struct Collider;
 pub struct Layer(pub i32);
 
 // Two entities meet only if each one's mask holds a bit of the other's group; no Filter means every group and mask.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Filter {
     pub group: u32,
     pub mask: u32,

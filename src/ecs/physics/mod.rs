@@ -161,7 +161,7 @@ struct Joint {
 #[derive(Default)]
 struct Rest {
     calm: f32,
-    asleep: Option<(Rect, f32)>,
+    asleep: Option<(Rect, f32, Filter)>,
     // What it touched when it fell asleep, which stays true while it sleeps (a sleeper makes no contacts of its own).
     contacts: Vec<ContactEvent>,
 }
@@ -534,7 +534,9 @@ impl Physics {
         self.rest.retain(|e, r| {
             let Some(&i) = index.get(e) else { return false };
             let n = &nodes[i];
-            r.asleep.is_none_or(|(at, angle)| at == n.rect && angle == n.angle && n.vel == (0.0, 0.0) && n.spin == 0.0)
+            r.asleep.is_none_or(|(at, angle, filter)| {
+                at == n.rect && angle == n.angle && filter == n.filter && n.vel == (0.0, 0.0) && n.spin == 0.0
+            })
         });
         // Whatever a sleeper rested on may be gone (a despawned body or wall, a dug tile) or pulling another way.
         let changed = (self.known != ents && self.known.iter().any(|e| !index.contains_key(e)))
@@ -594,7 +596,7 @@ impl Physics {
             r.calm += dt;
             if r.calm >= SLEEP_TIME {
                 (n.vel, n.spin) = ((0.0, 0.0), 0.0);
-                r.asleep = Some((n.rect, n.angle));
+                r.asleep = Some((n.rect, n.angle, n.filter));
                 r.contacts = self
                     .events
                     .iter()
