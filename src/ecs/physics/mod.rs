@@ -36,6 +36,36 @@ pub struct RigidBody {
     pub spin: f32,
 }
 
+impl crate::Persist for RigidBody {
+    fn write(&self) -> String {
+        let flag = |b: bool| b as u8;
+        format!(
+            "{} {} {} {} {} {} {}",
+            self.inv_mass,
+            flag(self.circle),
+            flag(self.kinematic),
+            flag(self.one_way),
+            self.restitution,
+            self.friction,
+            self.spin
+        )
+    }
+
+    fn read(text: &str) -> Option<Self> {
+        let [inv_mass, circle, kinematic, one_way, restitution, friction, spin] = crate::ecs::persist::numbers(text)?;
+        let valid = inv_mass >= 0.0 && inv_mass.is_finite();
+        valid.then_some(RigidBody {
+            inv_mass,
+            circle: circle != 0.0,
+            kinematic: kinematic != 0.0,
+            one_way: one_way != 0.0,
+            restitution,
+            friction,
+            spin,
+        })
+    }
+}
+
 impl RigidBody {
     pub fn dynamic(mass: f32) -> Self {
         assert!(mass > 0.0, "a dynamic body needs a positive mass");

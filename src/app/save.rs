@@ -44,7 +44,7 @@ impl Save {
     fn to_text(&self) -> String {
         let mut out = String::new();
         for (k, v) in &self.map {
-            out += &format!("{k} = {}\n", v.replace('\\', "\\\\").replace('\n', "\\n").replace('\r', "\\r"));
+            out += &format!("{k} = {}\n", escape(v));
         }
         out
     }
@@ -71,7 +71,11 @@ fn valid_key(key: &str) -> bool {
     !key.is_empty() && !key.contains(['=', '#', '\n', '\r']) && key.trim() == key
 }
 
-fn unescape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\n', "\\n").replace('\r', "\\r")
+}
+
+pub(crate) fn unescape(s: &str) -> String {
     let mut out = String::new();
     let mut chars = s.chars();
     while let Some(c) = chars.next() {

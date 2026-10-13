@@ -3,7 +3,7 @@ mod input;
 mod pad;
 mod replay;
 mod rng;
-mod save;
+pub(crate) mod save;
 mod time;
 
 pub use input::{Input, Key, MouseButton};

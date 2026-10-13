@@ -15,9 +15,9 @@ pub use app::{
 pub use assets::{Assets, Atlas, Audio, Sound};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
-    Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, Physics,
-    RayIndex, RigidBody, Spawner, Vel, World, animate, burst, collisions, draw_list, movement, particles, query_rect,
-    raycast, raycasts,
+    Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, Persist,
+    Physics, RayIndex, RigidBody, Spawner, Vel, World, WorldFile, animate, burst, collisions, draw_list, movement,
+    particles, query_rect, raycast, raycasts,
 };
 pub use render::{
     Blend, Camera, DrawCmd, Font, Gfx, Paint, Rect, Slope, Sprite, Style, Tile, TileHit, Tiled, TiledObject, Tilemap,
