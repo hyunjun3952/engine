@@ -157,6 +157,12 @@ impl WorldFile {
         out
     }
 
+    /// A 32-bit FNV-1a hash of `to_text(world)`: equal worlds (as far as the registered components go) give equal
+    /// sums on any machine, so peers can compare their state cheaply.
+    pub fn checksum(&self, world: &World) -> u32 {
+        self.to_text(world).bytes().fold(0x811c_9dc5, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193))
+    }
+
     /// Adds the entities in `text` to `world` (clear it first to replace what is there) and returns them. A line that
     /// names an unregistered component, repeats one, or has a value that does not read is an error, and then nothing
     /// is added.
@@ -268,6 +274,19 @@ mod tests {
         assert!(err("[entity]\njunk\n").starts_with("line 2"));
         assert!(f.spawn_from(&mut w, "[entity]\nvel = 1 2\n[entity]\nvel = x\n").is_err());
         assert_eq!(w.len(), 0, "the first entity was valid, but nothing is added when any line is bad");
+    }
+
+    #[test]
+    fn the_checksum_follows_the_registered_state_and_nothing_else() {
+        let mut w = World::new();
+        let e = w.spawn((Vel { x: 1.0, y: 2.0 }, 7u8));
+        let f = file();
+        let before = f.checksum(&w);
+        assert_eq!(f.checksum(&w), before, "it is repeatable");
+        w.insert_one(e, 9u8).unwrap();
+        assert_eq!(f.checksum(&w), before, "an unregistered component does not count");
+        w.get::<&mut Vel>(e).unwrap().x = 1.5;
+        assert_ne!(f.checksum(&w), before);
     }
 
     #[test]

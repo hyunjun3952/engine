@@ -10,7 +10,8 @@ mod ui;
 mod vec2;
 
 pub use app::{
-    Config, Ctx, Ease, Input, Key, MouseButton, Pad, PadAxis, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run,
+    Actions, Config, Ctx, Ease, Held, Input, Key, Lockstep, MouseButton, Packet, Pad, PadAxis, RenderMode, Rng, Save,
+    Scene, StepInput, Timer, Trans, Tween, Udp, run,
 };
 pub use assets::{Assets, Atlas, Audio, Sound};
 pub use debug::{Command, Console, Inspector};
