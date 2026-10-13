@@ -158,7 +158,7 @@ impl WorldFile {
     }
 
     /// A 32-bit FNV-1a hash of `to_text(world)`: equal worlds (as far as the registered components go) give equal
-    /// sums on any machine, so peers can compare their state cheaply.
+    /// sums, so two runs (a replay against its recording, say) can be compared cheaply.
     pub fn checksum(&self, world: &World) -> u32 {
         self.to_text(world).bytes().fold(0x811c_9dc5, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193))
     }

@@ -1,7 +1,6 @@
 mod fade;
 mod fullscreen;
 mod input;
-mod net;
 mod pad;
 mod replay;
 mod rng;
@@ -9,7 +8,6 @@ pub(crate) mod save;
 mod time;
 
 pub use input::{Input, Key, MouseButton};
-pub use net::{Actions, Held, Lockstep, Packet, StepInput, Udp};
 pub use pad::{Pad, PadAxis};
 pub use rng::Rng;
 pub use save::Save;
