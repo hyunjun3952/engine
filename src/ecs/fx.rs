@@ -3,9 +3,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 
 const MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
 
-/// A multiplicative hasher for keys the engine makes itself (entities, ids, grid cells). SipHash defends against
-/// hostile keys, which these are not, and took about 8 percent of a physics step. The same keys always hash the same
-/// way, which also keeps iteration order repeatable from run to run.
+/// A multiplicative hasher for the engine's own keys: SipHash's protection is wasted on them and cost 8% of a step.
 #[derive(Default)]
 pub(crate) struct Fx(u64);
 

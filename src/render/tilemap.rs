@@ -11,13 +11,8 @@ const AUTO: u8 = 4;
 // Above entities (the debug outlines are on `i32::MAX`); tiles behind them sit at `i32::MIN`.
 const FRONT_LAYER: i32 = i32::MAX - 1;
 
-/// What a character in a level file means: the sheet tile it shows (ids start at 1, the sheet is a row of
-/// square tiles), whether bodies collide with it, and whether it is drawn over entities instead of behind them.
-/// The flags belong to the id, so two characters sharing an id share them.
-///
-/// With `auto` the id is the first of 16 consecutive sheet tiles that show how the tile joins its neighbours of the
-/// same id: tile `id + m` where `m` adds 1 for a joined tile above, 2 to the right, 4 below and 8 to the left (the
-/// edge of the map counts as joined). The other 15 ids belong to it and no other entry may use them.
+/// What a level-file character means: sheet tile id (from 1), solid or not, drawn over entities or behind.
+/// With `auto`, `id` starts 16 sheet tiles chosen by joined neighbours (up 1, right 2, down 4, left 8).
 #[derive(Clone, Copy, Debug)]
 pub struct Tile {
     pub ch: u8,

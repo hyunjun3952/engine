@@ -164,6 +164,9 @@ impl Audio {
 
     #[cfg(feature = "audio")]
     pub fn play(&mut self, path: &str) {
+        if self.dev.out.is_none() {
+            return;
+        }
         let data = self.open(path);
         let Some(out) = &self.dev.out else { return };
         self.dev.sounds.retain(|p| !p.empty());
@@ -181,6 +184,9 @@ impl Audio {
 
     #[cfg(feature = "audio")]
     pub fn music(&mut self, path: &str) {
+        if self.dev.out.is_none() {
+            return;
+        }
         let data = self.open(path);
         let Some(out) = &self.dev.out else { return };
         match Decoder::new(data) {

@@ -575,9 +575,7 @@ fn is_solid(map: &Tilemap, x: f32, y: f32) -> bool {
     !map.solid_in(Rect { x, y, w: 0.1, h: 0.1 }).is_empty()
 }
 
-// A tile face or corner that a neighbouring solid tile hides cannot be touched; a body sliding along the
-// floor would otherwise catch on the seam, because the resting overlap of 0.02 px makes the seam look like a wall.
-// A neighbour only hides the point when the body is on that neighbour's side of it (`toward` is tile to body).
+// A tile face or corner hidden by a solid neighbour is dropped, or a body walking the floor catches on seams.
 fn is_hidden(map: &Tilemap, tile: &Rect, (px, py): V2, normal: V2) -> bool {
     let (mx, my) = tile.center();
     let (dx, dy) = (px - mx, py - my);

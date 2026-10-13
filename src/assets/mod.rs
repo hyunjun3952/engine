@@ -11,8 +11,11 @@ pub(crate) use watch::Watcher;
 
 /// The text of a file, with the path in the error.
 pub(crate) fn read_text(path: &str) -> Result<String, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    Ok(text.strip_prefix('\u{feff}').map(str::to_string).unwrap_or(text))
+    std::fs::read_to_string(path).map(strip_bom).map_err(|e| format!("{path}: {e}"))
+}
+
+fn strip_bom(text: String) -> String {
+    text.strip_prefix('\u{feff}').map(str::to_string).unwrap_or(text)
 }
 
 /// Writes beside the target, flushes to disk and renames over it, so a crash leaves the old file or the whole new
@@ -29,7 +32,7 @@ pub(crate) fn write_atomic(path: &str, text: &str) -> std::io::Result<()> {
 /// Like `read_text`, but a file that does not exist is `Ok(None)`.
 pub(crate) fn read_text_if_exists(path: &str) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text.strip_prefix('\u{feff}').map(str::to_string).unwrap_or(text))),
+        Ok(text) => Ok(Some(strip_bom(text))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("{path}: {e}")),
     }
@@ -44,6 +47,9 @@ pub struct Assets {
 
 impl Assets {
     pub fn sprite(&mut self, path: &str) -> Arc<Sprite> {
+        if let Some(s) = self.sprites.get(path) {
+            return s.clone();
+        }
         self.watcher.watch(path);
         self.sprites.entry(path.to_string()).or_insert_with(|| Arc::new(Sprite::load(path))).clone()
     }

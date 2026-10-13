@@ -130,7 +130,7 @@ impl Tape {
 
     pub(crate) fn finish(&self) {
         if let Tape::Record(path, r) = self {
-            match std::fs::write(path, r.to_text()) {
+            match crate::assets::write_atomic(path, &r.to_text()) {
                 Ok(()) => eprintln!("recorded {} steps to {path}", r.frames.len()),
                 Err(e) => eprintln!("{path}: {e}"),
             }

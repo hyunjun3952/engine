@@ -113,9 +113,7 @@ impl Checkbox {
 
 /// A single-line text box: call `update` once per fixed step with the typed characters and Backspace.
 ///
-/// Hangul is composed here, so no input method is needed: jamo from a Korean keyboard layout are joined into
-/// syllables as they arrive, and with `set_korean(true)` (RightAlt toggles it) letter keys type jamo as on a
-/// two-set keyboard. The bundled font has all 11172 syllables.
+/// Composes Hangul itself (no input method): Korean-layout jamo join into syllables, and `set_korean(true)` maps letters.
 pub struct TextField {
     text: String,
     max: usize,
@@ -248,10 +246,7 @@ impl Menu {
     }
 }
 
-/// A key remapping screen: one row per bound action. Up and Down move and Enter on a row waits for a key and binds
-/// it (keys of that action are replaced, pad buttons stay). These screen keys are fixed, not actions, so remapping
-/// cannot lock the player out of it. Escape cancels the wait, so the caller should leave its own Escape handling
-/// alone while `waiting()` is true, and save with `ctx.save_bindings` when `update` returns true.
+/// A key remapping screen with fixed Up/Down/Enter/Escape so it cannot lock the player out; `update` is true on a change.
 pub struct Rebind {
     menu: Menu,
     actions: Vec<String>,

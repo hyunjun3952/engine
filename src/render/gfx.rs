@@ -104,10 +104,7 @@ impl Gfx {
         self.push(Rect { x: x as f32, y: y as f32, w: src.w, h: src.h }, paint);
     }
 
-    /// Draws the region `src` of a sheet as a panel filling `dest`: a `margin` wide frame at natural size and the
-    /// parts between repeated (not stretched, which suits pixel art), the last repeat cut short to fit. The middle of
-    /// `src` is what repeats, so it must be at least a pixel wide and tall; `dest` must hold both margins. Only the
-    /// pieces that reach the screen are recorded, so a panel of any size costs what the part in view costs.
+    /// Draws `src` as a panel filling `dest`: `margin` corners at natural size, edges and middle repeated, clipped to the screen.
     pub fn blit_nine(&mut self, s: &Arc<Sprite>, src: Rect, margin: i32, dest: &Rect) {
         let m = margin as f32;
         assert!(
@@ -146,9 +143,7 @@ impl Gfx {
         }
     }
 
-    // A world-space command as it lands on the screen at the current zoom. Edges are rounded to whole pixels, so
-    // neighbours that shared an edge still share it. Sprites and turned or scaled shapes are scaled by their
-    // `Transform`, which both backends already draw; text can only grow by whole numbers, so it is rounded.
+    // A world-space command as it lands on screen at this zoom, edges rounded so neighbours keep sharing them.
     fn push_zoomed(&mut self, c: DrawCmd) {
         let (z, cam) = (self.zoom, self.cam);
         let edge = |v: f32, o: f32| ((v - o) * z).round();

@@ -236,9 +236,7 @@ fn apply(stack: &mut Stack, trans: Trans, ctx: &mut Ctx) {
     }
 }
 
-/// One fixed step, in this order: a recording replaces the live input, a fade advances (and may change scenes at its
-/// darkest moment), the top scene updates unless a fade is darkening, then the step's bookkeeping. False when a
-/// replay has run out, after quitting every scene.
+/// One fixed step: replay input, fade, top scene update (not while darkening), bookkeeping; false when a replay ends.
 fn step(stack: &mut Stack, ctx: &mut Ctx, tape: &mut Tape, dt: f32) -> bool {
     if !tape.step(&mut ctx.input) {
         apply(stack, Trans::Quit, ctx);
@@ -281,6 +279,7 @@ enum Backend {
 fn try_gpu(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: usize) -> Option<Backend> {
     // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
     if std::env::var_os("GALLIUM_DRIVER").is_none() && std::path::Path::new("/dev/dxg").exists() {
+        // SAFETY: nothing else has started a thread that reads the environment yet.
         unsafe { std::env::set_var("GALLIUM_DRIVER", "d3d12") };
     }
     match Gpu::for_window(win, (w as u32, h as u32), scale as u32, mode == RenderMode::Gpu) {
@@ -308,7 +307,11 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: u
         Ok("gpu") => RenderMode::Gpu,
         Ok("soft") => RenderMode::Software,
         Ok("auto") => RenderMode::Auto,
-        _ => mode,
+        Ok(other) => {
+            eprintln!("ENGINE_RENDERER={other:?} is not auto, gpu or soft; ignored");
+            mode
+        }
+        Err(_) => mode,
     };
     let gpu = if mode == RenderMode::Software { None } else { try_gpu(mode, win, (w, h), scale) };
     gpu.unwrap_or_else(|| Backend::Soft(Soft::new(w, h, scale)))
@@ -316,7 +319,10 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: u
 
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     cfg.check();
-    let scale = std::env::var("ENGINE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(cfg.scale).max(1);
+    let env_scale = std::env::var("ENGINE_SCALE")
+        .ok()
+        .and_then(|v| v.parse().inspect_err(|_| eprintln!("ENGINE_SCALE={v:?} is not a whole number; ignored")).ok());
+    let scale = env_scale.unwrap_or(cfg.scale).max(1);
     let options =
         WindowOptions { resize: cfg.resizable, scale_mode: ScaleMode::AspectRatioStretch, ..Default::default() };
     let mut win = Window::new(cfg.title, cfg.w * scale, cfg.h * scale, options).expect("window");
@@ -585,6 +591,7 @@ mod tests {
         ctx.save_bindings(path).unwrap();
 
         let mut other = Ctx::new(64, 64, 1.0 / 60.0, Audio::disabled());
+        other.bind("jump", &[Key::Z]);
         other.load_bindings(path).unwrap();
         assert_eq!(other.input.to_text(), "jump = Space Up\n");
 
@@ -595,6 +602,10 @@ mod tests {
 
         std::fs::remove_file(path).unwrap();
         assert!(other.load_bindings(path).is_ok());
+
+        std::fs::write(path, "jmp = Space\n").unwrap();
+        assert!(other.load_bindings(path).unwrap_err().contains("unknown action"));
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

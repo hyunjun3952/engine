@@ -53,9 +53,7 @@ fn slab(x: (f32, f32, f32, f32), y: (f32, f32, f32, f32), max: f32) -> Option<f3
     (t0 <= t1).then_some(t0)
 }
 
-// First collider in `mask`'s groups hit by the ray `from + t * dir`, 0 <= t <= max, with its t; `dir` need not be a
-// unit vector. A body with a `Transform` is hit where it is turned, as physics sees it (scale is ignored). This scans
-// every collider; for many rays against one world build a `RayIndex` instead.
+// Nearest collider in `mask` hit by `from + t * dir`, 0 <= t <= max; follows `Transform::angle`, ignores scale.
 pub fn raycast(world: &World, from: V2, dir: V2, max: f32, mask: u32) -> Option<(Entity, f32)> {
     let mut best: Option<(Entity, f32)> = None;
     for item in world.query::<Row>().iter().map(Item::new).filter(|i| i.group & mask != 0) {
@@ -67,9 +65,7 @@ pub fn raycast(world: &World, from: V2, dir: V2, max: f32, mask: u32) -> Option<
     best
 }
 
-/// The colliders of a world on a uniform grid, for casting many rays against the same positions: a ray visits only
-/// the cells it crosses, nearest first, and stops at the first cell that ends beyond its best hit. Built from a
-/// snapshot, so rebuild it after bodies move.
+/// The colliders on a uniform grid for many rays against one snapshot; rebuild it after bodies move.
 pub struct RayIndex {
     items: Vec<Item>,
     origin: V2,

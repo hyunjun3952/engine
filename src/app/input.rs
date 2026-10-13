@@ -122,6 +122,9 @@ impl Input {
 
     #[cfg(test)]
     pub(crate) fn load_text(&mut self, text: &str) -> Result<(), String> {
+        for (action, ..) in parse(text)? {
+            self.actions.entry(action).or_default();
+        }
         self.load_over(text, &[])
     }
 
@@ -129,6 +132,9 @@ impl Input {
     /// text does not parse.
     pub(crate) fn load_over(&mut self, text: &str, base: &[Binding]) -> Result<(), String> {
         let parsed = parse(text)?;
+        if let Some((action, ..)) = parsed.iter().find(|(a, ..)| !self.actions.contains_key(a)) {
+            return Err(format!("unknown action {action:?}"));
+        }
         for (action, keys, pads) in base.iter().chain(&parsed) {
             self.bind(action, keys);
             self.bind_pad(action, pads);

@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn save_replaces_the_file_and_a_missing_file_loads_empty() {
-        let path = std::env::temp_dir().join("engine_save_test.txt");
+        let path = std::env::temp_dir().join(format!("engine-save-{}.txt", std::process::id()));
         let path = path.to_str().unwrap();
         let _ = std::fs::remove_file(path);
         assert_eq!(Save::load(path).unwrap(), Save::new());

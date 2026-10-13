@@ -1,9 +1,7 @@
 use crate::{Rect, Sprite};
 use std::sync::Arc;
 
-/// Where a scaled or turned sprite is sampled, nudged by this much of a texel in the sprite's own pixels by both
-/// backends: a pixel centre that lands exactly on the border of two texels (a zoom of 1.5 does that on every third
-/// pixel) would otherwise pick one the software way and the other whichever way the GPU rounds.
+/// Nudge towards the next texel so both backends break a pixel centre on a texel border the same way.
 pub(crate) const SAMPLE_BIAS: f32 = 1.0 / 256.0;
 
 #[derive(Clone)]
