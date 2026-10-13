@@ -1,9 +1,11 @@
 use crate::{Ease, Tween};
 
 #[cfg(feature = "audio")]
+use crate::ecs::fx::FxMap;
+#[cfg(feature = "audio")]
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 #[cfg(feature = "audio")]
-use std::{collections::HashMap, io::Cursor, sync::Arc};
+use std::{io::Cursor, sync::Arc};
 
 const MAX_SOUNDS: usize = 32;
 
@@ -67,7 +69,7 @@ pub struct Audio {
 #[cfg(feature = "audio")]
 struct Dev {
     out: Option<MixerDeviceSink>,
-    files: HashMap<String, Arc<[u8]>>,
+    files: FxMap<String, Arc<[u8]>>,
     music: Option<Player>,
     sounds: Vec<Player>,
 }
@@ -93,7 +95,7 @@ impl Audio {
         Audio {
             mix: Mix::new(),
             #[cfg(feature = "audio")]
-            dev: Dev { out: None, files: HashMap::new(), music: None, sounds: Vec::new() },
+            dev: Dev { out: None, files: FxMap::default(), music: None, sounds: Vec::new() },
         }
     }
 

@@ -1,9 +1,10 @@
-use std::{collections::HashMap, collections::HashSet, fs, time::SystemTime};
+use crate::ecs::fx::{FxMap, FxSet};
+use std::{fs, time::SystemTime};
 
 #[derive(Default)]
 pub(crate) struct Watcher {
-    seen: HashMap<String, Option<SystemTime>>,
-    dirty: HashSet<String>,
+    seen: FxMap<String, Option<SystemTime>>,
+    dirty: FxSet<String>,
 }
 
 fn modified(path: &str) -> Option<SystemTime> {

@@ -1,25 +1,25 @@
 use super::pad::{PADS, Pad, PadAxis, PadState};
+use crate::ecs::fx::{FxMap, FxSet};
 use crate::render::letterbox;
 pub use minifb::{Key, MouseButton};
-use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 pub struct Input {
-    down: HashSet<Key>,
-    prev: HashSet<Key>,
-    actions: HashMap<String, Vec<Key>>,
+    down: FxSet<Key>,
+    prev: FxSet<Key>,
+    actions: FxMap<String, Vec<Key>>,
     pad: PadState,
-    pad_down: HashSet<Pad>,
-    pad_prev: HashSet<Pad>,
-    pad_actions: HashMap<String, Vec<Pad>>,
+    pad_down: FxSet<Pad>,
+    pad_prev: FxSet<Pad>,
+    pad_actions: FxMap<String, Vec<Pad>>,
     mouse: Option<(f32, f32)>,
     mouse_prev: Option<(f32, f32)>,
     buttons: [bool; 5],
     buttons_prev: [bool; 5],
     // What was seen held at any poll since the last step, so a tap that ends between two steps still counts.
-    latched: HashSet<Key>,
-    latched_pad: HashSet<Pad>,
+    latched: FxSet<Key>,
+    latched_pad: FxSet<Pad>,
     latched_buttons: [bool; 5],
     wheel: f32,
     typed: Vec<char>,
@@ -69,7 +69,7 @@ impl Input {
         }
     }
     // The step sees everything held since the last one, not just what is held at the final poll.
-    fn observe(&mut self, keys: HashSet<Key>, pads: HashSet<Pad>, buttons: [bool; 5]) {
+    fn observe(&mut self, keys: FxSet<Key>, pads: FxSet<Pad>, buttons: [bool; 5]) {
         self.latched.extend(keys);
         self.latched_pad.extend(pads);
         self.latched_buttons = std::array::from_fn(|i| self.latched_buttons[i] || buttons[i]);
@@ -172,7 +172,7 @@ impl Input {
         self.pad_actions.get(action).map_or(&[], Vec::as_slice)
     }
 
-    fn held(&self, action: &str, keys: &HashSet<Key>, pads: &HashSet<Pad>) -> bool {
+    fn held(&self, action: &str, keys: &FxSet<Key>, pads: &FxSet<Pad>) -> bool {
         self.keys(action).iter().any(|k| keys.contains(k)) || self.pads(action).iter().any(|p| pads.contains(p))
     }
 
@@ -416,11 +416,11 @@ mod tests {
     #[test]
     fn a_tap_that_ends_before_the_step_still_counts_once() {
         let mut i = input_with(&[]);
-        i.observe([Key::Space].into(), HashSet::new(), [true, false, false, false, false]);
-        i.observe(HashSet::new(), HashSet::new(), [false; 5]);
+        i.observe(FxSet::from_iter([Key::Space]), FxSet::default(), [true, false, false, false, false]);
+        i.observe(FxSet::default(), FxSet::default(), [false; 5]);
         assert!(i.pressed("jump") && i.mouse_pressed(MouseButton::Left));
         i.end_step();
-        i.observe(HashSet::new(), HashSet::new(), [false; 5]);
+        i.observe(FxSet::default(), FxSet::default(), [false; 5]);
         assert!(!i.down("jump") && !i.pressed("jump") && !i.mouse_down(MouseButton::Left));
         assert!(i.mouse_released(MouseButton::Left));
     }

@@ -1,7 +1,8 @@
 use super::cmd::SAMPLE_BIAS;
 use super::{DrawCmd, Paint, Transform, font};
 use crate::Sprite;
-use std::{collections::HashMap, sync::Arc};
+use crate::ecs::fx::FxMap;
+use std::sync::Arc;
 
 const SHADER: &str = "
 struct Globals { size: vec2<f32> };
@@ -79,7 +80,7 @@ pub(crate) struct Gpu {
     sampler: wgpu::Sampler,
     white: wgpu::BindGroup,
     font: wgpu::BindGroup,
-    textures: HashMap<usize, Uploaded>,
+    textures: FxMap<usize, Uploaded>,
     verts: Vec<Vertex>,
     batches: Vec<Batch>,
     vbuf: wgpu::Buffer,
@@ -341,7 +342,7 @@ impl Gpu {
             sampler,
             white,
             font,
-            textures: HashMap::new(),
+            textures: FxMap::default(),
             verts: Vec::new(),
             batches: Vec::new(),
             vbuf,

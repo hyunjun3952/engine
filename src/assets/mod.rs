@@ -5,8 +5,9 @@ mod watch;
 pub use atlas::Atlas;
 pub use audio::Audio;
 
+use crate::ecs::fx::FxMap;
 use crate::{Font, Sprite};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 pub(crate) use watch::Watcher;
 
 /// The text of a file, with the path in the error.
@@ -40,8 +41,8 @@ pub(crate) fn read_text_if_exists(path: &str) -> Result<Option<String>, String> 
 
 #[derive(Default)]
 pub struct Assets {
-    sprites: HashMap<String, Arc<Sprite>>,
-    fonts: HashMap<String, Arc<Font>>,
+    sprites: FxMap<String, Arc<Sprite>>,
+    fonts: FxMap<String, Arc<Font>>,
     pub(crate) watcher: Watcher,
 }
 

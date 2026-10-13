@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use crate::ecs::fx::FxSet;
 use std::io::Read;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -51,7 +51,7 @@ const DEADZONE: f32 = 0.2;
 pub(crate) struct PadState {
     file: Option<std::fs::File>,
     retry: u32,
-    buttons: HashSet<Pad>,
+    buttons: FxSet<Pad>,
     dpad: [i16; 2],
     stick: [i16; 2],
     right: [i16; 2],
@@ -60,7 +60,7 @@ pub(crate) struct PadState {
 }
 
 impl PadState {
-    pub(crate) fn poll(&mut self) -> HashSet<Pad> {
+    pub(crate) fn poll(&mut self) -> FxSet<Pad> {
         if self.file.is_none() {
             self.retry = self.retry.wrapping_add(1);
             if self.retry % 60 == 1 {
@@ -123,7 +123,7 @@ impl PadState {
         }
     }
 
-    pub(crate) fn held(&self) -> HashSet<Pad> {
+    pub(crate) fn held(&self) -> FxSet<Pad> {
         let mut held = self.buttons.clone();
         let axis = |i: usize| self.dpad[i].saturating_add(self.stick[i]);
         let (x, y) = (axis(0), axis(1));
@@ -167,15 +167,15 @@ mod tests {
         let mut p = PadState::default();
         p.apply(ev(1, 1, 0));
         p.apply(ev(1, 1, 7));
-        assert_eq!(p.held(), HashSet::from([Pad::A, Pad::Start]));
+        assert_eq!(p.held(), FxSet::from_iter([Pad::A, Pad::Start]));
         p.apply(ev(0, 1, 0));
         p.apply(ev(-32767, 2, 6));
         p.apply(ev(20000, 2, 1));
-        assert_eq!(p.held(), HashSet::from([Pad::Start, Pad::Left, Pad::Down]));
+        assert_eq!(p.held(), FxSet::from_iter([Pad::Start, Pad::Left, Pad::Down]));
         p.apply(ev(0, 2, 6));
         p.apply(ev(5000, 2, 1));
         p.apply(ev(1, 0x81, 3));
-        assert_eq!(p.held(), HashSet::from([Pad::Start, Pad::Y]), "init events count, a small stick tilt does not");
+        assert_eq!(p.held(), FxSet::from_iter([Pad::Start, Pad::Y]), "init events count, a small stick tilt does not");
     }
 
     #[test]

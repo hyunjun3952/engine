@@ -1,5 +1,6 @@
+use crate::ecs::fx::FxMap;
 use crate::{Gfx, Rect, Sprite};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 /// Named regions of one sprite sheet, so a game asks for `"hero_jump"` instead of repeating pixel coordinates.
 ///
@@ -7,12 +8,12 @@ use std::{collections::HashMap, sync::Arc};
 /// skipped. A name cannot repeat and a region cannot reach outside the sheet.
 pub struct Atlas {
     sheet: Arc<Sprite>,
-    regions: HashMap<String, Rect>,
+    regions: FxMap<String, Rect>,
 }
 
 impl Atlas {
     pub fn parse(sheet: Arc<Sprite>, text: &str) -> Result<Atlas, String> {
-        let (limit, mut regions) = (sheet.bounds(), HashMap::new());
+        let (limit, mut regions) = (sheet.size(), FxMap::default());
         for (n, line) in text.lines().enumerate() {
             let line = line.split('#').next().unwrap_or("").trim();
             if line.is_empty() {
@@ -26,8 +27,8 @@ impl Atlas {
                 .collect::<Result<Vec<_>, _>>()?;
             let [x, y, w, h] = nums[..] else { return Err(bad("expected `name x y w h`")) };
             let r = Rect { x: x as f32, y: y as f32, w: w as f32, h: h as f32 };
-            if w == 0 || h == 0 || r.x + r.w > limit.w || r.y + r.h > limit.h {
-                return Err(bad(&format!("{name} is empty or outside the {}x{} sheet", limit.w, limit.h)));
+            if !sheet.image().holds(&r) {
+                return Err(bad(&format!("{name} is empty or outside the {}x{} sheet", limit.0, limit.1)));
             }
             if regions.insert(name.to_string(), r).is_some() {
                 return Err(bad(&format!("{name} appears twice")));

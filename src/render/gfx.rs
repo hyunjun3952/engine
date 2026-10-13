@@ -155,13 +155,7 @@ impl Gfx {
                     let src = Paint::tile_src(id, *size);
                     let at = Rect { x: c.rect.x + gx as f32 * k, y: c.rect.y + gy as f32 * k, w: k, h: k };
                     let paint = Paint::Region { sheet: sheet.clone(), src, flip: false };
-                    self.push_zoomed(DrawCmd {
-                        layer: c.layer,
-                        rect: at,
-                        paint,
-                        debug_only: false,
-                        xform: Transform::IDENTITY,
-                    });
+                    self.push_zoomed(DrawCmd { layer: c.layer, ..DrawCmd::new(at, paint) });
                 }
             }
             Paint::Mask { src, .. } => {

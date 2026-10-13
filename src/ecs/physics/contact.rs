@@ -96,7 +96,7 @@ fn tilted_boxes(a: &Node, b: &Node, only_b_axes: bool) -> Option<Touch> {
     let mut seg =
         [(mid.0 + edge.0 * across, mid.1 + edge.1 * across), (mid.0 - edge.0 * across, mid.1 - edge.1 * across)];
     for sign in [1.0, -1.0] {
-        let dist = |p: V2| side_half - sign * dot((p.0 - cr.0, p.1 - cr.1), t);
+        let dist = |p: V2| side_half - sign * dot(sub(p, cr), t);
         let (d0, d1) = (dist(seg[0]), dist(seg[1]));
         if d0 < 0.0 && d1 < 0.0 {
             return None;
@@ -108,7 +108,7 @@ fn tilted_boxes(a: &Node, b: &Node, only_b_axes: bool) -> Option<Touch> {
             seg[cut] = (pk.0 + (pc.0 - pk.0) * f, pk.1 + (pc.1 - pk.1) * f);
         }
     }
-    let mut pts: Pts = seg.into_iter().map(|p| Pt::new(p, face_half - dot((p.0 - cr.0, p.1 - cr.1), nr))).collect();
+    let mut pts: Pts = seg.into_iter().map(|p| Pt::new(p, face_half - dot(sub(p, cr), nr))).collect();
     pts.retain(|p| p.depth > 0.0);
     (!pts.is_empty()).then_some(Touch { normal, pts, whole_face: false })
 }
