@@ -1,20 +1,23 @@
 use crate::{Rect, Sprite, World};
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct Body(pub Rect);
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Vel {
     pub x: f32,
     pub y: f32,
 }
 
+#[derive(Debug)]
 pub struct Collider;
 
+#[derive(Debug)]
 pub struct Layer(pub i32);
 
 // Two entities meet only if each one's mask holds a bit of the other's group; no Filter means every group and mask.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Filter {
     pub group: u32,
     pub mask: u32,

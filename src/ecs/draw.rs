@@ -1,21 +1,23 @@
-use crate::{Anim, Body, Collider, DrawCmd, Layer, Look, Paint, Transform, World};
+use crate::{Anim, Body, Collider, DrawCmd, Layer, Look, Paint, Style, Transform, World};
 
 pub fn draw_list(world: &World) -> Vec<DrawCmd> {
     let mut cmds = Vec::new();
-    let mut query = world.query::<(&Body, Option<&Layer>, Option<&Look>, Option<&Anim>, Option<&Transform>)>();
-    for (body, layer, look, anim, xform) in query.iter() {
+    let mut query =
+        world.query::<(&Body, Option<&Layer>, Option<&Look>, Option<&Anim>, Option<&Transform>, Option<&Style>)>();
+    for (body, layer, look, anim, xform, style) in query.iter() {
         let (layer, rect, xform) = (layer.map_or(0, |l| l.0), body.0, xform.copied().unwrap_or_default());
+        let style = style.copied().unwrap_or_default();
         if let Some(look) = look {
             let paint = match look {
                 Look::Color(c) => Paint::Color(*c),
                 Look::Alpha(c, a) => Paint::Alpha(*c, *a),
                 Look::Sprite(s) => Paint::Sprite(s.clone()),
             };
-            cmds.push(DrawCmd { layer, xform, ..DrawCmd::new(rect, paint) });
+            cmds.push(DrawCmd { layer, xform, style, ..DrawCmd::new(rect, paint) });
         }
         if let Some(a) = anim {
             let paint = Paint::Region { sheet: a.sheet.clone(), src: a.src(), flip: a.flip };
-            cmds.push(DrawCmd { layer, xform, ..DrawCmd::new(rect, paint) });
+            cmds.push(DrawCmd { layer, xform, style, ..DrawCmd::new(rect, paint) });
         }
     }
     cmds.sort_by_key(|c| c.layer);
@@ -40,6 +42,18 @@ mod tests {
         let cmds = draw_list(&w);
         let by_color = |c: u32| cmds.iter().find(|d| matches!(d.paint, Paint::Color(x) if x == c)).unwrap().xform;
         assert_eq!((by_color(1), by_color(2)), (spun, Transform::IDENTITY));
+    }
+
+    #[test]
+    fn a_style_component_reaches_the_commands_of_its_entity_only() {
+        let mut w = World::new();
+        let body = || Body(Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 });
+        let flash = Style::PLAIN.flashed(0xffffff, 200).additive();
+        w.spawn((body(), Look::Color(1), flash));
+        w.spawn((body(), Look::Color(2)));
+        let cmds = draw_list(&w);
+        let by_color = |c: u32| cmds.iter().find(|d| matches!(d.paint, Paint::Color(x) if x == c)).unwrap().style;
+        assert_eq!((by_color(1), by_color(2)), (flash, Style::PLAIN));
     }
 
     #[test]

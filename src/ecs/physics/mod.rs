@@ -1,6 +1,6 @@
 use super::collision::{Sweep, turned_box};
 use super::fx::{FxMap, FxSet};
-use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vel, World};
+use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vec2, Vel, World};
 
 mod contact;
 
@@ -26,9 +26,12 @@ const WAKE_SPEED: f32 = 20.0;
 const SLEEP_SPIN: f32 = 0.1;
 const SLEEP_TIME: f32 = 0.5;
 
+#[derive(Debug)]
 pub struct RigidBody {
     inv_mass: f32,
     circle: bool,
+    kinematic: bool,
+    one_way: bool,
     pub restitution: f32,
     pub friction: f32,
     pub spin: f32,
@@ -37,11 +40,32 @@ pub struct RigidBody {
 impl RigidBody {
     pub fn dynamic(mass: f32) -> Self {
         assert!(mass > 0.0, "a dynamic body needs a positive mass");
-        RigidBody { inv_mass: 1.0 / mass, circle: false, restitution: 0.0, friction: 0.4, spin: 0.0 }
+        RigidBody {
+            inv_mass: 1.0 / mass,
+            circle: false,
+            kinematic: false,
+            one_way: false,
+            restitution: 0.0,
+            friction: 0.4,
+            spin: 0.0,
+        }
     }
 
     pub fn fixed() -> Self {
-        RigidBody { inv_mass: 0.0, circle: false, restitution: 0.0, friction: 0.4, spin: 0.0 }
+        RigidBody { inv_mass: 0.0, ..RigidBody::dynamic(1.0) }
+    }
+
+    /// A platform that physics moves by its `Vel` (no gravity, never pushed): bodies resting on it are carried and
+    /// anything in its way is shoved. Without a `Vel` it is a wall.
+    pub fn kinematic() -> Self {
+        RigidBody { kinematic: true, ..RigidBody::fixed() }
+    }
+
+    /// Holds a body only when it lands on top of it (it must have been above the top before the step); a body
+    /// coming from below or the side passes through. Clear a `Filter` bit to drop through on purpose.
+    pub fn one_way(mut self) -> Self {
+        self.one_way = true;
+        self
     }
 
     pub fn circle(mut self) -> Self {
@@ -71,12 +95,67 @@ struct Memory {
     pts: Pts,
 }
 
-// Keeps the centres of two bodies `length` apart (a rod) or at most that far apart (a rope).
+#[derive(Clone, Copy)]
+enum Kind {
+    // The centres stay `length` apart.
+    Rod(f32),
+    // The centres stay at most `length` apart.
+    Rope(f32),
+    // A soft pull towards `length` apart, as a mass on a spring with this frequency and damping ratio.
+    Spring { length: f32, hz: f32, damping: f32 },
+    // One point of each body (given in the body's own frame, turned with its angle) is held on the same spot.
+    Hinge { la: V2, lb: V2 },
+}
+
+// One pair touching at one substep, before the substeps of a step are merged into `ContactEvent`s.
+struct Raw {
+    key: (u64, u64),
+    a: Entity,
+    b: Option<Entity>,
+    normal: V2,
+    impulse: f32,
+}
+
+/// Two things touching during the last `step`: `a` is a body and `b` another body, or `None` for a tile.
+/// `normal` points from `a` to `b` and `impulse` is the hardest push the pair gave (mass times speed) in any
+/// substep, so a hit that bounced away within the step still shows.
+#[derive(Clone, Copy, Debug)]
+pub struct ContactEvent {
+    pub a: Entity,
+    pub b: Option<Entity>,
+    pub normal: Vec2,
+    pub impulse: f32,
+    /// The pair was not touching at the previous step.
+    pub began: bool,
+    key: (u64, u64),
+}
+
+impl ContactEvent {
+    pub fn involves(&self, e: Entity) -> bool {
+        self.a == e || self.b == Some(e)
+    }
+
+    /// The other body of the pair seen from `e`: `None` when it is a tile (or `e` is not in the pair).
+    pub fn other(&self, e: Entity) -> Option<Entity> {
+        if self.a == e {
+            self.b
+        } else if self.b == Some(e) {
+            Some(self.a)
+        } else {
+            None
+        }
+    }
+
+    /// The normal pointing away from `e`, towards what it touches.
+    pub fn normal_for(&self, e: Entity) -> Vec2 {
+        if self.b == Some(e) { -self.normal } else { self.normal }
+    }
+}
+
 struct Joint {
     a: Entity,
     b: Entity,
-    length: f32,
-    rope: bool,
+    kind: Kind,
 }
 
 // How long a body has been nearly still, and where it lies once it sleeps (a changed rect means the game moved it).
@@ -84,6 +163,8 @@ struct Joint {
 struct Rest {
     calm: f32,
     asleep: Option<(Rect, f32)>,
+    // What it touched when it fell asleep, which stays true while it sleeps (a sleeper makes no contacts of its own).
+    contacts: Vec<ContactEvent>,
 }
 
 pub struct Physics {
@@ -100,6 +181,8 @@ pub struct Physics {
     // Where the immovable bodies were last step: one the game moved must wake what sleeps near it.
     walls: FxMap<Entity, Rect>,
     sweep: Sweep,
+    raw: Vec<Raw>,
+    events: Vec<ContactEvent>,
     // Finds which fast bodies have anything in their way, apart from `sweep` because its rects differ.
     scout: Sweep,
 }
@@ -117,6 +200,8 @@ impl Default for Physics {
             last_tiles: None,
             walls: FxMap::default(),
             sweep: Sweep::default(),
+            raw: Vec::new(),
+            events: Vec::new(),
             scout: Sweep::default(),
         }
     }
@@ -137,6 +222,8 @@ struct Node {
     restitution: f32,
     friction: f32,
     filter: Filter,
+    moves: bool,
+    one_way: bool,
 }
 
 impl Node {
@@ -154,7 +241,14 @@ impl Node {
             restitution: 0.0,
             friction: 0.4,
             filter: Filter { group: Filter::TERRAIN, mask: u32::MAX },
+            moves: false,
+            one_way: false,
         }
+    }
+
+    // Whether physics moves it: a dynamic body, or a kinematic one with a velocity.
+    fn mobile(&self) -> bool {
+        self.inv_mass > 0.0 || self.moves
     }
 
     fn center(&self) -> V2 {
@@ -305,12 +399,36 @@ fn node_id(ents: &[Entity], nodes: &[Node], i: usize) -> u64 {
 impl Physics {
     /// A rigid rod between the centres of `a` and `b`. Torque is ignored: the ends are the centres.
     pub fn rod(&mut self, a: Entity, b: Entity, length: f32) {
-        self.joints.push(Joint { a, b, length, rope: false });
+        self.joints.push(Joint { a, b, kind: Kind::Rod(length) });
     }
 
     /// Like `rod`, but the bodies may come closer than `length`.
     pub fn rope(&mut self, a: Entity, b: Entity, length: f32) {
-        self.joints.push(Joint { a, b, length, rope: true });
+        self.joints.push(Joint { a, b, kind: Kind::Rope(length) });
+    }
+
+    /// A spring pulling the centres of `a` and `b` towards `length` apart, softly: `hz` is how often a mass on it
+    /// would swing per second and `damping` how fast the swing dies (0 never, 1 not at all). Torque is ignored.
+    pub fn spring(&mut self, a: Entity, b: Entity, length: f32, hz: f32, damping: f32) {
+        let (hz, damping) = (hz.max(0.0), damping.max(0.0));
+        self.joints.push(Joint { a, b, kind: Kind::Spring { length, hz, damping } });
+    }
+
+    /// A pin through `anchor` (a world position) holding `a` and `b` together there while they turn about it, as
+    /// they are placed now. Bodies turn only when they have a `Transform`; a fixed body makes a pin in the world.
+    /// Does nothing if either entity has no `Body`.
+    pub fn hinge(&mut self, world: &World, a: Entity, b: Entity, anchor: impl Into<Vec2>) {
+        let anchor: Vec2 = anchor.into();
+        let local = |e: Entity| {
+            let body = world.get::<&Body>(e).ok()?.0;
+            let angle = world.get::<&Transform>(e).map_or(0.0, |t| t.angle);
+            let c = body.center();
+            let v = (anchor - Vec2::new(c.0, c.1)).rotated(-angle);
+            Some((v.x, v.y))
+        };
+        if let (Some(la), Some(lb)) = (local(a), local(b)) {
+            self.joints.push(Joint { a, b, kind: Kind::Hinge { la, lb } });
+        }
     }
 
     pub fn clear_joints(&mut self) {
@@ -321,6 +439,56 @@ impl Physics {
     /// fast touches it or the game changes its `Body` or `Vel`. Jointed bodies never sleep.
     pub fn asleep(&self, e: Entity) -> bool {
         self.rest.get(&e).is_some_and(|r| r.asleep.is_some())
+    }
+
+    /// Everything that touched during the last `step`, ordered by pair. A pair of which every body is asleep or
+    /// immovable makes no contact to find, so it is not here: `events_of` and `ground` still know what a sleeper touches.
+    pub fn events(&self) -> &[ContactEvent] {
+        &self.events
+    }
+
+    /// What `e` touched during the last `step`, and what a sleeping `e` was touching when it fell asleep.
+    pub fn events_of(&self, e: Entity) -> impl Iterator<Item = &ContactEvent> + '_ {
+        let asleep: &[ContactEvent] = self.rest.get(&e).filter(|r| r.asleep.is_some()).map_or(&[], |r| &r.contacts);
+        let fresh = |c: &&ContactEvent| self.events.binary_search_by_key(&c.key, |f| f.key).is_err();
+        self.events.iter().filter(move |c| c.involves(e)).chain(asleep.iter().filter(fresh))
+    }
+
+    /// What `e` touched on the side gravity pulls it towards during the last `step` (what it stands on), if anything;
+    /// `other(e)` of it is the body underneath, or `None` for a tile.
+    pub fn ground(&self, e: Entity) -> Option<&ContactEvent> {
+        let down = Vec2::new(self.gravity.0, self.gravity.1).normalized();
+        (down != Vec2::ZERO).then(|| self.events_of(e).find(|c| c.normal_for(e).dot(down) > 0.7)).flatten()
+    }
+
+    /// Whether `e` stands on something.
+    pub fn grounded(&self, e: Entity) -> bool {
+        self.ground(e).is_some()
+    }
+
+    // Merges the substeps' touching pairs into this step's events.
+    fn collect_events(&mut self) {
+        self.raw.sort_by_key(|r| r.key);
+        let old = std::mem::take(&mut self.events);
+        let mut out: Vec<ContactEvent> = Vec::with_capacity(self.raw.len());
+        for r in &self.raw {
+            match out.last_mut() {
+                Some(e) if e.key == r.key => {
+                    if r.impulse > e.impulse {
+                        (e.normal, e.impulse) = (Vec2::new(r.normal.0, r.normal.1), r.impulse);
+                    }
+                }
+                _ => out.push(ContactEvent {
+                    a: r.a,
+                    b: r.b,
+                    normal: Vec2::new(r.normal.0, r.normal.1),
+                    impulse: r.impulse,
+                    began: old.binary_search_by_key(&r.key, |o| o.key).is_err(),
+                    key: r.key,
+                }),
+            }
+        }
+        self.events = out;
     }
 
     /// Wakes a sleeping body, for when the game changes what it rests on (a tile removed, say).
@@ -334,15 +502,19 @@ impl Physics {
         let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
         self.freeze(&ents, &index, &mut nodes, tiles.map(Tilemap::stamp), dt);
         let substeps = self.substeps(&nodes, tiles, dt);
-        let links: Vec<Link> = self
+        let mut links: Vec<Link> = self
             .joints
             .iter()
-            .filter_map(|j| Some(Link { a: *index.get(&j.a)?, b: *index.get(&j.b)?, length: j.length, rope: j.rope }))
+            .filter_map(|j| {
+                Some(Link { a: *index.get(&j.a)?, b: *index.get(&j.b)?, kind: j.kind, gamma: 0.0, beta: 0.0, acc: 0.0 })
+            })
             .collect();
+        self.raw.clear();
         for _ in 0..substeps {
             nodes.truncate(bodies);
-            self.substep(&ents, &mut nodes, &links, tiles, dt / substeps as f32);
+            self.substep(&ents, &mut nodes, &mut links, tiles, dt / substeps as f32);
         }
+        self.collect_events();
         self.doze(&ents, &mut nodes, &links, dt);
         write_back(world, &ents, &nodes);
     }
@@ -417,6 +589,12 @@ impl Physics {
             if r.calm >= SLEEP_TIME {
                 (n.vel, n.spin) = ((0.0, 0.0), 0.0);
                 r.asleep = Some((n.rect, n.angle));
+                r.contacts = self
+                    .events
+                    .iter()
+                    .filter(|c| c.involves(*e))
+                    .map(|c| ContactEvent { began: false, ..*c })
+                    .collect();
             }
         }
     }
@@ -428,13 +606,13 @@ impl Physics {
     fn substeps(&mut self, nodes: &[Node], tiles: Option<&Tilemap>, dt: f32) -> usize {
         let gravity = self.gravity.0.hypot(self.gravity.1) * dt;
         let reach = |n: &Node| (speed(n) + gravity) * dt;
-        let need = |n: &Node| if n.inv_mass > 0.0 { reach(n) / (n.rect.w.min(n.rect.h) * TRAVEL) } else { 0.0 };
+        let need = |n: &Node| if n.mobile() { reach(n) / (n.rect.w.min(n.rect.h) * TRAVEL) } else { 0.0 };
         if nodes.iter().all(|n| need(n) <= 1.0) {
             return 1;
         }
         let need: Vec<f32> = nodes.iter().map(need).collect();
         let swept: Vec<Rect> =
-            nodes.iter().map(|n| if n.inv_mass > 0.0 { grow(n.bounds(), reach(n)) } else { n.bounds() }).collect();
+            nodes.iter().map(|n| if n.mobile() { grow(n.bounds(), reach(n)) } else { n.bounds() }).collect();
         let fast = |i: usize| need[i] > 1.0;
         let mut worst = 0.0f32;
         for &(a, b, ..) in self.scout.pairs(&swept, |i| !fast(i)) {
@@ -452,8 +630,18 @@ impl Physics {
         (worst.ceil() as usize).clamp(1, MAX_SUBSTEPS)
     }
 
-    fn substep(&mut self, ents: &[Entity], nodes: &mut Vec<Node>, links: &[Link], tiles: Option<&Tilemap>, dt: f32) {
+    fn substep(
+        &mut self,
+        ents: &[Entity],
+        nodes: &mut Vec<Node>,
+        links: &mut [Link],
+        tiles: Option<&Tilemap>,
+        dt: f32,
+    ) {
         let bodies = ents.len();
+        for l in links.iter_mut() {
+            soften(&nodes[l.a], &nodes[l.b], l, dt);
+        }
         self.integrate(nodes, dt);
         if let Some(map) = tiles {
             add_tiles(nodes, bodies, map);
@@ -477,11 +665,18 @@ impl Physics {
                 let (a, b) = pair_mut(nodes, hit.a, hit.b);
                 solve(a, b, hit);
             }
-            for l in links {
+            for l in links.iter_mut() {
                 let (a, b) = pair_mut(nodes, l.a, l.b);
                 pull(a, b, l);
             }
         }
+        self.raw.extend(hits.iter().map(|h| Raw {
+            key: h.key,
+            a: ents[h.a],
+            b: ents.get(h.b).copied(),
+            normal: h.normal,
+            impulse: h.pts.iter().map(|p| p.jn).sum(),
+        }));
         // A light body squeezed between a floor and a much heavier one converges slowly, so with such a contact the
         // passes go on while it is still deep, up to a limit. More passes on every pile would shake it apart.
         let lopsided = hits.iter().any(|h| mass_ratio(&nodes[h.a], &nodes[h.b]) > HEAVY_RATIO);
@@ -492,9 +687,9 @@ impl Physics {
                 let (a, b) = pair_mut(nodes, hit.a, hit.b);
                 deepest = deepest.max(separate(a, b, hit));
             }
-            for l in links {
+            for l in links.iter() {
                 let (a, b) = pair_mut(nodes, l.a, l.b);
-                keep_length(a, b, l);
+                correct(a, b, l);
             }
             if pass + 1 >= CORRECTION_PASSES && deepest < UNSETTLED {
                 break;
@@ -505,10 +700,12 @@ impl Physics {
     }
 
     fn integrate(&self, nodes: &mut [Node], dt: f32) {
-        for n in nodes.iter_mut().filter(|n| n.inv_mass > 0.0) {
+        for n in nodes.iter_mut().filter(|n| n.mobile()) {
             n.before = n.rect;
-            n.vel.0 += self.gravity.0 * dt;
-            n.vel.1 += self.gravity.1 * dt;
+            if n.inv_mass > 0.0 {
+                n.vel.0 += self.gravity.0 * dt;
+                n.vel.1 += self.gravity.1 * dt;
+            }
             n.rect.x += n.vel.0 * dt;
             n.rect.y += n.vel.1 * dt;
             n.angle += n.spin * dt;
@@ -539,6 +736,8 @@ fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
                 restitution: rb.restitution,
                 friction: rb.friction,
                 filter: filter.copied().unwrap_or_default(),
+                moves: vel.is_some() && rb.kinematic,
+                one_way: rb.one_way,
             };
             (e, node)
         })
@@ -572,6 +771,9 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>, sweep: &mut
         .map(|(a, b, ..)| if a >= bodies && b < bodies { (b, a) } else { (a, b) })
         .filter_map(|(a, b)| {
             let mut touch = touch(&nodes[a], &nodes[b], false)?;
+            if !passes_one_way(&nodes[a], &nodes[b], touch.normal) {
+                return None;
+            }
             if let Some(map) = tiles.filter(|_| b >= bodies) {
                 let tile = &nodes[b].rect;
                 if touch.whole_face {
@@ -593,6 +795,19 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>, sweep: &mut
             (!touch.pts.is_empty()).then_some(Hit { a, b, normal: touch.normal, pts: touch.pts, key: (0, 0) })
         })
         .collect()
+}
+
+// How far into a platform's top a body that was above it may already have sunk (positional correction leaves some).
+const ONE_WAY_GRACE: f32 = 2.0;
+
+// A one-way platform only holds what is pressed onto its top, and only what was above it before the step.
+fn passes_one_way(a: &Node, b: &Node, normal: V2) -> bool {
+    let (platform, other, down) = match (a.one_way, b.one_way) {
+        (false, false) => return true,
+        (_, true) => (b, a, normal.1),
+        (true, false) => (a, b, -normal.1),
+    };
+    down > 0.5 && other.before.y + other.before.h <= platform.before.y + ONE_WAY_GRACE
 }
 
 fn is_solid(map: &Tilemap, x: f32, y: f32) -> bool {
@@ -696,12 +911,15 @@ fn solve(a: &mut Node, b: &mut Node, hit: &mut Hit) {
     }
 }
 
-// A joint resolved to node indices for one step.
+// A joint resolved to node indices for one step. `gamma`, `beta` and `acc` are the softness of a spring and the
+// impulse it has applied so far in this substep.
 struct Link {
     a: usize,
     b: usize,
-    length: f32,
-    rope: bool,
+    kind: Kind,
+    gamma: f32,
+    beta: f32,
+    acc: f32,
 }
 
 fn link_axis(a: &Node, b: &Node) -> Option<(V2, f32)> {
@@ -711,17 +929,66 @@ fn link_axis(a: &Node, b: &Node) -> Option<(V2, f32)> {
     (dist > 1e-4).then_some(((dx / dist, dy / dist), dist))
 }
 
-// Cancels the speed at which the ends move apart (and, for a rod, together) along the joint.
-fn pull(a: &mut Node, b: &mut Node, l: &Link) {
+// Gives a spring its softness for this substep (the formulation of a soft constraint: frequency and damping ratio
+// of the mass it moves) and clears the impulse it has applied.
+fn soften(a: &Node, b: &Node, l: &mut Link, dt: f32) {
+    l.acc = 0.0;
+    let Kind::Spring { hz, damping, .. } = l.kind else { return };
     let inv = a.inv_mass + b.inv_mass;
-    let Some((n, dist)) = link_axis(a, b).filter(|_| inv > 0.0) else {
-        return;
-    };
-    let along = dot(sub(b.vel, a.vel), n);
-    if l.rope && (dist <= l.length || along <= 0.0) {
+    if inv <= 0.0 {
         return;
     }
-    let j = -along / inv;
+    let (mass, omega) = (1.0 / inv, std::f32::consts::TAU * hz);
+    let (d, k) = (2.0 * mass * damping * omega, mass * omega * omega);
+    let denom = dt * (d + dt * k);
+    l.gamma = if denom > 0.0 { 1.0 / denom } else { 0.0 };
+    l.beta = dt * k * l.gamma;
+}
+
+fn turn(v: V2, angle: f32) -> V2 {
+    let v = Vec2::new(v.0, v.1).rotated(angle);
+    (v.x, v.y)
+}
+
+// Where the pin of a hinge is on each body (as an arm from its centre) and the gap between the two.
+fn pins(a: &Node, b: &Node, la: V2, lb: V2) -> (V2, V2, V2) {
+    let (ra, rb) = (turn(la, a.angle), turn(lb, b.angle));
+    let gap = sub((b.center().0 + rb.0, b.center().1 + rb.1), (a.center().0 + ra.0, a.center().1 + ra.1));
+    (ra, rb, gap)
+}
+
+// Cancels the speed at which the ends move apart (and, for a rod, together) along the joint.
+fn pull(a: &mut Node, b: &mut Node, l: &mut Link) {
+    let inv = a.inv_mass + b.inv_mass;
+    if inv <= 0.0 {
+        return;
+    }
+    if let Kind::Hinge { la, lb } = l.kind {
+        let (ra, rb, _) = pins(a, b, la, lb);
+        let v = rel_vel(a, b, ra, rb);
+        let (k11, k22) = (
+            inv + ra.1 * ra.1 * a.inv_inertia + rb.1 * rb.1 * b.inv_inertia,
+            inv + ra.0 * ra.0 * a.inv_inertia + rb.0 * rb.0 * b.inv_inertia,
+        );
+        let k12 = -ra.1 * ra.0 * a.inv_inertia - rb.1 * rb.0 * b.inv_inertia;
+        let det = k11 * k22 - k12 * k12;
+        if det > 1e-12 {
+            apply(a, b, ra, rb, (-(k22 * v.0 - k12 * v.1) / det, -(k11 * v.1 - k12 * v.0) / det));
+        }
+        return;
+    }
+    let Some((n, dist)) = link_axis(a, b) else { return };
+    let along = dot(sub(b.vel, a.vel), n);
+    let j = match l.kind {
+        Kind::Rod(_) => -along / inv,
+        Kind::Rope(length) if dist > length && along > 0.0 => -along / inv,
+        Kind::Spring { length, .. } => {
+            let lambda = -(along + l.beta * (dist - length) + l.gamma * l.acc) / (inv + l.gamma);
+            l.acc += lambda;
+            lambda
+        }
+        _ => return,
+    };
     a.vel = (a.vel.0 - j * n.0 * a.inv_mass, a.vel.1 - j * n.1 * a.inv_mass);
     b.vel = (b.vel.0 + j * n.0 * b.inv_mass, b.vel.1 + j * n.1 * b.inv_mass);
 }
@@ -734,12 +1001,26 @@ fn shove(a: &mut Node, b: &mut Node, dir: V2, shift: f32) {
     b.rect.y += dir.1 * shift * b.inv_mass;
 }
 
-fn keep_length(a: &mut Node, b: &mut Node, l: &Link) {
+// Pulls the bodies of a joint back to where it wants them; a spring is soft and has no such correction.
+fn correct(a: &mut Node, b: &mut Node, l: &Link) {
     let inv = a.inv_mass + b.inv_mass;
-    let Some((n, dist)) = link_axis(a, b).filter(|_| inv > 0.0) else {
+    if inv <= 0.0 {
         return;
+    }
+    if let Kind::Hinge { la, lb } = l.kind {
+        let gap = pins(a, b, la, lb).2;
+        let dist = gap.0.hypot(gap.1);
+        if dist > 1e-4 {
+            shove(a, b, (-gap.0 / dist, -gap.1 / dist), dist * CORRECTION / inv);
+        }
+        return;
+    }
+    let Some((n, dist)) = link_axis(a, b) else { return };
+    let error = match l.kind {
+        Kind::Rod(length) => dist - length,
+        Kind::Rope(length) => (dist - length).max(0.0),
+        _ => return,
     };
-    let error = if l.rope { (dist - l.length).max(0.0) } else { dist - l.length };
     shove(a, b, (-n.0, -n.1), error * CORRECTION / inv);
 }
 
@@ -757,7 +1038,7 @@ fn separate(a: &mut Node, b: &mut Node, hit: &Hit) -> f32 {
 }
 
 fn write_back(world: &mut World, ents: &[Entity], nodes: &[Node]) {
-    for (e, node) in ents.iter().zip(nodes).filter(|(_, n)| n.inv_mass > 0.0) {
+    for (e, node) in ents.iter().zip(nodes).filter(|(_, n)| n.mobile()) {
         if let Ok((body, Some(vel), rb, xform)) =
             world.query_one_mut::<(&mut Body, Option<&mut Vel>, &mut RigidBody, Option<&mut Transform>)>(*e)
         {

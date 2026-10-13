@@ -1,4 +1,4 @@
-use super::{DrawCmd, Font, Paint, Transform, font};
+use super::{DrawCmd, Font, Paint, Style, Transform, font};
 use std::sync::{
     Arc, RwLock, RwLockReadGuard,
     atomic::{AtomicU64, Ordering},
@@ -99,6 +99,14 @@ impl Gfx {
         self.push(Rect { x: x as f32, y: y as f32, ..s.bounds() }, Paint::Sprite(s.clone()));
     }
 
+    /// `blit` with a `Style`, for a flash or fade on something drawn straight to the screen.
+    pub fn blit_styled(&mut self, s: &Arc<Sprite>, x: i32, y: i32, style: Style) {
+        self.cmds.push(DrawCmd {
+            style,
+            ..DrawCmd::new(Rect { x: x as f32, y: y as f32, ..s.bounds() }, Paint::Sprite(s.clone()))
+        });
+    }
+
     pub fn blit_region(&mut self, s: &Arc<Sprite>, src: Rect, x: i32, y: i32, flip: bool) {
         let paint = Paint::Region { sheet: s.clone(), src, flip };
         self.push(Rect { x: x as f32, y: y as f32, w: src.w, h: src.h }, paint);
@@ -121,6 +129,43 @@ impl Gfx {
             for &(sx, dx, w) in &xs {
                 let part = Rect { x: src.x + sx, y: src.y + sy, w, h };
                 self.blit_region(s, part, (dest.x + dx).floor() as i32, (dest.y + dy).floor() as i32, false);
+            }
+        }
+    }
+
+    /// `draw` for a far or near layer: the camera counts for `factor` of its movement on each axis, whole pixels (0
+    /// keeps the commands still on the screen like a sky, 0.5 scrolls them at half speed, 1 is `draw`).
+    pub fn draw_parallax(&mut self, cmds: impl IntoIterator<Item = DrawCmd>, factor: (f32, f32)) {
+        let cam = self.cam;
+        self.cam = ((cam.0 * factor.0).floor(), (cam.1 * factor.1).floor());
+        self.draw(cmds);
+        self.cam = cam;
+    }
+
+    /// Fills the screen with a picture that scrolls at `factor` of the camera's movement, repeating along each axis
+    /// where `repeat` is true (a sky, hills). It goes straight to the screen, so call it before the world is drawn.
+    pub fn background(&mut self, s: &Arc<Sprite>, factor: (f32, f32), repeat: (bool, bool)) {
+        let (sw, sh) = s.size();
+        if sw == 0 || sh == 0 {
+            return;
+        }
+        let axis = |cam: f32, k: f32, len: usize, view: usize, repeat: bool| -> Vec<i32> {
+            let shift = -(cam * k).floor();
+            if !repeat {
+                return vec![shift as i32];
+            }
+            let first = shift.rem_euclid(len as f32) as i32 - len as i32;
+            (0..)
+                .map(|i| first + i * len as i32)
+                .skip_while(|&p| p + (len as i32) <= 0)
+                .take_while(|&p| p < view as i32)
+                .collect()
+        };
+        let (xs, ys) =
+            (axis(self.cam.0, factor.0, sw, self.w, repeat.0), axis(self.cam.1, factor.1, sh, self.h, repeat.1));
+        for &y in &ys {
+            for &x in &xs {
+                self.blit(s, x, y);
             }
         }
     }
@@ -150,9 +195,9 @@ impl Gfx {
         match &c.paint {
             Paint::Clear(_) => self.cmds.push(c),
             Paint::Tiles { sheet, size, tiles } => {
-                let k = *size as f32;
+                let (k, sheet_w) = (*size as f32, sheet.size().0);
                 for &(gx, gy, id) in tiles {
-                    let src = Paint::tile_src(id, *size);
+                    let src = Paint::tile_src(id, *size, sheet_w);
                     let at = Rect { x: c.rect.x + gx as f32 * k, y: c.rect.y + gy as f32 * k, w: k, h: k };
                     let paint = Paint::Region { sheet: sheet.clone(), src, flip: false };
                     self.push_zoomed(DrawCmd { layer: c.layer, ..DrawCmd::new(at, paint) });
@@ -340,11 +385,8 @@ mod tests {
     #[test]
     fn draw_applies_the_camera_and_skips_debug_commands_unless_enabled() {
         let cmd = |debug_only| DrawCmd {
-            layer: 0,
-            rect: Rect { x: 5.0, y: 2.0, w: 1.0, h: 1.0 },
-            paint: Paint::Color(7),
             debug_only,
-            xform: Transform::IDENTITY,
+            ..DrawCmd::new(Rect { x: 5.0, y: 2.0, w: 1.0, h: 1.0 }, Paint::Color(7))
         };
         let mut g = Gfx::new(8, 8);
         g.cam = (3.0, 1.0);
@@ -539,5 +581,34 @@ mod tests {
         let colors: Vec<u32> =
             g.cmds().iter().filter_map(|c| if let Paint::Color(x) = c.paint { Some(x) } else { None }).collect();
         assert_eq!(colors, [2, 4, 1, 3]);
+    }
+
+    #[test]
+    fn a_parallax_layer_follows_the_camera_by_its_factor_and_the_camera_is_left_alone() {
+        let mut g = Gfx::new(100, 100);
+        g.cam = (100.0, 40.0);
+        let mark = DrawCmd::new(Rect { x: 150.0, y: 50.0, w: 4.0, h: 4.0 }, Paint::Color(1));
+        g.draw_parallax([mark.clone()], (0.5, 1.0));
+        g.draw_parallax([mark.clone()], (0.0, 0.0));
+        g.draw([mark]);
+        let at: Vec<_> = g.cmds().iter().map(|c| (c.rect.x, c.rect.y)).collect();
+        assert_eq!(at, [(100.0, 10.0), (150.0, 50.0), (50.0, 10.0)]);
+        assert_eq!(g.cam, (100.0, 40.0));
+    }
+
+    #[test]
+    fn a_background_scrolls_by_its_factor_and_repeats_to_cover_the_screen() {
+        let sky = Arc::new(Sprite::from_pixels(8, 4, vec![0xFFFF_FFFF; 32]));
+        let xs = |cam: f32, factor: f32, repeat: bool| {
+            let mut g = Gfx::new(20, 4);
+            g.cam = (cam, 0.0);
+            g.background(&sky, (factor, 0.0), (repeat, false));
+            g.cmds().iter().map(|c| c.rect.x as i32).collect::<Vec<_>>()
+        };
+        assert_eq!(xs(0.0, 1.0, true), [0, 8, 16]);
+        assert_eq!(xs(10.0, 0.5, true), [-5, 3, 11, 19]);
+        assert_eq!(xs(-3.0, 1.0, true), [-5, 3, 11, 19], "scrolling backwards shows the end of the picture first");
+        assert_eq!(xs(100.0, 0.0, true), [0, 8, 16], "a factor of 0 does not move");
+        assert_eq!(xs(10.0, 0.5, false), [-5], "without repeat it is placed once");
     }
 }

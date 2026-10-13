@@ -1,5 +1,5 @@
 use super::cmd::SAMPLE_BIAS;
-use super::{DrawCmd, Paint, Transform, font};
+use super::{Blend, DrawCmd, Paint, Style, Transform, font};
 use crate::{Rect, Sprite};
 use std::ops::Range;
 
@@ -37,59 +37,103 @@ impl Soft {
             }
             match &c.paint {
                 Paint::Clear(col) => self.buf.fill(*col),
-                Paint::Color(col) => self.fill_with(r, |_| *col),
-                Paint::Alpha(col, a) => self.fill_alpha(r, *col, *a as u32),
-                Paint::Sprite(s) => self.blit_region(s, s.bounds(), r, false),
-                Paint::Region { sheet, src, flip } => self.blit_region(sheet, *src, r, *flip),
+                Paint::Color(col) if c.style.is_plain() => self.fill_with(r, |_| *col),
+                Paint::Alpha(col, a) if c.style.is_plain() => self.fill_alpha(r, *col, *a as u32),
+                Paint::Color(_) | Paint::Alpha(..) => self.fill_styled(c),
+                Paint::Sprite(s) => self.sprite(c, s, s.bounds(), false),
+                Paint::Region { sheet, src, flip } => self.sprite(c, sheet, *src, *flip),
                 Paint::Mask { sheet, src, color } => self.mask(sheet, *src, r, *color),
                 Paint::Outline(col) => self.outline(r, *col),
                 Paint::Glyph { ch, color, scale } => self.glyph(r, *ch, *color, *scale),
                 Paint::Tiles { sheet, size, tiles } => {
+                    let sheet_w = sheet.size().0;
                     for &(gx, gy, id) in tiles {
                         let at = Rect { x: r.x + (gx * size) as f32, y: r.y + (gy * size) as f32, ..*r };
-                        self.blit_region(sheet, Paint::tile_src(id, *size), &at, false);
+                        self.blit_region(sheet, Paint::tile_src(id, *size, sheet_w), &at, false, put);
                     }
                 }
             }
         }
     }
 
+    // A sprite or region at its place, shown with the command's style.
+    fn sprite(&mut self, c: &DrawCmd, sheet: &Sprite, src: Rect, flip: bool) {
+        if c.style.is_plain() {
+            self.blit_region(sheet, src, &c.rect, flip, put);
+        } else {
+            let st = c.style;
+            self.blit_region(sheet, src, &c.rect, flip, move |d, p| put_with(d, p, &st));
+        }
+    }
+
+    // A flat colour with a style: its flash and fade folded into one colour and alpha, laid or added.
+    fn fill_styled(&mut self, c: &DrawCmd) {
+        let Some((col, a, blend)) = flat(c) else { return };
+        match (blend, a) {
+            (Blend::Alpha, 255) => self.fill_with(&c.rect, |_| col),
+            (Blend::Alpha, _) => self.fill_alpha(&c.rect, col, a),
+            (Blend::Add, _) => self.fill_with(&c.rect, |d| add_flat(d, col, a)),
+        }
+    }
+
     fn transformed(&mut self, c: &DrawCmd) -> bool {
         let (r, t) = (&c.rect, &c.xform);
-        match &c.paint {
-            Paint::Color(col) => {
-                let col = *col;
-                self.warp(*r, t, |d, _, _| *d = col);
-            }
-            Paint::Alpha(col, a) => {
-                let (col, a) = (*col, *a as u32);
-                self.warp(*r, t, |d, _, _| *d = blend(col, *d, a));
-            }
-            _ => {
-                let Some((sheet, src, flip)) = c.paint.region() else { return false };
-                let img = sheet.image();
-                if !img.holds(&src) {
-                    return true;
+        if matches!(c.paint, Paint::Color(_) | Paint::Alpha(..)) {
+            if c.style.is_plain() {
+                match c.paint {
+                    Paint::Color(col) => self.warp(*r, t, |d, _, _| *d = col),
+                    Paint::Alpha(col, a) => self.warp(*r, t, |d, _, _| *d = blend(col, *d, a as u32)),
+                    _ => {}
                 }
-                let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
-                let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
-                if t.angle == 0.0 && t.sx != 0.0 && t.sy != 0.0 {
-                    self.scaled_blit(&img, src, flip, quad, t);
-                    return true;
+            } else if let Some((col, a, mode)) = flat(c) {
+                match (mode, a) {
+                    (Blend::Alpha, 255) => self.warp(*r, t, |d, _, _| *d = col),
+                    (Blend::Alpha, _) => self.warp(*r, t, |d, _, _| *d = blend(col, *d, a)),
+                    (Blend::Add, _) => self.warp(*r, t, |d, _, _| *d = add_flat(*d, col, a)),
                 }
-                self.warp(quad, t, |d, u, v| {
-                    let u = if flip { src.w - u } else { u } + SAMPLE_BIAS;
-                    // Through i32: a float to usize cast is a long sequence on x86_64, and u and v are small and not negative here.
-                    let (u, v) = ((u as i32 as usize).min(w - 1), ((v + SAMPLE_BIAS) as i32 as usize).min(h - 1));
-                    put(d, img.px[(sy0 + v) * img.w + sx0 + u]);
-                });
             }
+            return true;
         }
+        if c.style.is_plain() {
+            self.transformed_sprite(c, put)
+        } else {
+            let st = c.style;
+            self.transformed_sprite(c, move |d, p| put_with(d, p, &st))
+        }
+    }
+
+    fn transformed_sprite(&mut self, c: &DrawCmd, px: impl Fn(&mut u32, u32) + Copy) -> bool {
+        let (r, t) = (&c.rect, &c.xform);
+        let Some((sheet, src, flip)) = c.paint.region() else { return false };
+        let img = sheet.image();
+        if !img.holds(&src) {
+            return true;
+        }
+        let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
+        let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
+        if t.angle == 0.0 && t.sx != 0.0 && t.sy != 0.0 {
+            self.scaled_blit(&img, src, flip, quad, t, px);
+            return true;
+        }
+        self.warp(quad, t, |d, u, v| {
+            let u = if flip { src.w - u } else { u } + SAMPLE_BIAS;
+            // Through i32: a float to usize cast is a long sequence on x86_64, and u and v are small and not negative here.
+            let (u, v) = ((u as i32 as usize).min(w - 1), ((v + SAMPLE_BIAS) as i32 as usize).min(h - 1));
+            px(d, img.px[(sy0 + v) * img.w + sx0 + u]);
+        });
         true
     }
 
     // Scaling without turning: source columns and rows are looked up from two tables, 3.6x faster than `warp`.
-    fn scaled_blit(&mut self, img: &super::gfx::Image, src: Rect, flip: bool, quad: Rect, t: &Transform) {
+    fn scaled_blit(
+        &mut self,
+        img: &super::gfx::Image,
+        src: Rect,
+        flip: bool,
+        quad: Rect,
+        t: &Transform,
+        px: impl Fn(&mut u32, u32),
+    ) {
         const NONE: u32 = u32::MAX;
         let (cx, cy) = quad.center();
         let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
@@ -123,7 +167,7 @@ impl Soft {
             let (line, dst) = (&img.px[from..from + w], &mut self.buf[py * self.w + x0..py * self.w + x1]);
             for (d, &u) in dst.iter_mut().zip(&cols) {
                 if u != NONE {
-                    put(d, line[u as usize]);
+                    px(d, line[u as usize]);
                 }
             }
         }
@@ -249,7 +293,7 @@ impl Soft {
         }
     }
 
-    fn blit_region(&mut self, s: &Sprite, src: Rect, at: &Rect, flip: bool) {
+    fn blit_region(&mut self, s: &Sprite, src: Rect, at: &Rect, flip: bool, px: impl Fn(&mut u32, u32)) {
         let img = s.image();
         if !img.holds(&src) {
             return;
@@ -264,7 +308,7 @@ impl Soft {
             let dst_row = &mut self.buf[dst_from..dst_from + self.w];
             for sx in cols.clone() {
                 let p = src_row[if flip { w - 1 - sx } else { sx }];
-                put(&mut dst_row[(x + sx as i32) as usize], p);
+                px(&mut dst_row[(x + sx as i32) as usize], p);
             }
         }
     }
@@ -279,6 +323,42 @@ fn inside(o: f32, d: f32, inv: f32, len: f32, n: usize) -> (usize, usize) {
     // Truncating stands in for floor and ceil (a library call without SSE4.1): the slack of a pixel each way covers it.
     let (lo, hi) = ((a.min(b) - 1.0).max(0.0) as usize, ((a.max(b) + 2.0).max(0.0) as usize).min(n));
     (lo.min(hi), hi)
+}
+
+// The colour (0xRRGGBB), alpha and blend a flat paint shows with once its style is applied.
+fn flat(c: &DrawCmd) -> Option<(u32, u32, Blend)> {
+    let (col, a) = match c.paint {
+        Paint::Color(col) => (col & 0xFF_FFFF, 255),
+        Paint::Alpha(col, a) => (col & 0xFF_FFFF, a as u32),
+        _ => return None,
+    };
+    let st = &c.style;
+    let col = if st.flash_amount == 0 { col } else { blend(st.flash, col, st.flash_amount as u32) };
+    Some((col, (a * st.opacity as u32 + 127) / 255, st.blend))
+}
+
+// A texel with the style's flash mixed in and its alpha faded.
+#[inline(always)]
+fn styled(p: u32, st: &Style) -> u32 {
+    let a = ((p >> 24) * st.opacity as u32 + 127) / 255;
+    let rgb = if st.flash_amount == 0 { p & 0xFF_FFFF } else { blend(st.flash, p & 0xFF_FFFF, st.flash_amount as u32) };
+    a << 24 | rgb
+}
+
+#[inline(always)]
+fn put_with(d: &mut u32, p: u32, st: &Style) {
+    let p = styled(p, st);
+    match st.blend {
+        Blend::Alpha => put(d, p),
+        Blend::Add => *d = add_flat(*d, p & 0xFF_FFFF, p >> 24),
+    }
+}
+
+// `col` scaled by `a` out of 255 and added to `dst`, each channel stopping at 255.
+#[inline(always)]
+fn add_flat(dst: u32, col: u32, a: u32) -> u32 {
+    let ch = |shift: u32| (((dst >> shift & 255) + ((col >> shift & 255) * a + 127) / 255).min(255)) << shift;
+    ch(16) | ch(8) | ch(0)
 }
 
 #[inline(always)]
@@ -418,7 +498,7 @@ mod tests {
     }
 
     fn drawn(w: usize, h: usize, rect: Rect, paint: Paint, xform: Transform) -> Soft {
-        run(w, h, |g| g.draw([DrawCmd { layer: 0, rect, paint, debug_only: false, xform }]))
+        run(w, h, |g| g.draw([DrawCmd { xform, ..DrawCmd::new(rect, paint) }]))
     }
 
     fn lit(s: &Soft, w: usize) -> Vec<(usize, usize)> {
@@ -504,7 +584,7 @@ mod tests {
             };
             let shown = format!("zoom {} cam {:?} {rect:?} {xform:?}", g.zoom, g.cam);
             let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                g.draw([DrawCmd { layer: 0, rect, paint, debug_only: false, xform }]);
+                g.draw([DrawCmd { xform, ..DrawCmd::new(rect, paint) }]);
                 Soft::new(32, 24, 1).render(g.cmds());
             }));
             assert!(ok.is_ok(), "case {case} panicked: {shown}");
@@ -685,5 +765,82 @@ mod tests {
             rows_skipped += a.buf.iter().filter(|&&p| p == 0).count() as u32;
         }
         assert!(rows_skipped > 0);
+    }
+
+    fn styled_cmd(rect: Rect, paint: Paint, style: Style) -> DrawCmd {
+        DrawCmd { style, ..DrawCmd::new(rect, paint) }
+    }
+
+    #[test]
+    fn a_style_flashes_fades_and_adds_flat_colours_and_a_plain_one_changes_nothing() {
+        let at = Rect { x: 1.0, y: 1.0, w: 2.0, h: 2.0 };
+        let draw = |cmds: &[DrawCmd]| {
+            let mut s = Soft::new(4, 4, 1);
+            let back = DrawCmd::new(Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 }, Paint::Color(0x204060));
+            s.render(&[&[back][..], cmds].concat());
+            s.buf[5]
+        };
+        let mut s = Soft::new(4, 4, 1);
+        s.render(&[DrawCmd::new(at, Paint::Color(0x123456))]);
+        assert_eq!(s.buf[5], 0x123456);
+        let mut s = Soft::new(4, 4, 1);
+        s.render(&[styled_cmd(at, Paint::Color(0xff0000), Style::PLAIN.faded(0))]);
+        assert_eq!(s.buf[5], 0, "fully faded draws nothing");
+        let mut s = Soft::new(4, 4, 1);
+        s.render(&[styled_cmd(at, Paint::Color(0xff0000), Style::PLAIN.flashed(0x0000ff, 255))]);
+        assert_eq!(s.buf[5], 0x0000ff, "a full flash is the flash colour");
+        let mut s = Soft::new(4, 4, 1);
+        s.render(&[styled_cmd(at, Paint::Color(0x000000), Style::PLAIN.flashed(0xffffff, 128))]);
+        assert!((s.buf[5] & 255).abs_diff(128) <= 1, "{:x}", s.buf[5]);
+        let faded = draw(&[styled_cmd(at, Paint::Color(0xff0000), Style::PLAIN.faded(128))]);
+        assert!((faded >> 16 & 255).abs_diff(0x20 + (0xff - 0x20) / 2) <= 2, "{faded:x}");
+        let lit = draw(&[styled_cmd(at, Paint::Color(0x808080), Style::PLAIN.additive())]);
+        assert_eq!(lit, 0xA0C0E0, "added to what is behind");
+        let lit = draw(&[
+            styled_cmd(at, Paint::Color(0xffffff), Style::PLAIN.additive()),
+            styled_cmd(at, Paint::Alpha(0xffffff, 255), Style::PLAIN.additive()),
+        ]);
+        assert_eq!(lit, 0xffffff, "stops at white");
+        let half = draw(&[styled_cmd(at, Paint::Alpha(0xffffff, 128), Style::PLAIN.additive().faded(128))]);
+        assert!((half & 255).abs_diff(0x60 + 64) <= 2, "a quarter of white is added: {half:x}");
+    }
+
+    #[test]
+    fn a_style_reaches_sprites_on_every_path_and_keeps_their_alpha() {
+        let sheet = std::sync::Arc::new(Sprite::from_pixels(2, 1, vec![0xFF80_4020, 0x00FF_FFFF]));
+        let sprite = |style: Style, xform: Transform| {
+            let mut s = Soft::new(8, 4, 1);
+            let cmd = DrawCmd {
+                xform,
+                ..styled_cmd(Rect { x: 2.0, y: 1.0, w: 2.0, h: 1.0 }, Paint::Sprite(sheet.clone()), style)
+            };
+            s.render(&[cmd]);
+            s
+        };
+        let plain = sprite(Style::PLAIN, Transform::IDENTITY);
+        assert_eq!(
+            (plain.buf[8 + 2] & 0xFF_FFFF, plain.buf[8 + 3]),
+            (0x804020, 0),
+            "the clear texel leaves the picture alone"
+        );
+        let flashed = sprite(Style::PLAIN.flashed(0xffffff, 255), Transform::IDENTITY);
+        assert_eq!(
+            (flashed.buf[8 + 2] & 0xFF_FFFF, flashed.buf[8 + 3]),
+            (0xffffff, 0),
+            "flashing keeps alpha, so the clear texel stays clear"
+        );
+        let faded = sprite(Style::PLAIN.faded(0), Transform::IDENTITY);
+        assert_eq!(faded.buf[8 + 2] & 0xFF_FFFF, 0);
+        // Scaled (no turn) and turned paths see the same style.
+        for xform in [Transform { angle: 0.0, sx: 2.0, sy: 2.0 }, Transform { angle: 0.3, sx: 2.0, sy: 2.0 }] {
+            let s = sprite(Style::PLAIN.flashed(0x00ff00, 255), xform);
+            assert!(s.buf.iter().any(|&p| p & 0xFF_FFFF == 0x00ff00), "{xform:?}");
+            assert!(
+                s.buf.iter().all(|&p| p & 0xFF_FFFF == 0 || p & 0xFF_FFFF == 0x00ff00),
+                "only the flash colour shows: {xform:?}"
+            );
+        }
+        let lit = sprite(Style::PLAIN.additive(), Transform { angle: 0.0, sx: 2.0, sy: 2.0 });
+        assert!(lit.buf.iter().any(|&p| p & 0xFF_FFFF == 0x804020));
     }
 }

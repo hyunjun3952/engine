@@ -131,6 +131,12 @@ impl TextField {
         &self.text
     }
 
+    /// Replaces the text (cut to the limit) and ends any syllable being composed.
+    pub fn set(&mut self, text: &str) {
+        self.text = text.chars().take(self.max).collect();
+        self.hangul.end();
+    }
+
     pub fn clear(&mut self) {
         self.text.clear();
         self.hangul.end();

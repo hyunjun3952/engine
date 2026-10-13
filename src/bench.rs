@@ -23,7 +23,7 @@ fn time(name: &str, runs: u32, mut f: impl FnMut()) {
 }
 
 fn cmd(rect: Rect, paint: Paint) -> DrawCmd {
-    DrawCmd { layer: 0, rect, paint, debug_only: false, xform: Default::default() }
+    DrawCmd::new(rect, paint)
 }
 
 #[test]

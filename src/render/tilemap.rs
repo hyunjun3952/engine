@@ -1,4 +1,5 @@
-use crate::{DrawCmd, Paint, Rect, Sprite};
+use super::path::astar;
+use crate::{DrawCmd, Paint, Rect, Sprite, Vec2};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -28,6 +29,22 @@ impl Tile {
         Tile { ch: b'#', id: 1, solid: true, front: false, auto: false },
         Tile { ch: b'+', id: 2, solid: true, front: false, auto: false },
     ];
+}
+
+// How many `size` pixel squares the sheet holds: ids run along each row in turn (a sheet shorter than one tile counts
+// as a single row, as it always did).
+fn tile_count(sheet: &Sprite, size: usize) -> usize {
+    let (w, h) = sheet.size();
+    (w / size) * (h / size).max(1)
+}
+
+/// Where a ray entered a solid tile: the distance factor `t` (the point is `from + t * dir`), the tile, and the
+/// direction the face it crossed looks (against the ray; zero when the ray began inside the tile).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TileHit {
+    pub t: f32,
+    pub tile: (i32, i32),
+    pub normal: Vec2,
 }
 
 pub struct Tilemap {
@@ -67,7 +84,7 @@ impl Tilemap {
         if size == 0 {
             return Err("the tile size must be positive".into());
         }
-        let columns = sheet.size().0 / size;
+        let columns = tile_count(&sheet, size);
         if let Some(t) = legend.iter().find(|t| t.id as usize > columns) {
             return Err(format!(
                 "legend entry {:?} shows tile {} but the sheet has {columns} tiles",
@@ -122,6 +139,24 @@ impl Tilemap {
         Ok(Tilemap { w, h: rows.len(), size, bounce: 0.0, tiles, marks, sheet, flags, stamp })
     }
 
+    // A map from tile ids already read from a file (0 is empty); `flags` says per id whether it is solid and drawn in front.
+    pub(crate) fn from_ids(
+        w: usize,
+        h: usize,
+        size: usize,
+        sheet: Arc<Sprite>,
+        tiles: Vec<u8>,
+        flags: impl Fn(u8) -> (bool, bool),
+    ) -> Self {
+        let mut table = [0u8; 256];
+        for id in 1..=255u8 {
+            let (solid, front) = flags(id);
+            table[id as usize] = if solid { SOLID } else { 0 } | if front { FRONT } else { 0 };
+        }
+        let stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
+        Tilemap { w, h, size, bounce: 0.0, tiles, marks: Vec::new(), sheet, flags: table, stamp }
+    }
+
     pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Self {
         Tilemap::try_load(path, size, sheet).unwrap_or_else(|e| panic!("{e}"))
     }
@@ -154,7 +189,7 @@ impl Tilemap {
     /// notices and wakes the bodies resting on the map.
     pub fn set(&mut self, tx: usize, ty: usize, id: u8) {
         assert!(tx < self.w && ty < self.h, "tile ({tx}, {ty}) is outside the {}x{} map", self.w, self.h);
-        let columns = self.sheet.size().0 / self.size;
+        let columns = tile_count(&self.sheet, self.size);
         assert!(id as usize <= columns, "tile {id} does not exist: the sheet has {columns} tiles");
         self.tiles[ty * self.w + tx] = id;
         self.stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
@@ -197,6 +232,80 @@ impl Tilemap {
             r.y = if dy > 0.0 { ((r.y + r.h - 0.001) / s).floor() * s - r.h } else { ((r.y / s).floor() + 1.0) * s };
         }
         (r, hit_x, hit_y)
+    }
+
+    /// The first solid tile the ray `from + t * dir`, `0 <= t <= max`, enters, seen the way bodies see the map (its
+    /// left and right edges count as solid; a ray may leave it above or below). `dir` need not be a unit vector.
+    pub fn raycast(&self, from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32) -> Option<TileHit> {
+        let (from, dir): (Vec2, Vec2) = (from.into(), dir.into());
+        let finite = from.x.is_finite() && from.y.is_finite() && dir.x.is_finite() && dir.y.is_finite();
+        if !finite || max.is_nan() || max < 0.0 || dir == Vec2::ZERO {
+            return None;
+        }
+        let (size, o) = (self.size as f32, from / self.size as f32);
+        let (mut tx, mut ty) = (o.x.floor() as i32, o.y.floor() as i32);
+        if self.solid(tx, ty) {
+            return Some(TileHit { t: 0.0, tile: (tx, ty), normal: Vec2::ZERO });
+        }
+        // Per axis: the step to the next cell, the t of the next cell border and the t between two borders.
+        let axis = |o: f32, d: f32, c: i32| match d {
+            d if d > 0.0 => (1, ((c + 1) as f32 - o) * size / d, size / d),
+            d if d < 0.0 => (-1, (o - c as f32) * size / -d, size / -d),
+            _ => (0, f32::INFINITY, f32::INFINITY),
+        };
+        let ((sx, mut next_x, step_x), (sy, mut next_y, step_y)) = (axis(o.x, dir.x, tx), axis(o.y, dir.y, ty));
+        loop {
+            let along_x = next_x < next_y;
+            let t = if along_x { next_x } else { next_y };
+            if t > max {
+                return None;
+            }
+            let normal = if along_x {
+                (tx, next_x) = (tx + sx, next_x + step_x);
+                Vec2::new(-sx as f32, 0.0)
+            } else {
+                (ty, next_y) = (ty + sy, next_y + step_y);
+                Vec2::new(0.0, -sy as f32)
+            };
+            if self.solid(tx, ty) {
+                return Some(TileHit { t, tile: (tx, ty), normal });
+            }
+            // Past the top or bottom and still going that way, with no side wall left to run into.
+            if sx == 0 && ((ty < 0 && sy < 0) || (ty >= self.h as i32 && sy > 0)) {
+                return None;
+            }
+        }
+    }
+
+    /// The tile under a point, or `None` outside the map.
+    pub fn cell_of(&self, p: impl Into<Vec2>) -> Option<(usize, usize)> {
+        let p: Vec2 = p.into();
+        let (tx, ty) = ((p.x / self.size as f32).floor(), (p.y / self.size as f32).floor());
+        (tx >= 0.0 && ty >= 0.0 && tx < self.w as f32 && ty < self.h as f32).then_some((tx as usize, ty as usize))
+    }
+
+    /// The middle of a tile in pixels.
+    pub fn cell_center(&self, (tx, ty): (usize, usize)) -> Vec2 {
+        let s = self.size as f32;
+        Vec2::new((tx as f32 + 0.5) * s, (ty as f32 + 0.5) * s)
+    }
+
+    /// The shortest walk between two tiles (both ends included) over tiles that are not solid, by A*; `None` when
+    /// `to` is solid or cannot be reached. A straight step costs 10 and a diagonal one 14; a diagonal never cuts
+    /// past a solid corner.
+    pub fn path(&self, from: (usize, usize), to: (usize, usize), diagonal: bool) -> Option<Vec<(usize, usize)>> {
+        self.path_with(from, to, diagonal, |_, _| true)
+    }
+
+    /// Like `path`, with `open` also able to rule out tiles (a crowd, a trap) that are not solid.
+    pub fn path_with(
+        &self,
+        from: (usize, usize),
+        to: (usize, usize),
+        diagonal: bool,
+        mut open: impl FnMut(usize, usize) -> bool,
+    ) -> Option<Vec<(usize, usize)>> {
+        astar((self.w, self.h), from, to, diagonal, |x, y| !self.solid(x as i32, y as i32) && open(x, y))
     }
 
     pub fn solid_in(&self, area: Rect) -> Vec<Rect> {
@@ -418,7 +527,7 @@ mod tests {
     #[test]
     fn a_tile_the_sheet_does_not_have_is_refused_instead_of_crashing_the_renderer() {
         let sheet = Sprite::test_tiles();
-        let columns = sheet.size().0 / 16;
+        let columns = tile_count(&sheet, 16);
         let past = [Tile { ch: b'#', id: columns as u8 + 1, solid: true, front: false, auto: false }];
         let err = Tilemap::try_from_ascii_with(&["#"], 16, sheet.clone(), &past).err().unwrap();
         assert!(err.contains("the sheet has"), "{err}");
@@ -445,5 +554,101 @@ mod tests {
         let wide = Arc::new(Sprite::from_pixels(600, 2, vec![0; 1200]));
         let auto = Tile { ch: b'#', id: 250, solid: true, front: false, auto: true };
         assert!(Tilemap::try_from_ascii_with(&["#"], 2, wide, &[auto]).is_err());
+    }
+
+    // Marching along the ray in small steps finds the same tile a little later than the exact walk does.
+    #[test]
+    fn a_ray_finds_the_tile_a_fine_march_finds_on_random_maps() {
+        let mut rng = crate::Rng::new(9);
+        for case in 0..200 {
+            let rows: Vec<String> =
+                (0..8).map(|_| (0..10).map(|_| if rng.f32() < 0.25 { '#' } else { '.' }).collect()).collect();
+            let map = Tilemap::from_ascii(&rows.iter().map(String::as_str).collect::<Vec<_>>(), 4, wide_sheet());
+            let from = Vec2::new(rng.range(-6.0, 46.0), rng.range(-6.0, 38.0));
+            let dir = Vec2::from_angle(rng.range(0.0, 6.3)) * rng.range(0.5, 3.0);
+            let max = rng.range(1.0, 60.0);
+            let step = 0.01;
+            let marched = (0..).map(|i| i as f32 * step).take_while(|t| *t <= max).find(|t| {
+                let p = from + dir * *t;
+                map.solid((p.x / 4.0).floor() as i32, (p.y / 4.0).floor() as i32)
+            });
+            let hit = map.raycast(from, dir, max);
+            match (hit, marched) {
+                (None, None) => {}
+                (Some(h), Some(m)) => {
+                    assert!(
+                        m >= h.t - 1e-3 && m - h.t <= 0.05 / dir.length().min(1.0),
+                        "case {case}: exact {} marched {m}",
+                        h.t
+                    );
+                    let inside = from + dir * (h.t + 0.02);
+                    assert_eq!(
+                        ((inside.x / 4.0).floor() as i32, (inside.y / 4.0).floor() as i32),
+                        h.tile,
+                        "case {case}"
+                    );
+                }
+                (h, m) => panic!("case {case}: exact {h:?} marched {m:?} for {from:?} {dir:?} {max}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_ray_reports_the_face_it_crossed_and_stops_where_it_cannot_hit_anything() {
+        let map = Tilemap::from_ascii(&["....", "..#.", "...."], 10, wide_sheet());
+        let hit = map.raycast((5.0, 15.0), (1.0, 0.0), 100.0).unwrap();
+        assert_eq!((hit.t, hit.tile, hit.normal), (15.0, (2, 1), Vec2::new(-1.0, 0.0)));
+        let down = map.raycast((25.0, 0.0), (0.0, 1.0), 100.0).unwrap();
+        assert_eq!((down.t, down.normal), (10.0, Vec2::new(0.0, -1.0)));
+        assert_eq!(map.raycast((25.0, 15.0), (1.0, 0.0), 100.0).unwrap().t, 0.0, "starting inside");
+        assert!(map.raycast((5.0, 15.0), (1.0, 0.0), 10.0).is_none(), "short of it");
+        assert_eq!(map.raycast((5.0, 5.0), (-1.0, 0.0), f32::INFINITY).unwrap().tile, (-1, 0), "the map edge is solid");
+        assert!(map.raycast((5.0, 5.0), (0.0, -1.0), f32::INFINITY).is_none(), "straight up out of the map");
+        assert!(
+            map.raycast((5.0, 5.0), (0.0, 0.0), 10.0).is_none()
+                && map.raycast((f32::NAN, 0.0), (1.0, 0.0), 9.0).is_none()
+        );
+        assert_eq!(
+            map.raycast((5.0, -50.0), (1.0, 0.0), f32::INFINITY).unwrap().tile,
+            (4, -5),
+            "the side walls reach up"
+        );
+    }
+
+    #[test]
+    fn paths_avoid_solid_tiles_and_can_be_refused_tiles_too() {
+        let map = Tilemap::from_ascii(&["....", ".##.", "...."], 10, wide_sheet());
+        let path = map.path((0, 0), (3, 2), false).unwrap();
+        assert!(path.iter().all(|&(x, y)| map.tile(x, y) == 0) && path.len() == 6, "{path:?}");
+        assert!(map.path((0, 0), (1, 1), true).is_none(), "the goal is solid");
+        let blocked = map.path_with((0, 0), (3, 0), false, |x, y| (x, y) != (1, 0));
+        assert!(blocked.is_some_and(|p| p.len() > 4), "it goes around a tile the game ruled out");
+        assert_eq!(
+            (map.cell_of((25.0, 5.0)), map.cell_of((-1.0, 5.0)), map.cell_of((40.0, 5.0))),
+            (Some((2, 0)), None, None)
+        );
+        assert_eq!(map.cell_center((1, 2)), Vec2::new(15.0, 25.0));
+    }
+
+    #[test]
+    fn a_sheet_with_several_rows_shows_the_right_tile_for_each_id() {
+        let mut px = vec![0; 16];
+        for (n, color) in [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00].into_iter().enumerate() {
+            let (x, y) = (n % 2 * 2, n / 2 * 2);
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                px[(y + dy) * 4 + x + dx] = 0xFF00_0000 | color;
+            }
+        }
+        let sheet = Arc::new(Sprite::from_pixels(4, 4, px));
+        let legend: Vec<Tile> = b"abcd"
+            .iter()
+            .enumerate()
+            .map(|(i, &ch)| Tile { ch, id: i as u8 + 1, solid: true, front: false, auto: false })
+            .collect();
+        let map = Tilemap::try_from_ascii_with(&["abcd"], 2, sheet, &legend).unwrap();
+        let mut soft = crate::render::Soft::new(8, 2, 1);
+        soft.render(&map.draw_list(Rect { x: 0.0, y: 0.0, w: 8.0, h: 2.0 }));
+        let colors: Vec<u32> = [0, 2, 4, 6].iter().map(|&x| soft.buf[x] & 0xFF_FFFF).collect();
+        assert_eq!(colors, [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00]);
     }
 }

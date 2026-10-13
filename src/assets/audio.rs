@@ -3,7 +3,7 @@ use crate::{Ease, Tween};
 #[cfg(feature = "audio")]
 use crate::ecs::fx::FxMap;
 #[cfg(feature = "audio")]
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source, source::ChannelVolume};
 #[cfg(feature = "audio")]
 use std::{io::Cursor, sync::Arc};
 
@@ -12,6 +12,58 @@ const MAX_SOUNDS: usize = 32;
 // `clamp` lets NaN through.
 fn unit(v: f32) -> f32 {
     if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) }
+}
+
+/// How one sound is played: on top of the master and sound-effect volumes, `volume` (0..=1); `pan` from -1 (left) to
+/// 1 (right), which plays it as mono through both speakers at the balance; and `pitch`, a speed multiplier (0.25 to
+/// 4, 1 as recorded) that raises or lowers pitch together with speed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sound {
+    pub volume: f32,
+    pub pan: f32,
+    pub pitch: f32,
+}
+
+impl Sound {
+    pub fn new() -> Self {
+        Sound { volume: 1.0, pan: 0.0, pitch: 1.0 }
+    }
+
+    pub fn volume(self, volume: f32) -> Self {
+        Sound { volume, ..self }
+    }
+
+    pub fn pan(self, pan: f32) -> Self {
+        Sound { pan, ..self }
+    }
+
+    pub fn pitch(self, pitch: f32) -> Self {
+        Sound { pitch, ..self }
+    }
+
+    // The settings brought into range (not-a-number counts as the neutral value).
+    #[cfg_attr(not(feature = "audio"), allow(dead_code))]
+    fn clamped(self) -> Sound {
+        let or = |v: f32, neutral: f32| if v.is_nan() { neutral } else { v };
+        Sound {
+            volume: or(self.volume, 1.0).clamp(0.0, 1.0),
+            pan: or(self.pan, 0.0).clamp(-1.0, 1.0),
+            pitch: or(self.pitch, 1.0).clamp(0.25, 4.0),
+        }
+    }
+}
+
+impl Default for Sound {
+    fn default() -> Self {
+        Sound::new()
+    }
+}
+
+// How loud each speaker plays a sound panned to `pan`, keeping the total power the same all the way across.
+#[cfg_attr(not(feature = "audio"), allow(dead_code))]
+fn pan_gains(pan: f32) -> (f32, f32) {
+    let angle = (pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
+    (angle.cos(), angle.sin())
 }
 
 // The numbers behind the sound, kept apart from the device so the silent build and the tests share them.
@@ -166,6 +218,12 @@ impl Audio {
 
     #[cfg(feature = "audio")]
     pub fn play(&mut self, path: &str) {
+        self.play_with(path, Sound::new());
+    }
+
+    /// Like `play` with a volume, pan and pitch of its own.
+    #[cfg(feature = "audio")]
+    pub fn play_with(&mut self, path: &str, sound: Sound) {
         if self.dev.out.is_none() {
             return;
         }
@@ -175,10 +233,19 @@ impl Audio {
         if self.dev.sounds.len() >= self.mix.max_sounds {
             self.dev.sounds.remove(0);
         }
-        match rodio::play(out.mixer(), data) {
-            Ok(p) => {
-                p.set_volume(self.mix.volume * self.mix.sfx_volume);
-                self.dev.sounds.push(p);
+        let sound = sound.clamped();
+        match Decoder::new(data) {
+            Ok(src) => {
+                let player = Player::connect_new(out.mixer());
+                player.set_volume(self.mix.volume * self.mix.sfx_volume * sound.volume);
+                player.set_speed(sound.pitch);
+                if sound.pan == 0.0 {
+                    player.append(src);
+                } else {
+                    let (left, right) = pan_gains(sound.pan);
+                    player.append(ChannelVolume::new(src, vec![left, right]));
+                }
+                self.dev.sounds.push(player);
             }
             Err(e) => eprintln!("{path}: {e}"),
         }
@@ -218,6 +285,9 @@ impl Audio {
 
     #[cfg(not(feature = "audio"))]
     pub fn play(&mut self, _path: &str) {}
+
+    #[cfg(not(feature = "audio"))]
+    pub fn play_with(&mut self, _path: &str, _sound: Sound) {}
 
     #[cfg(not(feature = "audio"))]
     pub fn music(&mut self, _path: &str) {
@@ -287,5 +357,28 @@ mod tests {
         let mut a = Audio::disabled();
         a.set_volume(f32::NAN);
         assert_eq!(a.volume(), 0.0);
+    }
+
+    #[test]
+    fn panning_keeps_the_power_and_a_sound_is_kept_within_range() {
+        let power = |pan: f32| {
+            let (l, r) = pan_gains(pan);
+            l * l + r * r
+        };
+        for pan in [-1.0, -0.4, 0.0, 0.7, 1.0] {
+            assert!((power(pan) - 1.0).abs() < 1e-5, "pan {pan}");
+        }
+        let (l, r) = pan_gains(-1.0);
+        assert!((l - 1.0).abs() < 1e-6 && r.abs() < 1e-6, "all the way left is the left speaker only");
+        let (l, r) = pan_gains(0.0);
+        assert!((l - r).abs() < 1e-6, "the middle plays both speakers alike");
+        let wild = Sound::new().volume(7.0).pan(f32::NAN).pitch(100.0).clamped();
+        assert_eq!(wild, Sound { volume: 1.0, pan: 0.0, pitch: 4.0 });
+        assert_eq!(
+            Sound::new().pan(-3.0).pitch(0.0).volume(-1.0).clamped(),
+            Sound { volume: 0.0, pan: -1.0, pitch: 0.25 }
+        );
+        let mut a = Audio::disabled();
+        a.play_with("no/such/file.wav", Sound::new().pan(1.0));
     }
 }

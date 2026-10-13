@@ -831,3 +831,228 @@ fn a_fast_body_substeps_for_tiles_it_can_reach_but_not_for_a_masked_out_neighbou
     w.insert_one(fast, Filter { group: 1, mask: !Filter::TERRAIN }).unwrap();
     assert_eq!(substeps_of(&w, &mut p, Some(&tiles)), 1, "it passes through the map");
 }
+
+fn platform(w: &mut World, rect: Rect, vel: (f32, f32)) -> Entity {
+    boxed(w, rect, RigidBody::kinematic(), vel)
+}
+
+#[test]
+fn a_kinematic_platform_moves_by_its_velocity_with_no_gravity_and_is_never_pushed() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let plat = platform(&mut w, Rect { x: 0.0, y: 100.0, w: 100.0, h: 10.0 }, (30.0, -12.0));
+    let heavy = boxed(&mut w, square(40.0, 70.0, 30.0), RigidBody::dynamic(1000.0), (0.0, 0.0));
+    run(&mut p, &mut w, None, 60);
+    let (r, v) = state(&w, plat);
+    assert!((r.x - 30.0).abs() < 0.01 && (r.y - 88.0).abs() < 0.01, "moved to {r:?}");
+    assert_eq!(v, (30.0, -12.0), "its velocity is its own");
+    let (b, _) = state(&w, heavy);
+    assert!((b.y + b.h - r.y).abs() < 1.0, "the box rides on top: {b:?} on {r:?}");
+}
+
+#[test]
+fn a_platform_carries_a_box_sideways_by_friction_and_lifts_it() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let plat = platform(&mut w, Rect { x: 0.0, y: 100.0, w: 400.0, h: 10.0 }, (60.0, 0.0));
+    let crate_ = boxed(&mut w, square(20.0, 70.0, 30.0), RigidBody::dynamic(1.0).with_friction(0.8), (0.0, 0.0));
+    run(&mut p, &mut w, None, 120);
+    let (b, _) = state(&w, crate_);
+    assert!(b.x > 80.0, "carried along, now at x {}", b.x);
+    assert!((b.y + b.h - 100.0).abs() < 1.0, "still standing on it: {b:?}");
+    w.get::<&mut Vel>(plat).unwrap().y = -60.0;
+    w.get::<&mut Vel>(plat).unwrap().x = 0.0;
+    run(&mut p, &mut w, None, 60);
+    let (b, _) = state(&w, crate_);
+    let (r, _) = state(&w, plat);
+    assert!((b.y + b.h - r.y).abs() < 1.5, "lifted with the platform: box bottom {} platform top {}", b.y + b.h, r.y);
+}
+
+#[test]
+fn a_sleeping_box_on_a_moving_platform_wakes_and_is_carried() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let plat = platform(&mut w, Rect { x: 0.0, y: 100.0, w: 300.0, h: 10.0 }, (0.0, 0.0));
+    let b = boxed(&mut w, square(20.0, 70.0, 30.0), RigidBody::dynamic(1.0).with_friction(0.8), (0.0, 0.0));
+    run(&mut p, &mut w, None, 90);
+    assert!(p.asleep(b), "it settled and slept");
+    w.get::<&mut Vel>(plat).unwrap().x = 80.0;
+    run(&mut p, &mut w, None, 60);
+    assert!(state(&w, b).0.x > 40.0, "it was woken and carried");
+}
+
+#[test]
+fn a_one_way_platform_holds_what_lands_on_it_and_lets_the_rest_through() {
+    let one_way = |w: &mut World| {
+        boxed(w, Rect { x: -200.0, y: 100.0, w: 600.0, h: 10.0 }, RigidBody::fixed().one_way(), (0.0, 0.0))
+    };
+    let (mut p, mut w) = (Physics::default(), World::new());
+    one_way(&mut w);
+    let lander = boxed(&mut w, square(0.0, 20.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    run(&mut p, &mut w, None, 120);
+    let (r, _) = state(&w, lander);
+    assert!((r.y + r.h - 100.0).abs() < 0.5, "landed on top: {r:?}");
+
+    // From below it goes up through, then lands on the top.
+    let (mut p, mut w) = (Physics::default(), World::new());
+    one_way(&mut w);
+    let jumper = boxed(&mut w, square(0.0, 140.0, 20.0), RigidBody::dynamic(1.0), (0.0, -700.0));
+    let mut peaked_above = false;
+    for _ in 0..240 {
+        p.step(&mut w, None, DT);
+        peaked_above |= state(&w, jumper).0.y + 20.0 < 100.0;
+    }
+    let (r, _) = state(&w, jumper);
+    assert!(peaked_above, "it got through to the top");
+    assert!((r.y + r.h - 100.0).abs() < 0.5, "then landed on it: {r:?}");
+
+    // Walking into its edge from the side is not blocked either.
+    let (mut p, mut w) = (Physics::default(), World::new());
+    p.gravity = (0.0, 0.0);
+    one_way(&mut w);
+    let walker = boxed(&mut w, square(-300.0, 95.0, 20.0), RigidBody::dynamic(1.0), (200.0, 0.0));
+    run(&mut p, &mut w, None, 60);
+    assert!(state(&w, walker).0.x > -100.0, "the side of a one-way platform lets it pass");
+}
+
+#[test]
+fn a_one_way_platform_moving_up_lifts_what_is_above_it_and_passes_through_what_is_not() {
+    let rising = |w: &mut World| {
+        let plat = platform(w, Rect { x: -50.0, y: 200.0, w: 100.0, h: 10.0 }, (0.0, -300.0));
+        w.insert_one(plat, RigidBody::kinematic().one_way()).unwrap();
+        plat
+    };
+    let (mut p, mut w) = (Physics::default(), World::new());
+    rising(&mut w);
+    let above = boxed(&mut w, square(0.0, 170.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    run(&mut p, &mut w, None, 20);
+    assert!(state(&w, above).0.y < 120.0, "an elevator: the box above it is taken up");
+
+    let (mut p, mut w) = (Physics::default(), World::new());
+    p.gravity = (0.0, 0.0);
+    rising(&mut w);
+    let inside = boxed(&mut w, square(0.0, 195.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    run(&mut p, &mut w, None, 20);
+    assert!((state(&w, inside).0.y - 195.0).abs() < 0.5, "the platform passed through a body that was not above it");
+}
+
+#[test]
+fn a_spring_swings_at_the_frequency_it_was_given_whatever_the_mass() {
+    for mass in [0.5, 4.0] {
+        let (mut p, mut w) = (Physics::default(), World::new());
+        p.gravity = (0.0, 0.0);
+        let anchor = w.spawn((Body(square(300.0, 100.0, 10.0)), RigidBody::fixed()));
+        let bob = boxed(&mut w, square(440.0, 100.0, 10.0), RigidBody::dynamic(mass), (0.0, 0.0));
+        p.spring(anchor, bob, 100.0, 2.0, 0.0);
+        let mut crossings = Vec::new();
+        let mut last = gap(&w, anchor, bob) - 100.0;
+        for step in 1..=180 {
+            p.step(&mut w, None, DT);
+            let now = gap(&w, anchor, bob) - 100.0;
+            if last.signum() != now.signum() {
+                crossings.push(step as f32 * DT);
+            }
+            last = now;
+        }
+        assert!(crossings.len() >= 5, "mass {mass} oscillates: {crossings:?}");
+        let period = 2.0 * (crossings[crossings.len() - 1] - crossings[0]) / (crossings.len() - 1) as f32;
+        assert!((period - 0.5).abs() < 0.08, "mass {mass}: period {period} against 0.5 for 2 Hz");
+    }
+}
+
+#[test]
+fn damping_makes_a_spring_settle_at_its_length() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    p.gravity = (0.0, 0.0);
+    let anchor = w.spawn((Body(square(300.0, 100.0, 10.0)), RigidBody::fixed()));
+    let bob = boxed(&mut w, square(440.0, 100.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    p.spring(anchor, bob, 100.0, 2.0, 0.7);
+    run(&mut p, &mut w, None, 300);
+    assert!((gap(&w, anchor, bob) - 100.0).abs() < 1.0, "it came to rest at its length: {}", gap(&w, anchor, bob));
+}
+
+#[test]
+fn a_hinge_lets_a_body_swing_about_its_pin_without_coming_off() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let wall = w.spawn((Body(square(300.0, 100.0, 10.0)), RigidBody::fixed()));
+    let bob = w.spawn((
+        Body(Rect { x: 355.0, y: 95.0, w: 20.0, h: 20.0 }),
+        Vel::default(),
+        RigidBody::dynamic(1.0),
+        Transform::IDENTITY,
+    ));
+    let pin = (305.0, 105.0);
+    p.hinge(&w, wall, bob, pin);
+    let (mut lowest, mut worst_gap) = (0.0f32, 0.0f32);
+    for _ in 0..240 {
+        p.step(&mut w, None, DT);
+        let (r, angle) = (w.get::<&Body>(bob).unwrap().0, w.get::<&Transform>(bob).unwrap().angle);
+        let (c, arm) = (r.center(), Vec2::new(-60.0, 0.0).rotated(angle));
+        let at_pin = Vec2::new(c.0, c.1) + arm;
+        worst_gap = worst_gap.max(at_pin.distance(Vec2::new(pin.0, pin.1)));
+        lowest = lowest.max(c.1);
+    }
+    assert!(worst_gap < 1.5, "the pin stayed together to within {worst_gap}");
+    assert!(lowest > 150.0, "it swung down about the pin: lowest centre {lowest}");
+}
+
+#[test]
+fn a_hinge_with_nothing_to_hold_to_is_ignored() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let bob = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    let ghost = w.spawn(());
+    w.despawn(ghost).unwrap();
+    p.hinge(&w, ghost, bob, (5.0, 5.0));
+    run(&mut p, &mut w, None, 10);
+    assert!(state(&w, bob).0.y > 0.0, "it just falls");
+}
+
+#[test]
+fn a_landing_is_reported_once_as_new_and_then_as_resting_even_while_asleep() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    floor(&mut w);
+    let b = boxed(&mut w, square(0.0, 20.0, 20.0), RigidBody::dynamic(2.0), (0.0, 0.0));
+    assert!(p.events().is_empty() && !p.grounded(b));
+    let mut began = Vec::new();
+    for step in 0..40 {
+        p.step(&mut w, None, DT);
+        began.extend(p.events_of(b).filter(|c| c.began).map(|_| step));
+    }
+    assert_eq!(began.len(), 1, "one new contact, at step {began:?}");
+    assert!(p.grounded(b));
+    let hit = p.events_of(b).next().unwrap();
+    assert!(hit.normal_for(b).y > 0.9 && hit.b.is_some() && hit.impulse > 0.0, "{hit:?}");
+    run(&mut p, &mut w, None, 120);
+    assert!(p.asleep(b), "it fell asleep");
+    assert!(p.grounded(b) && p.events_of(b).count() == 1, "the resting pair is still listed while asleep");
+    assert!(p.events_of(b).all(|c| !c.began));
+    let floor_hit = p.ground(b).unwrap();
+    assert!(floor_hit.other(b).is_some() && floor_hit.involves(b), "the floor is an entity, so it is named");
+    assert_eq!(floor_hit.other(Entity::DANGLING), None, "an entity that is not in the pair has no other");
+}
+
+#[test]
+fn a_hard_hit_that_bounces_within_one_step_is_still_seen() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    w.spawn((Body(Rect { x: -500.0, y: 100.0, w: 2000.0, h: 50.0 }), RigidBody::fixed().with_bounce(0.9)));
+    let ball = boxed(&mut w, square(0.0, 79.0, 20.0), RigidBody::dynamic(1.0).with_bounce(0.9), (0.0, 600.0));
+    let mut peak = 0.0f32;
+    for _ in 0..4 {
+        p.step(&mut w, None, DT);
+        peak = peak.max(p.events_of(ball).map(|c| c.impulse).fold(0.0, f32::max));
+    }
+    assert!(peak > 1000.0, "mass 1 hitting at 600 px/s and bouncing at 0.9 gives an impulse near 1140: {peak}");
+}
+
+#[test]
+fn a_body_standing_on_a_tile_floor_reports_the_tile_and_leaving_it_ends_the_contact() {
+    let (mut p, mut w, tiles) = (Physics::default(), World::new(), tile_floor());
+    let b = boxed(&mut w, square(60.0, 10.0, 12.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    for _ in 0..90 {
+        p.step(&mut w, Some(&tiles), DT);
+    }
+    assert!(p.grounded(b) && p.events_of(b).any(|c| c.b.is_none()), "{:?}", p.events());
+    assert_eq!(p.ground(b).unwrap().other(b), None, "a tile has no entity");
+    w.get::<&mut Vel>(b).unwrap().y = -500.0;
+    p.wake(b);
+    p.step(&mut w, Some(&tiles), DT);
+    p.step(&mut w, Some(&tiles), DT);
+    assert!(!p.grounded(b), "in the air after jumping");
+}

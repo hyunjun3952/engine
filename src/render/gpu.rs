@@ -1,5 +1,5 @@
 use super::cmd::SAMPLE_BIAS;
-use super::{DrawCmd, Paint, Transform, font};
+use super::{Blend, DrawCmd, Paint, Style, Transform, font};
 use crate::Sprite;
 use crate::ecs::fx::FxMap;
 use std::sync::Arc;
@@ -14,20 +14,28 @@ struct Out {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) flash: vec4<f32>,
 };
 
 @vertex
-fn vs(@location(0) p: vec2<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>) -> Out {
+fn vs(
+    @location(0) p: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) flash: vec4<f32>,
+) -> Out {
     var o: Out;
     o.pos = vec4<f32>(p.x / globals.size.x * 2.0 - 1.0, 1.0 - p.y / globals.size.y * 2.0, 0.0, 1.0);
     o.uv = uv;
     o.color = color;
+    o.flash = flash;
     return o;
 }
 
 @fragment
 fn fs(i: Out) -> @location(0) vec4<f32> {
-    return textureSample(tex, samp, i.uv) * i.color;
+    let t = textureSample(tex, samp, i.uv) * i.color;
+    return vec4<f32>(mix(t.rgb, i.flash.rgb, i.flash.a), t.a);
 }
 ";
 
@@ -37,6 +45,8 @@ struct Vertex {
     pos: [f32; 2],
     uv: [f32; 2],
     color: [f32; 4],
+    // The colour to mix the texel towards and by how much (alpha), or all zero.
+    flash: [f32; 4],
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -48,6 +58,7 @@ enum Tex {
 
 struct Batch {
     tex: Tex,
+    add: bool,
     start: u32,
     end: u32,
 }
@@ -75,6 +86,10 @@ pub(crate) struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    additive: wgpu::RenderPipeline,
+    // The style of the command being built, which every quad of it carries.
+    flash: [f32; 4],
+    add: bool,
     globals_bind: wgpu::BindGroup,
     tex_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -95,6 +110,13 @@ pub(crate) struct Gpu {
 
 fn rgba(c: u32, a: f32) -> [f32; 4] {
     [(c >> 16 & 255) as f32 / 255.0, (c >> 8 & 255) as f32 / 255.0, (c & 255) as f32 / 255.0, a]
+}
+
+// The colour a flat paint shows with after the style's flash and fade.
+fn flat_color(col: u32, alpha: f32, st: &Style) -> [f32; 4] {
+    let ([r, g, b, _], [fr, fg, fb, _]) = (rgba(col, 1.0), rgba(st.flash, 1.0));
+    let k = st.flash_amount as f32 / 255.0;
+    [r + (fr - r) * k, g + (fg - g) * k, b + (fb - b) * k, alpha * st.opacity as f32 / 255.0]
 }
 
 fn upload(
@@ -273,35 +295,51 @@ impl Gpu {
             bind_group_layouts: &[Some(&globals_layout), Some(&tex_layout)],
             immediate_size: 0,
         });
-        let attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &attrs,
-                })],
+        let attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4];
+        let make = |blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: None,
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &attrs,
+                    })],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = make(wgpu::BlendState::ALPHA_BLENDING);
+        let add = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::SrcAlpha,
+            dst_factor: wgpu::BlendFactor::One,
+            operation: wgpu::BlendOperation::Add,
+        };
+        let additive = make(wgpu::BlendState {
+            color: add,
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
             },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
         });
 
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
@@ -337,6 +375,9 @@ impl Gpu {
             device,
             queue,
             pipeline,
+            additive,
+            flash: [0.0; 4],
+            add: false,
             globals_bind,
             tex_layout,
             sampler,
@@ -373,7 +414,8 @@ impl Gpu {
         color: [f32; 4],
     ) {
         let at = self.verts.len() as u32;
-        let v = |pos, uv| Vertex { pos, uv, color };
+        let flash = self.flash;
+        let v = |pos, uv| Vertex { pos, uv, color, flash };
         self.verts.extend([
             v(tl, [u0, v0]),
             v(tr, [u1, v0]),
@@ -382,9 +424,10 @@ impl Gpu {
             v(br, [u1, v1]),
             v(bl, [u0, v1]),
         ]);
+        let add = self.add;
         match self.batches.last_mut() {
-            Some(b) if b.tex == tex => b.end = at + 6,
-            _ => self.batches.push(Batch { tex, start: at, end: at + 6 }),
+            Some(b) if b.tex == tex && b.add == add => b.end = at + 6,
+            _ => self.batches.push(Batch { tex, add, start: at, end: at + 6 }),
         }
     }
 
@@ -435,26 +478,36 @@ impl Gpu {
         for c in cmds {
             let r = &c.rect;
             let t = &c.xform;
+            let st = &c.style;
+            (self.flash, self.add) = ([0.0; 4], false);
             let fill = match &c.paint {
                 Paint::Color(col) => Some((*col, 1.0)),
                 Paint::Alpha(col, a) => Some((*col, *a as f32 / 255.0)),
                 _ => None,
             };
             if let Some((col, a)) = fill {
+                self.add = st.blend == Blend::Add;
+                let color = flat_color(col, a, st);
                 match t.is_identity() {
-                    true => self.solid(r, rgba(col, a)),
-                    false => self.warped(Tex::White, *r, t, (0.0, 0.0, 1.0, 1.0), rgba(col, a)),
+                    true => self.solid(r, color),
+                    false => self.warped(Tex::White, *r, t, (0.0, 0.0, 1.0, 1.0), color),
                 }
                 continue;
             }
             if let Some((sheet, src, flip)) = c.paint.region() {
+                self.add = st.blend == Blend::Add;
+                let color = [1.0, 1.0, 1.0, st.opacity as f32 / 255.0];
+                if st.flash_amount > 0 {
+                    let [r, g, b, _] = rgba(st.flash, 1.0);
+                    self.flash = [r, g, b, st.flash_amount as f32 / 255.0];
+                }
                 let (tex, (sw, sh)) = self.texture(sheet);
                 let (u0, u1) = (src.x / sw, (src.x + src.w) / sw);
                 let (u0, u1) = if flip { (u1, u0) } else { (u0, u1) };
                 let uv = (u0, src.y / sh, u1, (src.y + src.h) / sh);
                 if t.is_identity() {
                     let (x, y) = (r.x.trunc(), r.y.trunc());
-                    self.quad(tex, (x, y, x + src.w, y + src.h), uv, [1.0; 4]);
+                    self.quad(tex, (x, y, x + src.w, y + src.h), uv, color);
                 } else {
                     let nudged = (
                         uv.0 + SAMPLE_BIAS / sw,
@@ -462,7 +515,7 @@ impl Gpu {
                         uv.2 + SAMPLE_BIAS / sw,
                         uv.3 + SAMPLE_BIAS / sh,
                     );
-                    self.warped(tex, crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h }, t, nudged, [1.0; 4]);
+                    self.warped(tex, crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h }, t, nudged, color);
                 }
                 continue;
             }
@@ -483,9 +536,9 @@ impl Gpu {
                     let sz = *size as f32;
                     for &(gx, gy, id) in tiles {
                         let (x, y) = (r.x.trunc() + (gx * size) as f32, r.y.trunc() + (gy * size) as f32);
-                        let src = Paint::tile_src(id, *size);
-                        let u0 = src.x / sw;
-                        self.quad(tex, (x, y, x + sz, y + sz), (u0, 0.0, u0 + sz / sw, sz / sh), [1.0; 4]);
+                        let src = Paint::tile_src(id, *size, sw as usize);
+                        let uv = (src.x / sw, src.y / sh, (src.x + sz) / sw, (src.y + sz) / sh);
+                        self.quad(tex, (x, y, x + sz, y + sz), uv, [1.0; 4]);
                     }
                 }
                 Paint::Mask { sheet, src, color } => {
@@ -527,10 +580,14 @@ impl Gpu {
             });
             let v = &self.viewport;
             pass.set_viewport(v.x, v.y, v.w, v.h, 0.0, 1.0);
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bind, &[]);
             pass.set_vertex_buffer(0, self.vbuf.slice(..));
+            let mut adding = None;
             for b in &self.batches {
+                if adding != Some(b.add) {
+                    pass.set_pipeline(if b.add { &self.additive } else { &self.pipeline });
+                    adding = Some(b.add);
+                }
                 let bind = match b.tex {
                     Tex::White => &self.white,
                     Tex::Font => &self.font,
@@ -610,7 +667,7 @@ impl Gpu {
 mod tests {
     use super::*;
     use crate::render::Soft;
-    use crate::{Gfx, Rect, Tilemap};
+    use crate::{Gfx, Rect, Style, Tile, Tilemap};
 
     fn scene() -> Gfx {
         let sprite = |p: &str| Arc::new(Sprite::load(p));
@@ -787,13 +844,8 @@ mod tests {
         let (ball, player) = (sprite("assets/images/ball.png"), sprite("assets/images/player.png"));
         let mut g = Gfx::new(160, 120);
         g.clear(0x203050);
-        let cmd = |rect, paint, angle, sx, sy| DrawCmd {
-            layer: 0,
-            rect,
-            paint,
-            debug_only: false,
-            xform: Transform { angle, sx, sy },
-        };
+        let cmd =
+            |rect, paint, angle, sx, sy| DrawCmd { xform: Transform { angle, sx, sy }, ..DrawCmd::new(rect, paint) };
         let at = |x, y, w, h| Rect { x, y, w, h };
         let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
         g.draw([
@@ -884,5 +936,74 @@ mod tests {
         );
         gpu.fit((0, 0));
         assert_eq!(gpu.target, (128, 128), "a minimized window changes nothing");
+    }
+
+    #[test]
+    fn styled_sprites_and_flat_colours_match_between_the_software_and_gpu_rasterizers() {
+        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let (ball, player) = (sprite("assets/images/ball.png"), sprite("assets/images/player.png"));
+        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        let mut g = Gfx::new(640, 360);
+        g.clear(0x203050);
+        g.fill(&Rect { x: 0.0, y: 60.0, w: 640.0, h: 40.0 }, 0x806040);
+        let styles = [
+            Style::PLAIN,
+            Style::PLAIN.flashed(0xffffff, 128),
+            Style::PLAIN.flashed(0xff0000, 255),
+            Style::PLAIN.faded(100),
+            Style::PLAIN.additive(),
+            Style::PLAIN.additive().faded(120),
+            Style::PLAIN.flashed(0x00ff80, 90).faded(200),
+        ];
+        let turns = [
+            Transform::IDENTITY,
+            Transform { angle: 0.0, sx: 2.0, sy: 2.0 },
+            Transform { angle: 0.5, sx: 1.0, sy: 1.0 },
+        ];
+        let mut cmds = Vec::new();
+        for (row, turn) in turns.iter().enumerate() {
+            for (i, style) in styles.iter().enumerate() {
+                let (x, y) = (10.0 + i as f32 * 60.0, 10.0 + row as f32 * 90.0);
+                let sheet_cmd = |at: Rect, paint| DrawCmd { xform: *turn, style: *style, ..DrawCmd::new(at, paint) };
+                cmds.push(sheet_cmd(Rect { x, y, w: 16.0, h: 16.0 }, Paint::Sprite(ball.clone())));
+                let region = Paint::Region { sheet: player.clone(), src: frame, flip: i % 2 == 1 };
+                cmds.push(sheet_cmd(Rect { x: x + 20.0, y, w: 12.0, h: 24.0 }, region));
+                cmds.push(sheet_cmd(Rect { x, y: y + 40.0, w: 20.0, h: 14.0 }, Paint::Color(0xc08040)));
+                cmds.push(sheet_cmd(Rect { x: x + 24.0, y: y + 40.0, w: 20.0, h: 14.0 }, Paint::Alpha(0x4080c0, 150)));
+            }
+        }
+        g.draw(cmds);
+        assert_same(&mut gpu, &g, "_styles");
+    }
+
+    #[test]
+    fn tiles_from_the_second_row_of_a_sheet_match_between_the_backends() {
+        let Ok(mut gpu) = Gpu::offscreen((640, 360), true) else {
+            eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let px = (0..64 * 32).map(|i| {
+            let (x, y) = (i % 64, i / 64);
+            let id = (y / 16) * 4 + x / 16;
+            0xFF00_0000 | ((id as u32 * 31) << 16) | ((255 - id as u32 * 30) << 8) | ((x as u32 % 7) * 20)
+        });
+        let sheet = Arc::new(Sprite::from_pixels(64, 32, px.collect()));
+        let legend: Vec<Tile> = b"12345678"
+            .iter()
+            .enumerate()
+            .map(|(i, &ch)| Tile { ch, id: i as u8 + 1, solid: false, front: false, auto: false })
+            .collect();
+        let map = Tilemap::try_from_ascii_with(&["1234", "5678", "8765"], 16, sheet, &legend).unwrap();
+        let mut g = Gfx::new(640, 360);
+        g.draw(map.draw_list(g.view()));
+        assert_same(&mut gpu, &g, "_rows");
+        (g.zoom, g.cam) = (1.5, (4.0, 3.0));
+        g.reset();
+        g.draw(map.draw_list(g.view()));
+        assert_same(&mut gpu, &g, "_rows_zoom");
     }
 }
