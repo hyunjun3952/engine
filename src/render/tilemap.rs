@@ -39,6 +39,8 @@ pub struct Tilemap {
     pub w: usize,
     pub h: usize,
     pub size: usize,
+    /// Restitution of every solid tile for physics (0 by default); a body bounces by the smaller of the two.
+    pub bounce: f32,
     tiles: Vec<u8>,
     marks: Vec<(u8, usize, usize)>,
     sheet: Arc<Sprite>,
@@ -103,6 +105,9 @@ impl Tilemap {
         let mut tiles = Vec::with_capacity(w * rows.len());
         let mut marks = Vec::new();
         for (y, row) in rows.iter().enumerate() {
+            if !row.is_ascii() {
+                return Err(format!("tilemap row {} has a character that is not ASCII", y + 1));
+            }
             if row.len() != w {
                 return Err(format!("ragged tilemap row {} (width {}, expected {w})", y + 1, row.len()));
             }
@@ -115,7 +120,7 @@ impl Tilemap {
             }
         }
         let stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
-        Ok(Tilemap { w, h: rows.len(), size, tiles, marks, sheet, flags, stamp })
+        Ok(Tilemap { w, h: rows.len(), size, bounce: 0.0, tiles, marks, sheet, flags, stamp })
     }
 
     pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Self {
@@ -128,7 +133,8 @@ impl Tilemap {
 
     pub fn try_load_with(path: &str, size: usize, sheet: Arc<Sprite>, legend: &[Tile]) -> Result<Self, String> {
         let text = crate::assets::read_text(path)?;
-        let rows: Vec<&str> = text.trim_end().lines().collect();
+        // Only newlines are trimmed: a space is an empty tile, so a last row may end in them.
+        let rows: Vec<&str> = text.trim_end_matches(['\n', '\r']).lines().collect();
         Tilemap::try_from_ascii_with(&rows, size, sheet, legend).map_err(|e| format!("{path}: {e}"))
     }
 
@@ -295,6 +301,18 @@ mod tests {
         let map = Tilemap::try_from_ascii_with(&["#.#"], 2, wide_sheet(), &[front]).unwrap();
         let cmds = map.draw_list(Rect { x: 0.0, y: 0.0, w: 6.0, h: 2.0 });
         assert_eq!((cmds.len(), cmds[0].layer), (1, i32::MAX - 1));
+    }
+
+    #[test]
+    fn a_last_row_that_ends_in_spaces_loads_and_non_ascii_text_is_refused() {
+        let path = std::env::temp_dir().join(format!("engine-level-{}.txt", std::process::id()));
+        let path = path.to_str().unwrap();
+        std::fs::write(path, "....\r\n#.  \r\n    \n\n").unwrap();
+        let map = Tilemap::try_load(path, 16, Sprite::test_tiles()).unwrap();
+        assert_eq!((map.w, map.h), (4, 3));
+        std::fs::remove_file(path).unwrap();
+        let err = Tilemap::try_from_ascii(&["é.#"], 16, Sprite::test_tiles()).err().unwrap();
+        assert!(err.contains("not ASCII"), "{err}");
     }
 
     #[test]

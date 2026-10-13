@@ -5,6 +5,7 @@ use crate::{Body, Entity, Filter, Rect, Tilemap, Transform, Vel, World};
 mod contact;
 
 use contact::touch;
+use std::ops::{Deref, DerefMut};
 
 const REST_SPEED: f32 = 30.0;
 // How far, as a share of its smaller side, a body may move in one substep. Two bodies closing on each other
@@ -15,7 +16,7 @@ const CORRECTION: f32 = 0.5;
 const CORRECTION_PASSES: usize = 6;
 const MAX_CORRECTION_PASSES: usize = 50;
 const UNSETTLED: f32 = 0.05;
-const HEAVY_RATIO: f32 = 4.0;
+const HEAVY_RATIO: f32 = 8.0;
 const WARM_RANGE: f32 = 4.0;
 const SAME_NORMAL: f32 = 0.95;
 const MAX_SUBSTEPS: usize = 16;
@@ -67,7 +68,7 @@ impl RigidBody {
 // A contact's normal and, per point, where it was and the impulses it ended with.
 struct Memory {
     normal: V2,
-    pts: Vec<(V2, f32, f32)>,
+    pts: Pts,
 }
 
 // Keeps the centres of two bodies `length` apart (a rod) or at most that far apart (a rope).
@@ -82,7 +83,7 @@ struct Joint {
 #[derive(Default)]
 struct Rest {
     calm: f32,
-    asleep: Option<Rect>,
+    asleep: Option<(Rect, f32)>,
 }
 
 pub struct Physics {
@@ -93,7 +94,7 @@ pub struct Physics {
     joints: Vec<Joint>,
     rest: FxMap<Entity, Rest>,
     // What the last step saw, to notice a body that vanished or a gravity change: sleepers must then be woken.
-    known: FxSet<Entity>,
+    known: Vec<Entity>,
     last_gravity: V2,
     last_tiles: Option<u64>,
     sweep: Sweep,
@@ -107,7 +108,7 @@ impl Default for Physics {
             cache: FxMap::default(),
             joints: Vec::new(),
             rest: FxMap::default(),
-            known: FxSet::default(),
+            known: Vec::new(),
             last_gravity: (0.0, 900.0),
             last_tiles: None,
             sweep: Sweep::default(),
@@ -213,17 +214,73 @@ fn dot(a: V2, b: V2) -> f32 {
     a.0 * b.0 + a.1 * b.1
 }
 
+#[derive(Clone, Copy)]
 struct Pt {
     at: V2,
     depth: f32,
     jn: f32,
     jt: f32,
     bounce: f32,
+    // Fixed for the step, so measured once in `prepare`: the arms and the effective masses along normal and tangent.
+    ra: V2,
+    rb: V2,
+    kn: f32,
+    kt: f32,
 }
 
 impl Pt {
     fn new(at: V2, depth: f32) -> Self {
-        Pt { at, depth, jn: 0.0, jt: 0.0, bounce: 0.0 }
+        Pt { at, depth, jn: 0.0, jt: 0.0, bounce: 0.0, ra: (0.0, 0.0), rb: (0.0, 0.0), kn: 0.0, kt: 0.0 }
+    }
+}
+
+// The contact points of one pair: a box face has two at most, so no heap.
+#[derive(Clone, Copy)]
+struct Pts {
+    items: [Pt; 2],
+    len: usize,
+}
+
+impl Pts {
+    fn one(p: Pt) -> Self {
+        Pts { items: [p, p], len: 1 }
+    }
+
+    fn retain(&mut self, mut keep: impl FnMut(&Pt) -> bool) {
+        let mut kept = 0;
+        for i in 0..self.len {
+            if keep(&self.items[i]) {
+                self.items[kept] = self.items[i];
+                kept += 1;
+            }
+        }
+        self.len = kept;
+    }
+}
+
+impl Deref for Pts {
+    type Target = [Pt];
+    fn deref(&self) -> &[Pt] {
+        &self.items[..self.len]
+    }
+}
+
+impl DerefMut for Pts {
+    fn deref_mut(&mut self) -> &mut [Pt] {
+        &mut self.items[..self.len]
+    }
+}
+
+impl FromIterator<Pt> for Pts {
+    fn from_iter<I: IntoIterator<Item = Pt>>(iter: I) -> Self {
+        let mut it = iter.into_iter();
+        let first = it.next().expect("a contact has a point");
+        let mut pts = Pts::one(first);
+        if let Some(second) = it.next() {
+            pts.items[1] = second;
+            pts.len = 2;
+        }
+        pts
     }
 }
 
@@ -231,7 +288,7 @@ struct Hit {
     a: usize,
     b: usize,
     normal: V2,
-    pts: Vec<Pt>,
+    pts: Pts,
     key: (u64, u64),
 }
 
@@ -294,13 +351,15 @@ impl Physics {
         self.rest.retain(|e, r| {
             let Some(&i) = index.get(e) else { return false };
             let n = &nodes[i];
-            r.asleep.is_none_or(|at| at == n.rect && n.vel == (0.0, 0.0) && n.spin == 0.0)
+            r.asleep.is_none_or(|(at, angle)| at == n.rect && angle == n.angle && n.vel == (0.0, 0.0) && n.spin == 0.0)
         });
         // Whatever a sleeper rested on may be gone (a despawned body or wall, a dug tile) or pulling another way.
-        let changed = self.known.iter().any(|e| !index.contains_key(e))
+        let changed = (self.known != ents && self.known.iter().any(|e| !index.contains_key(e)))
             || self.gravity != self.last_gravity
             || tiles != self.last_tiles;
-        self.known = ents.iter().copied().collect();
+        if self.known != ents {
+            self.known = ents.to_vec();
+        }
         self.last_gravity = self.gravity;
         self.last_tiles = tiles;
         // Only the sleeping stops: the time a body has been still keeps counting, so one whose support is still there
@@ -338,7 +397,7 @@ impl Physics {
             r.calm += dt;
             if r.calm >= SLEEP_TIME {
                 (n.vel, n.spin) = ((0.0, 0.0), 0.0);
-                r.asleep = Some(n.rect);
+                r.asleep = Some((n.rect, n.angle));
             }
         }
     }
@@ -403,13 +462,8 @@ impl Physics {
                 break;
             }
         }
-        self.cache = hits
-            .iter()
-            .map(|h| {
-                let pts = h.pts.iter().map(|p| (p.at, p.jn, p.jt)).collect();
-                (h.key, Memory { normal: h.normal, pts })
-            })
-            .collect();
+        self.cache.clear();
+        self.cache.extend(hits.iter().map(|h| (h.key, Memory { normal: h.normal, pts: h.pts })));
     }
 
     fn integrate(&self, nodes: &mut [Node], dt: f32) {
@@ -463,7 +517,7 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
         let near = Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 };
         for tile in map.solid_in(near) {
             if seen.insert((tile.x as i32, tile.y as i32)) {
-                nodes.push(Node::wall(tile));
+                nodes.push(Node { restitution: map.bounce, ..Node::wall(tile) });
             }
         }
     }
@@ -561,8 +615,11 @@ fn stiffness(a: &Node, b: &Node, ra: V2, rb: V2, dir: V2) -> f32 {
 // How fast the bodies close along the normal when contact starts decides the bounce, once, before any impulse.
 fn prepare(a: &Node, b: &Node, hit: &mut Hit) {
     let bounce = a.restitution.min(b.restitution);
-    for pt in &mut hit.pts {
+    let t = (-hit.normal.1, hit.normal.0);
+    for pt in hit.pts.iter_mut() {
         let (ra, rb) = arms(a, b, pt.at);
+        (pt.ra, pt.rb) = (ra, rb);
+        (pt.kn, pt.kt) = (stiffness(a, b, ra, rb, hit.normal), stiffness(a, b, ra, rb, t));
         let closing = -dot(rel_vel(a, b, ra, rb), hit.normal);
         pt.bounce = if closing < REST_SPEED { 0.0 } else { bounce * closing };
     }
@@ -571,12 +628,12 @@ fn prepare(a: &Node, b: &Node, hit: &mut Hit) {
 // A point inherits the impulses of the nearest point this pair had last step, if one is still close.
 fn warm_start(a: &mut Node, b: &mut Node, hit: &mut Hit, old: Option<&Memory>) {
     let n = hit.normal;
-    let old = old.filter(|o| dot(o.normal, n) > SAME_NORMAL).map(|o| &o.pts);
+    let old = old.filter(|o| dot(o.normal, n) > SAME_NORMAL).map(|o| &o.pts[..]);
     let t = (-n.1, n.0);
-    for pt in &mut hit.pts {
-        let dist = |o: &&(V2, f32, f32)| (o.0.0 - pt.at.0).hypot(o.0.1 - pt.at.1);
+    for pt in hit.pts.iter_mut() {
+        let dist = |o: &&Pt| (o.at.0 - pt.at.0).hypot(o.at.1 - pt.at.1);
         let nearest = old.into_iter().flatten().min_by(|x, y| dist(x).total_cmp(&dist(y)));
-        let Some(&(_, jn, jt)) = nearest.filter(|o| dist(o) < WARM_RANGE) else {
+        let Some(&Pt { jn, jt, .. }) = nearest.filter(|o| dist(o) < WARM_RANGE) else {
             continue;
         };
         let (ra, rb) = arms(a, b, pt.at);
@@ -589,14 +646,14 @@ fn solve(a: &mut Node, b: &mut Node, hit: &mut Hit) {
     let n = hit.normal;
     let t = (-n.1, n.0);
     let grip = (a.friction * b.friction).sqrt();
-    for pt in &mut hit.pts {
-        let (ra, rb) = arms(a, b, pt.at);
-        let lambda = (pt.bounce - dot(rel_vel(a, b, ra, rb), n)) / stiffness(a, b, ra, rb, n);
+    for pt in hit.pts.iter_mut() {
+        let (ra, rb) = (pt.ra, pt.rb);
+        let lambda = (pt.bounce - dot(rel_vel(a, b, ra, rb), n)) / pt.kn;
         let total = (pt.jn + lambda).max(0.0);
         apply(a, b, ra, rb, ((total - pt.jn) * n.0, (total - pt.jn) * n.1));
         pt.jn = total;
 
-        let lambda = -dot(rel_vel(a, b, ra, rb), t) / stiffness(a, b, ra, rb, t);
+        let lambda = -dot(rel_vel(a, b, ra, rb), t) / pt.kt;
         let total = (pt.jt + lambda).clamp(-grip * pt.jn, grip * pt.jn);
         apply(a, b, ra, rb, ((total - pt.jt) * t.0, (total - pt.jt) * t.1));
         pt.jt = total;

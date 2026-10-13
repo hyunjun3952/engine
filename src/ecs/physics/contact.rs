@@ -1,11 +1,11 @@
 // Making contacts: where two shapes touch, the normal between them and how deep, for every pair of shapes.
 
-use super::{Node, Pt, V2, dot, sub};
+use super::{Node, Pt, Pts, V2, dot, sub};
 use crate::Rect;
 
 pub(super) struct Touch {
     pub(super) normal: V2,
-    pub(super) pts: Vec<Pt>,
+    pub(super) pts: Pts,
     // Axis-aligned boxes: the normal alone says which tile face is touched.
     pub(super) whole_face: bool,
 }
@@ -27,7 +27,7 @@ pub(super) fn touch(a: &Node, b: &Node, tile_axes_only: bool) -> Option<Touch> {
             let normal = if dist > 1e-6 { (dx / dist, dy / dist) } else { (0.0, 1.0) };
             let depth = reach - dist;
             let at = (ca.0 + normal.0 * (a.radius() - depth / 2.0), ca.1 + normal.1 * (a.radius() - depth / 2.0));
-            Some(Touch { normal, pts: vec![Pt::new(at, depth)], whole_face: false })
+            Some(Touch { normal, pts: Pts::one(Pt::new(at, depth)), whole_face: false })
         }
         (true, false) => circle_box(a, b).map(|t| Touch { normal: (-t.normal.0, -t.normal.1), ..t }),
         (false, true) => circle_box(b, a),
@@ -48,7 +48,7 @@ fn axis_aligned(a: &Node, b: &Node) -> Option<Touch> {
         let at = (y0 + y1) / 2.0;
         ((0.0, push_direction(side, a.center().1, b.center().1)), oy, [(x0, at), (x1, at)])
     };
-    Some(Touch { normal, pts: pts.map(|at| Pt::new(at, depth)).into(), whole_face: true })
+    Some(Touch { normal, pts: pts.map(|at| Pt::new(at, depth)).into_iter().collect(), whole_face: true })
 }
 
 // Separating axis test over the four face normals, then clipping the incident edge against the reference face.
@@ -108,11 +108,8 @@ fn tilted_boxes(a: &Node, b: &Node, only_b_axes: bool) -> Option<Touch> {
             seg[cut] = (pk.0 + (pc.0 - pk.0) * f, pk.1 + (pc.1 - pk.1) * f);
         }
     }
-    let pts: Vec<Pt> = seg
-        .into_iter()
-        .map(|p| Pt::new(p, face_half - dot((p.0 - cr.0, p.1 - cr.1), nr)))
-        .filter(|p| p.depth > 0.0)
-        .collect();
+    let mut pts: Pts = seg.into_iter().map(|p| Pt::new(p, face_half - dot((p.0 - cr.0, p.1 - cr.1), nr))).collect();
+    pts.retain(|p| p.depth > 0.0);
     (!pts.is_empty()).then_some(Touch { normal, pts, whole_face: false })
 }
 
@@ -148,7 +145,7 @@ fn circle_box(circle: &Node, boxed: &Node) -> Option<Touch> {
     };
     let world = |v: V2| (v.0 * ux.0 + v.1 * uy.0, v.0 * ux.1 + v.1 * uy.1);
     let (nw, qw) = (world(n), world(q));
-    Some(Touch { normal: nw, pts: vec![Pt::new((bc.0 + qw.0, bc.1 + qw.1), depth)], whole_face: false })
+    Some(Touch { normal: nw, pts: Pts::one(Pt::new((bc.0 + qw.0, bc.1 + qw.1), depth)), whole_face: false })
 }
 
 fn hit_along_x(a: &Rect, b: &Rect, ox: f32, oy: f32) -> bool {

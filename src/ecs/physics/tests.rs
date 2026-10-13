@@ -751,3 +751,33 @@ fn bodies_coming_and_going_elsewhere_do_not_keep_a_resting_box_awake() {
     assert!(p.asleep(e), "a body despawned every 20 steps kept the box awake");
     assert!((state(&w, e).0.y + 20.0 - 100.0).abs() < 0.5);
 }
+
+#[test]
+fn a_bouncy_body_bounces_off_tiles_only_when_the_map_has_a_bounce() {
+    let upward = |bounce: f32| {
+        let mut map = Tilemap::from_ascii(&["....", "....", "....", "####"], 16, Sprite::test_tiles());
+        map.bounce = bounce;
+        let (mut w, mut p) = (World::new(), Physics::default());
+        let e = boxed(&mut w, square(24.0, 0.0, 8.0), RigidBody::dynamic(1.0).with_bounce(0.9), (0.0, 0.0));
+        let mut up = 0.0f32;
+        for _ in 0..240 {
+            p.step(&mut w, Some(&map), DT);
+            up = up.max(-state(&w, e).1.1);
+        }
+        up
+    };
+    assert_eq!(upward(0.0), 0.0);
+    assert!(upward(0.9) > 100.0, "bounced at {}", upward(0.9));
+}
+
+#[test]
+fn turning_a_sleeping_body_wakes_it() {
+    let (mut w, mut p) = (World::new(), Physics::default());
+    floor(&mut w);
+    let e = w.spawn((Body(square(40.0, 80.0, 20.0)), Vel::default(), RigidBody::dynamic(1.0), Transform::IDENTITY));
+    run(&mut p, &mut w, None, 120);
+    assert!(p.asleep(e));
+    w.get::<&mut Transform>(e).unwrap().angle = 0.7;
+    run(&mut p, &mut w, None, 1);
+    assert!(!p.asleep(e), "a body the game turned stayed asleep inside the floor");
+}
