@@ -797,3 +797,37 @@ fn a_sleeper_wakes_when_the_game_moves_the_fixed_body_it_rests_on() {
     }
     assert!(state(&w, b).0.y > 200.0, "it must fall once the platform is gone");
 }
+
+fn substeps_of(w: &World, p: &mut Physics, tiles: Option<&Tilemap>) -> usize {
+    let (_, nodes) = gather(w);
+    p.substeps(&nodes, tiles, DT)
+}
+
+#[test]
+fn only_a_fast_body_with_something_in_its_way_makes_the_world_substep() {
+    let mut p = Physics::default();
+    let mut w = World::new();
+    boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    assert_eq!(substeps_of(&w, &mut p, None), 1);
+    // A body that fell out of the world, far from everything, costs nothing extra.
+    let lost = boxed(&mut w, square(5000.0, 9000.0, 10.0), RigidBody::dynamic(1.0), (0.0, 4000.0));
+    assert_eq!(substeps_of(&w, &mut p, None), 1);
+    // The same speed with a wall in its path cuts the step.
+    w.despawn(lost).unwrap();
+    boxed(&mut w, square(100.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 4000.0));
+    w.spawn((Body(Rect { x: 90.0, y: 40.0, w: 30.0, h: 5.0 }), RigidBody::fixed()));
+    assert!(substeps_of(&w, &mut p, None) > 1);
+}
+
+#[test]
+fn a_fast_body_substeps_for_tiles_it_can_reach_but_not_for_a_masked_out_neighbour() {
+    let (mut p, tiles) = (Physics::default(), tile_floor());
+    let mut w = World::new();
+    let fast = boxed(&mut w, square(100.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 4000.0));
+    assert!(substeps_of(&w, &mut p, Some(&tiles)) > 1, "the floor is within one step");
+    w.get::<&mut Body>(fast).unwrap().0.y = 6000.0;
+    assert_eq!(substeps_of(&w, &mut p, Some(&tiles)), 1, "far below the map");
+    w.get::<&mut Body>(fast).unwrap().0.y = 0.0;
+    w.insert_one(fast, Filter { group: 1, mask: !Filter::TERRAIN }).unwrap();
+    assert_eq!(substeps_of(&w, &mut p, Some(&tiles)), 1, "it passes through the map");
+}

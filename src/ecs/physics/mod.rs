@@ -100,6 +100,8 @@ pub struct Physics {
     // Where the immovable bodies were last step: one the game moved must wake what sleeps near it.
     walls: FxMap<Entity, Rect>,
     sweep: Sweep,
+    // Finds which fast bodies have anything in their way, apart from `sweep` because its rects differ.
+    scout: Sweep,
 }
 
 impl Default for Physics {
@@ -115,6 +117,7 @@ impl Default for Physics {
             last_tiles: None,
             walls: FxMap::default(),
             sweep: Sweep::default(),
+            scout: Sweep::default(),
         }
     }
 }
@@ -330,7 +333,7 @@ impl Physics {
         let bodies = nodes.len();
         let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
         self.freeze(&ents, &index, &mut nodes, tiles.map(Tilemap::stamp), dt);
-        let substeps = self.substeps(&nodes, dt);
+        let substeps = self.substeps(&nodes, tiles, dt);
         let links: Vec<Link> = self
             .joints
             .iter()
@@ -418,15 +421,34 @@ impl Physics {
         }
     }
 
-    // A body that crosses more than half its own size in one step can pass through a thin wall, so the whole
-    // step is cut into shorter ones until none does; the cap keeps a stray huge velocity from freezing the game.
-    fn substeps(&self, nodes: &[Node], dt: f32) -> usize {
+    // A body that crosses more than an eighth of its own size in one step can pass through a thin wall, so the whole
+    // step is cut into shorter ones until none does. Only a fast body with something in its way counts (one that fell
+    // out of the world or flies through empty space would otherwise slow every step for good); the cap keeps a stray
+    // huge velocity from freezing the game.
+    fn substeps(&mut self, nodes: &[Node], tiles: Option<&Tilemap>, dt: f32) -> usize {
         let gravity = self.gravity.0.hypot(self.gravity.1) * dt;
-        let worst = nodes
-            .iter()
-            .filter(|n| n.inv_mass > 0.0)
-            .map(|n| (speed(n) + gravity) * dt / (n.rect.w.min(n.rect.h) * TRAVEL))
-            .fold(0.0, f32::max);
+        let reach = |n: &Node| (speed(n) + gravity) * dt;
+        let need = |n: &Node| if n.inv_mass > 0.0 { reach(n) / (n.rect.w.min(n.rect.h) * TRAVEL) } else { 0.0 };
+        if nodes.iter().all(|n| need(n) <= 1.0) {
+            return 1;
+        }
+        let need: Vec<f32> = nodes.iter().map(need).collect();
+        let swept: Vec<Rect> =
+            nodes.iter().map(|n| if n.inv_mass > 0.0 { grow(n.bounds(), reach(n)) } else { n.bounds() }).collect();
+        let fast = |i: usize| need[i] > 1.0;
+        let mut worst = 0.0f32;
+        for &(a, b, ..) in self.scout.pairs(&swept, |i| !fast(i)) {
+            if nodes[a].filter.meets(&nodes[b].filter) {
+                worst = worst.max(if fast(a) { need[a] } else { 0.0 }).max(if fast(b) { need[b] } else { 0.0 });
+            }
+        }
+        if let Some(map) = tiles {
+            for i in (0..nodes.len()).filter(|&i| fast(i) && nodes[i].filter.mask & Filter::TERRAIN != 0) {
+                if need[i] > worst && !map.solid_in(swept[i]).is_empty() {
+                    worst = need[i];
+                }
+            }
+        }
         (worst.ceil() as usize).clamp(1, MAX_SUBSTEPS)
     }
 
