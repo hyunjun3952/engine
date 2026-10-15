@@ -351,7 +351,13 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: u
     gpu.unwrap_or_else(|| Backend::Soft(Soft::new(w, h, scale)))
 }
 
-pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
+pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
+    if let Ok(v) = std::env::var("ENGINE_TICK_HZ") {
+        match v.parse::<f32>() {
+            Ok(hz) if hz.is_finite() && hz > 0.0 => cfg.tick_hz = hz,
+            _ => eprintln!("ENGINE_TICK_HZ={v:?} is not a positive number; ignored"),
+        }
+    }
     cfg.check();
     // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
     #[cfg(feature = "gpu")]
