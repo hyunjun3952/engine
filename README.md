@@ -16,7 +16,7 @@ API docs: <https://hyunjun3952.github.io/engine/>
 ## Quick start
 
 ```sh
-cargo run --example platformer   # also: camera, physics, raycast, text
+cargo run --example game        # a platformer; `-- 3` starts at stage 4
 cargo test                       # run from the repo root, tests load assets/ by relative path
 ```
 
@@ -60,7 +60,7 @@ src/render/   Gfx, Soft and Gpu backends, camera, tilemap, Tiled, light
 src/ecs/      components, systems, physics, persistence
 src/assets/   sprite and font cache, atlas, audio, hot reload
 src/          UI widgets, debug tools, Hangul composition, Vec2
-examples/     runnable demos
+examples/     game.rs, a platformer that brings in one engine feature per stage
 assets/       fonts, images, levels
 ```
 
