@@ -21,13 +21,16 @@ fn strip_bom(text: String) -> String {
 
 /// Writes beside the target, flushes to disk and renames over it, so a crash leaves the old file or the whole new
 /// one, never half of it (and never an empty one: a rename alone can reach the disk before the data does).
-pub(crate) fn write_atomic(path: &str, text: &str) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &str, text: &str) -> Result<(), String> {
     use std::io::Write;
     let tmp = format!("{path}.tmp");
-    let mut file = std::fs::File::create(&tmp)?;
-    file.write_all(text.as_bytes())?;
-    file.sync_all()?;
-    std::fs::rename(tmp, path)
+    let write = || {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    };
+    write().map_err(|e: std::io::Error| format!("{path}: {e}"))
 }
 
 /// Like `read_text`, but a file that does not exist is `Ok(None)`.
@@ -124,10 +127,10 @@ mod tests {
         write_atomic(path, "second\n").unwrap();
         assert_eq!(std::fs::read_to_string(path).unwrap(), "second\n");
         assert!(!std::path::Path::new(&format!("{path}.tmp")).exists());
-        assert!(
-            write_atomic(dir.join("missing").join("x.txt").to_str().unwrap(), "x").is_err(),
-            "no directory is an error"
-        );
+        let missing = dir.join("missing").join("x.txt");
+        let missing = missing.to_str().unwrap();
+        let err = write_atomic(missing, "x").unwrap_err();
+        assert!(err.starts_with(missing), "no directory is an error naming the file: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

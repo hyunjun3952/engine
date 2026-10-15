@@ -20,7 +20,7 @@ impl Save {
     }
 
     /// Writes beside the target and renames, so a crash mid-write cannot destroy the previous save.
-    pub fn save(&self, path: &str) -> std::io::Result<()> {
+    pub fn save(&self, path: &str) -> Result<(), String> {
         crate::assets::write_atomic(path, &self.to_text())
     }
 

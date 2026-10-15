@@ -196,7 +196,7 @@ impl WorldFile {
     }
 
     /// Writes beside the target and renames, so a crash mid-write cannot destroy the previous file.
-    pub fn save(&self, world: &World, path: &str) -> std::io::Result<()> {
+    pub fn save(&self, world: &World, path: &str) -> Result<(), String> {
         crate::assets::write_atomic(path, &self.to_text(world))
     }
 

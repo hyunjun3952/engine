@@ -147,7 +147,7 @@ impl Ctx {
 
     /// Writes the bindings, only those that differ from what the game had bound when it first called
     /// `load_bindings`, so changing a default later still reaches players who remapped something else.
-    pub fn save_bindings(&self, path: &str) -> std::io::Result<()> {
+    pub fn save_bindings(&self, path: &str) -> Result<(), String> {
         let all = self.input.to_text();
         let kept = |line: &&str| self.defaults.as_ref().is_none_or(|d| !d.lines().any(|l| l == *line));
         crate::assets::write_atomic(path, &all.lines().filter(kept).map(|l| format!("{l}\n")).collect::<String>())
