@@ -314,11 +314,6 @@ enum Backend {
 
 #[cfg(feature = "gpu")]
 fn try_gpu(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: usize) -> Option<Backend> {
-    // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
-    if std::env::var_os("GALLIUM_DRIVER").is_none() && std::path::Path::new("/dev/dxg").exists() {
-        // SAFETY: nothing else has started a thread that reads the environment yet.
-        unsafe { std::env::set_var("GALLIUM_DRIVER", "d3d12") };
-    }
     match Gpu::for_window(win, (w as u32, h as u32), scale as u32, mode == RenderMode::Gpu) {
         Ok(gpu) => {
             eprintln!("renderer: gpu, {}", gpu.adapter);
@@ -356,13 +351,20 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: u
 
 pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     cfg.check();
+    // Mesa only exposes the WSL GPU through its D3D12 driver, and only when asked.
+    #[cfg(feature = "gpu")]
+    if std::env::var_os("GALLIUM_DRIVER").is_none() && std::path::Path::new("/dev/dxg").exists() {
+        // SAFETY: done first in `run`, before the window, audio or renderer can start a thread.
+        unsafe { std::env::set_var("GALLIUM_DRIVER", "d3d12") };
+    }
     let env_scale = std::env::var("ENGINE_SCALE")
         .ok()
         .and_then(|v| v.parse().inspect_err(|_| eprintln!("ENGINE_SCALE={v:?} is not a whole number; ignored")).ok());
     let scale = env_scale.unwrap_or(cfg.scale).max(1);
     let options =
         WindowOptions { resize: cfg.resizable, scale_mode: ScaleMode::AspectRatioStretch, ..Default::default() };
-    let mut win = Window::new(cfg.title, cfg.w * scale, cfg.h * scale, options).expect("window");
+    let mut win = Window::new(cfg.title, cfg.w * scale, cfg.h * scale, options)
+        .unwrap_or_else(|e| panic!("cannot open a window ({e}); it needs an X display (DISPLAY, or WSLg under WSL)"));
     let mut gfx = Gfx::new(cfg.w, cfg.h);
     let log_stats = std::env::var_os("ENGINE_STATS").is_some();
     let mut backend = pick_backend(cfg.renderer, &win, (cfg.w, cfg.h), scale);
