@@ -488,12 +488,16 @@ impl Gpu {
         }
     }
 
-    fn texture(&mut self, s: &Arc<Sprite>) -> (Tex, (f32, f32)) {
+    fn texture(&mut self, s: &Arc<Sprite>) -> Option<(Tex, (f32, f32))> {
         let key = Arc::as_ptr(s) as usize;
         let version = s.version();
         if self.textures.get(&key).is_none_or(|t| t.version != version) {
             let img = s.image();
             let size = (img.w as u32, img.h as u32);
+            // wgpu panics on an empty texture or one past the device's limit; Soft draws nothing for these either.
+            if size.0 == 0 || size.1 == 0 || size.0.max(size.1) > self.device.limits().max_texture_dimension_2d {
+                return None;
+            }
             // A sprite remade every frame (a light map) keeps its texture and only gets new pixels.
             match self.textures.get_mut(&key).filter(|t| t.size == size) {
                 Some(t) => {
@@ -507,7 +511,7 @@ impl Gpu {
             }
         }
         let (w, h) = s.size();
-        (Tex::Sprite(key), (w as f32, h as f32))
+        Some((Tex::Sprite(key), (w as f32, h as f32)))
     }
 
     fn build(&mut self, cmds: &[DrawCmd]) {
@@ -542,7 +546,7 @@ impl Gpu {
                     let [r, g, b, _] = rgba(st.flash, 1.0);
                     self.flash = [r, g, b, st.flash_amount as f32 / 255.0];
                 }
-                let (tex, (sw, sh)) = self.texture(sheet);
+                let Some((tex, (sw, sh))) = self.texture(sheet) else { continue };
                 let (u0, u1) = (src.x / sw, (src.x + src.w) / sw);
                 let (u0, u1) = if flip { (u1, u0) } else { (u0, u1) };
                 let uv = (u0, src.y / sh, u1, (src.y + src.h) / sh);
@@ -573,7 +577,7 @@ impl Gpu {
                     self.quad(Tex::Font, (x, y, x + size, y + size), (u0, 0.0, u1, 1.0), rgba(*color, 1.0));
                 }
                 Paint::Tiles { sheet, size, tiles } => {
-                    let (tex, (sw, sh)) = self.texture(sheet);
+                    let Some((tex, (sw, sh))) = self.texture(sheet) else { continue };
                     let sz = *size as f32;
                     for &(gx, gy, id) in tiles {
                         let (x, y) = (r.x.trunc() + (gx * size) as f32, r.y.trunc() + (gy * size) as f32);
@@ -583,7 +587,7 @@ impl Gpu {
                     }
                 }
                 Paint::Mask { sheet, src, color } => {
-                    let (tex, (sw, sh)) = self.texture(sheet);
+                    let Some((tex, (sw, sh))) = self.texture(sheet) else { continue };
                     let (x, y) = (r.x.trunc(), r.y.trunc());
                     let uv = (src.x / sw, src.y / sh, (src.x + src.w) / sw, (src.y + src.h) / sh);
                     self.quad(tex, (x, y, x + r.w, y + r.h), uv, rgba(*color, 1.0));
@@ -652,17 +656,22 @@ impl Gpu {
     pub(crate) fn render(&mut self, cmds: &[DrawCmd]) {
         self.build(cmds);
         let Some((surface, config)) = &self.surface else { return };
-        let frame = match surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) => t,
-            wgpu::CurrentSurfaceTexture::Suboptimal(_)
-            | wgpu::CurrentSurfaceTexture::Outdated
-            | wgpu::CurrentSurfaceTexture::Lost => return surface.configure(&self.device, config),
+        // A suboptimal frame still shows; dropping it would show nothing on a surface that stays suboptimal.
+        let (frame, stale) = match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
+            wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                return surface.configure(&self.device, config);
+            }
             _ => return,
         };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let enc = self.encode(&view);
         self.queue.submit([enc.finish()]);
         self.queue.present(frame);
+        if let (true, Some((surface, config))) = (stale, &self.surface) {
+            surface.configure(&self.device, config);
+        }
     }
 
     #[cfg(test)]

@@ -246,6 +246,10 @@ impl Gfx {
                 let (qw, qh) = c.paint.region().map_or((c.rect.w, c.rect.h), |(_, src, _)| (src.w, src.h));
                 let (cx, cy) = (c.rect.x + qw / 2.0, c.rect.y + qh / 2.0);
                 let t = c.xform;
+                // Rounded edges below keep a quad at least a pixel wide, which would draw a zero scale.
+                if t.sx == 0.0 || t.sy == 0.0 {
+                    return;
+                }
                 let flat = matches!(c.paint, Paint::Color(_) | Paint::Alpha(..));
                 if t.angle != 0.0 {
                     let (nx, ny) = ((cx - cam.x) * z, (cy - cam.y) * z);
@@ -454,6 +458,9 @@ mod tests {
         let mut g = zoomed(0.5, (0.0, 0.0));
         g.draw([tiny]);
         assert_eq!((at(&g, 0).2, at(&g, 0).3), (1.0, 1.0), "a small thing stays at least a pixel");
+        let flat = Transform { sx: 0.0, ..Transform::IDENTITY };
+        g.draw([DrawCmd { xform: flat, ..DrawCmd::new(Rect::new(0.0, 0.0, 4.0, 4.0), Paint::Color(1)) }]);
+        assert_eq!(g.cmds().len(), 1, "a zero scale draws nothing");
     }
 
     #[test]

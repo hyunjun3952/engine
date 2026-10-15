@@ -184,7 +184,7 @@ impl Tilemap {
                     t.id as usize + 15
                 ));
             }
-            if let Some(o) = legend.iter().find(|o| o.id != t.id && (t.id..t.id + 16).contains(&o.id)) {
+            if let Some(o) = legend.iter().find(|o| o.id != t.id && (t.id..=t.id + 15).contains(&o.id)) {
                 return Err(format!(
                     "legend entry {:?} uses tile {}, which autotile {:?} owns",
                     o.ch as char, o.id, t.ch as char
@@ -599,6 +599,8 @@ mod tests {
         let err = Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(3), other]).err().unwrap();
         assert!(err.contains("owns"), "{err}");
         assert!(Tilemap::try_from_ascii_with(&["#"], 2, wide_sheet(), &[auto(5)]).is_ok());
+        let full = Arc::new(Sprite::new(510, 2, vec![0xFFFF_FFFF; 1020]));
+        assert!(Tilemap::try_from_ascii_with(&["#"], 2, full, &[auto(240)]).is_ok(), "the last 16 ids fit");
     }
 
     #[test]

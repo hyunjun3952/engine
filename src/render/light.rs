@@ -97,6 +97,9 @@ impl LightMap {
 
     /// The colour of the map at a pixel as last drawn (0xRRGGBB), to see what a light does.
     pub fn at(&self, x: usize, y: usize) -> u32 {
+        if x >= self.w {
+            return 0;
+        }
         self.sprite.image().px.get(y * self.w + x).map_or(0, |p| p & 0xFF_FFFF)
     }
 }
