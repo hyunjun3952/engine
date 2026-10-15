@@ -46,14 +46,14 @@ impl Platformer {
         }
         let sheet = ctx.assets().sprite("assets/images/player.png");
         let states = AnimStates::new()
-            .state("idle", Clip::new(0, 4, 6.0))
+            .state("idle", Clip::new(0, 2, 6.0))
             .state("run", Clip::new(1, 4, 12.0).event(0, "step").event(2, "step"))
             .state("air", Clip::new(2, 1, 1.0));
         let rect = Rect::new(120.0, 100.0, 12.0, 24.0);
         let player = world.spawn((
             Body(rect),
             Vel::default(),
-            RigidBody::dynamic(1.0).friction(0.2),
+            RigidBody::dynamic(1.0).friction(0.0),
             Anim::new(sheet, 12, 24),
             states,
         ));
@@ -125,7 +125,7 @@ impl Scene for Platformer {
             };
         }
         let grounded = self.physics.grounded(self.player);
-        let (walk, jump) = (ctx.input().axis("left", "right"), ctx.input().pressed("jump"));
+        let (walk, jump) = (if typing { 0.0 } else { ctx.input().axis("left", "right") }, ctx.input().pressed("jump"));
         if !typing {
             // Standing on a moving platform, walking is relative to it.
             let under = self.physics.ground(self.player).and_then(|c| c.other(self.player));
@@ -159,12 +159,11 @@ impl Scene for Platformer {
         let style = if flashing { Style::PLAIN.flashed(0xffffff, 220) } else { Style::PLAIN };
         self.world.insert_one(self.player, style).unwrap();
         self.physics.step(&mut self.world, Some(&self.map), dt);
-        let vel = self.world.get::<&Vel>(self.player).unwrap().x;
         let mut anim = self.world.get::<&mut Anim>(self.player).unwrap();
-        anim.flip = if vel != 0.0 { vel < 0.0 } else { anim.flip };
+        anim.flip = if walk != 0.0 { walk < 0.0 } else { anim.flip };
         let state = if !self.physics.grounded(self.player) {
             "air"
-        } else if vel != 0.0 {
+        } else if walk != 0.0 {
             "run"
         } else {
             "idle"

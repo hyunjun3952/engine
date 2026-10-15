@@ -34,7 +34,7 @@ impl Sandbox {
         let size = rng.range(14.0, 34.0);
         let bounce = rng.range(0.0, 0.7);
         let shade = (80.0 + bounce * 250.0) as u32;
-        let color = (shade + 40) << 16 | (200 - shade / 2) << 8 | 120;
+        let color = (shade + 40).min(255) << 16 | (200 - shade / 2) << 8 | 120;
         let rect = Rect { x: rng.range(20.0, W - 20.0 - size), y, w: size, h: size };
         let spin = rng.range(-4.0, 4.0);
         let angle = rng.range(0.0, 3.0);

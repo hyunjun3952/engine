@@ -1322,7 +1322,7 @@ fn platformer_level() -> Tilemap {
 }
 
 fn player(w: &mut World, x: f32, y: f32) -> Entity {
-    boxed(w, Rect { x, y, w: 12.0, h: 24.0 }, RigidBody::dynamic(1.0).friction(0.2), (0.0, 0.0))
+    boxed(w, Rect { x, y, w: 12.0, h: 24.0 }, RigidBody::dynamic(1.0).friction(0.0), (0.0, 0.0))
 }
 
 #[test]
