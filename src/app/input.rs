@@ -234,7 +234,9 @@ impl Input {
     }
     /// A key that went down this step, for screens that wait for the player to press one.
     pub fn any_key_pressed(&self) -> Option<Key> {
-        self.down.iter().filter(|k| !self.prev.contains(k)).min_by_key(|k| **k as usize).copied()
+        // Only keys `input.txt` can name, or a rebind would save a file that no longer loads.
+        let named = |k: &&Key| KEYS.iter().any(|(_, known)| known == *k);
+        self.down.iter().filter(|k| !self.prev.contains(k)).filter(named).min_by_key(|k| **k as usize).copied()
     }
 
     pub fn key_down(&self, key: Key) -> bool {
