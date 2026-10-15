@@ -63,4 +63,4 @@ assets/       fonts, images, levels
 
 ## Licence
 
-No licence file yet. The bundled `assets/fonts/galmuri9.bdf` is Galmuri9 under the SIL OFL.
+Apache-2.0, see `LICENSE`. The bundled `assets/fonts/galmuri9.bdf` is Galmuri9 under the SIL OFL.
