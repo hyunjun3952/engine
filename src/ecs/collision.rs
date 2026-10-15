@@ -1,3 +1,4 @@
+use crate::ecs::fx::FxSet;
 use crate::{Body, Collider, Entity, Filter, Rect, Transform, Vec2, World};
 
 /// The box that holds `r` turned about its centre by an angle given as `(sin, cos)`, grown by `pad` on every side.
@@ -126,6 +127,41 @@ pub fn collisions(world: &World) -> Vec<Contact> {
         .collect()
 }
 
+/// Remembers which pairs overlapped at the last `update`, to tell when two colliders start and stop touching (a
+/// player entering a trigger zone). Feed it `collisions(&world)` once per step.
+#[derive(Default)]
+pub struct Overlaps {
+    pairs: FxSet<(Entity, Entity)>,
+}
+
+/// The pairs that started and stopped overlapping since the last `Overlaps::update`, each pair as `(a, b)` with
+/// `a < b`, sorted. A despawned entity's pairs come out as ended.
+#[derive(Debug, Default, PartialEq)]
+pub struct OverlapChanges {
+    pub began: Vec<(Entity, Entity)>,
+    pub ended: Vec<(Entity, Entity)>,
+}
+
+impl Overlaps {
+    pub fn new() -> Self {
+        Overlaps::default()
+    }
+
+    pub fn update(&mut self, contacts: &[Contact]) -> OverlapChanges {
+        let now: FxSet<(Entity, Entity)> = contacts.iter().map(|c| (c.a.min(c.b), c.a.max(c.b))).collect();
+        let mut began: Vec<_> = now.difference(&self.pairs).copied().collect();
+        let mut ended: Vec<_> = self.pairs.difference(&now).copied().collect();
+        began.sort();
+        ended.sort();
+        self.pairs = now;
+        OverlapChanges { began, ended }
+    }
+
+    pub fn touching(&self, a: Entity, b: Entity) -> bool {
+        self.pairs.contains(&(a.min(b), a.max(b)))
+    }
+}
+
 pub fn query_rect(world: &World, area: Rect) -> Vec<Entity> {
     world
         .query::<(Entity, &Body, &Collider, Option<&Transform>)>()
@@ -145,6 +181,22 @@ mod tests {
             w.insert_one(e, Collider).unwrap();
         }
         e
+    }
+
+    #[test]
+    fn overlaps_report_pairs_that_begin_and_end_once() {
+        let mut w = World::new();
+        let (a, b) = (boxed(&mut w, 0.0, true), boxed(&mut w, 50.0, true));
+        let mut o = Overlaps::new();
+        assert_eq!(o.update(&collisions(&w)), OverlapChanges::default());
+        w.get::<&mut Body>(b).unwrap().0.x = 5.0;
+        let pair = (a.min(b), a.max(b));
+        assert_eq!(o.update(&collisions(&w)), OverlapChanges { began: vec![pair], ended: vec![] });
+        assert!(o.touching(b, a));
+        assert_eq!(o.update(&collisions(&w)), OverlapChanges::default(), "still touching is no news");
+        w.despawn(b).unwrap();
+        assert_eq!(o.update(&collisions(&w)), OverlapChanges { began: vec![], ended: vec![pair] });
+        assert!(!o.touching(a, b));
     }
 
     // Every overlapping pair found the slow way, as (smaller index, larger index) with the overlap.

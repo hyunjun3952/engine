@@ -10,7 +10,7 @@ mod ray;
 mod spawn;
 
 pub use anim::{Anim, AnimStates, Clip, animate};
-pub use collision::{Contact, collisions, query_rect};
+pub use collision::{Contact, OverlapChanges, Overlaps, collisions, query_rect};
 pub use components::{Body, Collider, Filter, Layer, Look, Vel, movement};
 pub use draw::draw_list;
 pub use hecs::{Entity, World};

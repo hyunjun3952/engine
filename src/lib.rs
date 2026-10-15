@@ -39,7 +39,7 @@
 //! | Levels | [`Tilemap`], [`Tile`], [`Slope`], [`Slide`], [`TileHit`], [`Tiled`], [`TiledObject`], [`Spawner`] |
 //! | ECS | [`World`], [`Entity`], [`Body`], [`Vel`], [`Look`], [`Layer`], [`movement`], [`draw_list`] |
 //! | Animation and particles | [`Anim`], [`Clip`], [`AnimStates`], [`animate`], [`Burst`], [`burst`], [`particles`], [`Particle`] |
-//! | Collisions and rays | [`Collider`], [`Filter`], [`collisions`], [`Contact`], [`query_rect`], [`raycast`], [`raycasts`], [`Ray`], [`RayHit`], [`RayIndex`] |
+//! | Collisions and rays | [`Collider`], [`Filter`], [`collisions`], [`Contact`], [`Overlaps`], [`query_rect`], [`raycast`], [`raycasts`], [`Ray`], [`RayHit`], [`RayIndex`] |
 //! | Physics | [`Physics`], [`RigidBody`], [`ContactEvent`] |
 //! | Saving | [`Save`], [`WorldFile`], [`Persist`] |
 //! | Input | [`Input`], [`Key`], [`MouseButton`], [`Pad`], [`PadAxis`] |
@@ -80,9 +80,9 @@ pub use app::{
 pub use assets::{Assets, Atlas, Audio, Bus, Sound, Voice};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
-    Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, Particle,
-    Persist, Physics, Ray, RayHit, RayIndex, RigidBody, Spawner, Vel, World, WorldFile, animate, burst, collisions,
-    draw_list, movement, particles, query_rect, raycast, raycasts,
+    Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, OverlapChanges,
+    Overlaps, Particle, Persist, Physics, Ray, RayHit, RayIndex, RigidBody, Spawner, Vel, World, WorldFile, animate,
+    burst, collisions, draw_list, movement, particles, query_rect, raycast, raycasts,
 };
 pub use render::{
     Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Rect, Slide, Slope, Sprite, Style, Tile, TileHit, Tiled,
