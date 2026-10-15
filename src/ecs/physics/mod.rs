@@ -578,8 +578,13 @@ impl Physics {
         tiles: Option<u64>,
         dt: f32,
     ) {
+        // A sleeper has no mass, so `doze` would never see a joint added to it later.
+        let jointed: FxSet<Entity> = self.joints.iter().flat_map(|j| [j.a, j.b]).collect();
         self.rest.retain(|e, r| {
             let Some(&i) = index.get(e) else { return false };
+            if jointed.contains(e) {
+                return false;
+            }
             let n = &nodes[i];
             r.asleep.is_none_or(|(at, angle, filter)| {
                 at == n.rect && angle == n.angle && filter == n.filter && n.vel == (0.0, 0.0) && n.spin == 0.0

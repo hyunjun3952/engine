@@ -433,6 +433,20 @@ fn a_box_at_rest_falls_asleep_and_stays_exactly_where_it_is() {
 }
 
 #[test]
+fn a_joint_added_to_a_sleeper_wakes_it() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    floor(&mut w);
+    let e = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    run(&mut p, &mut w, None, 180);
+    assert!(p.asleep(e));
+    let anchor = w.spawn((Body(square(150.0, -100.0, 4.0)), RigidBody::fixed()));
+    p.rod(anchor, e, 60.0);
+    run(&mut p, &mut w, None, 60);
+    assert!(!p.asleep(e));
+    assert!(state(&w, e).0.y < 40.0, "the rod lifted it off the floor");
+}
+
+#[test]
 fn a_body_creeping_beside_a_sleeper_does_not_keep_waking_it() {
     let (mut p, mut w) = (Physics::default(), World::new());
     floor(&mut w);
