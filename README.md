@@ -2,6 +2,8 @@
 
 A small 2D game engine in Rust: software and wgpu renderers, ECS, physics, tilemaps, audio and UI.
 
+API docs: <https://hyunjun3952.github.io/engine/>
+
 - **Rendering**: a software rasterizer and a wgpu backend that produce the same pixels. Camera with follow, shake and zoom, sprite transforms, blend styles, lighting, parallax.
 - **ECS**: [hecs](https://crates.io/crates/hecs) plus animation, particles, collisions, raycasts and world save/load.
 - **Physics**: in-house boxes and circles with rotation, joints, sleeping, one-way platforms and slopes. Deterministic, so input replay works.
