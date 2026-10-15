@@ -19,7 +19,7 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 minifb = { version = "0.29.0", default-features = false, features = ["x11"] }
 pollster = { version = "1.0.1", optional = true }
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "wav", "vorbis"], optional = true }
-wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "gles", "wgsl"], optional = true }
+wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "gles", "metal", "dx12", "wgsl"], optional = true }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11-dl = "2.21.0"
