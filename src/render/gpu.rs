@@ -645,6 +645,10 @@ impl Gpu {
         enc
     }
 
+    pub(crate) fn batches(&self) -> usize {
+        self.batches.len()
+    }
+
     pub(crate) fn render(&mut self, cmds: &[DrawCmd]) {
         self.build(cmds);
         let Some((surface, config)) = &self.surface else { return };

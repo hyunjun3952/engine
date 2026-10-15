@@ -38,6 +38,13 @@ fn bench() {
     let mut n = 0;
     time("collisions 3000", 10, || n = collisions(&world).len());
     println!("  contacts: {n}");
+    let mut column = World::new();
+    for _ in 0..3000 {
+        let rect = Rect { x: rng(&mut seed) * 64.0, y: rng(&mut seed) * 3600.0, w: 8.0, h: 8.0 };
+        column.spawn((Body(rect), Collider));
+    }
+    time("collisions 3000 in a tall column", 10, || n = collisions(&column).len());
+    println!("  contacts: {n}");
 
     time("raycast 3000 colliders, 100 rays", 10, || {
         for i in 0..100 {
@@ -226,6 +233,7 @@ fn shake() {
     for n in [100, 200, 300] {
         let (mut small, mut big, mut calm, mut below, mut worst_ms, mut total_ms) =
             (0u32, 0u32, 0.0f32, 0, 0.0f64, 0.0f64);
+        let (mut worst_at, mut slow, mut substeps) = ((0, 0, 0), 0, [0u32; 17]);
         let mut settled = 0;
         for seed in 1..=seeds {
             let (mut rng, mut w, mut p) = (Rng::new(seed), World::new(), Physics::default());
@@ -250,7 +258,12 @@ fn shake() {
                 let t = Instant::now();
                 p.step(&mut w, None, 1.0 / 60.0);
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
+                if ms > worst_ms {
+                    worst_at = (seed, step, p.last_substeps);
+                }
                 (worst_ms, total_ms) = (worst_ms.max(ms), total_ms + ms);
+                slow += (ms > 2.0) as u32;
+                substeps[p.last_substeps] += 1;
                 let mut awake = 0;
                 for (i, &e) in ents.iter().enumerate() {
                     let c = w.get::<&Body>(e).unwrap().0.center();
@@ -279,6 +292,13 @@ fn shake() {
             "  n={n}: jumps > 1.5 px {small}, > 6 px {big}; asleep for good after {:.1} s on average ({settled} of {seeds} seeds got there); under the floor {below}; step {:.3} ms on average, {worst_ms:.1} ms at worst",
             calm / settled.max(1) as f32,
             total_ms / (seeds as f64 * 1200.0)
+        );
+        let (seed, step, subs) = worst_at;
+        let spread: Vec<String> =
+            substeps.iter().enumerate().filter(|&(_, &c)| c > 0).map(|(k, c)| format!("{k}:{c}")).collect();
+        println!(
+            "    worst at seed {seed} step {step} with {subs} substeps; {slow} steps over 2 ms; substeps:steps {}",
+            spread.join(" ")
         );
     }
 }

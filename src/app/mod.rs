@@ -437,6 +437,11 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         }
         if gfx.debug {
             let line = format!("FPS {} TPS {} {:.2}ms cmds {}", stats.fps, stats.tps, stats.ms, gfx.cmds().len());
+            #[cfg(feature = "gpu")]
+            let line = match &backend {
+                Backend::Gpu(gpu) => format!("{line} batches {}", gpu.batches()),
+                Backend::Soft(_) => line,
+            };
             gfx.fill(&Rect { x: 0.0, y: 0.0, w: line.len() as f32 * 8.0 + 8.0, h: 16.0 }, 0x000000);
             gfx.text(&line, 4, 4, 1, 0x66ff66);
         }

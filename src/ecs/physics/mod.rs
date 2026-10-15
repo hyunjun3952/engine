@@ -214,6 +214,7 @@ pub struct Physics {
     events: Vec<ContactEvent>,
     // Finds which fast bodies have anything in their way, apart from `sweep` because its rects differ.
     scout: Sweep,
+    pub(crate) last_substeps: usize,
 }
 
 impl Default for Physics {
@@ -232,6 +233,7 @@ impl Default for Physics {
             raw: Vec::new(),
             events: Vec::new(),
             scout: Sweep::default(),
+            last_substeps: 0,
         }
     }
 }
@@ -534,6 +536,7 @@ impl Physics {
         let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
         self.freeze(&ents, &index, &mut nodes, tiles.map(Tilemap::stamp), dt);
         let substeps = self.substeps(&nodes, tiles, dt);
+        self.last_substeps = substeps;
         self.joints.retain(|j| index.contains_key(&j.a) && index.contains_key(&j.b));
         let mut links: Vec<Link> = self
             .joints
