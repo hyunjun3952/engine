@@ -3,12 +3,13 @@ use std::{fs, time::SystemTime};
 
 #[derive(Default)]
 pub(crate) struct Watcher {
-    seen: FxMap<String, Option<SystemTime>>,
+    seen: FxMap<String, Option<(SystemTime, u64)>>,
     dirty: FxSet<String>,
 }
 
-fn modified(path: &str) -> Option<SystemTime> {
-    fs::metadata(path).and_then(|m| m.modified()).ok()
+// The length too: a coarse clock (FAT, some network drives) can give a half-written file and the whole one the same time.
+fn modified(path: &str) -> Option<(SystemTime, u64)> {
+    fs::metadata(path).and_then(|m| Ok((m.modified()?, m.len()))).ok()
 }
 
 impl Watcher {
@@ -62,6 +63,11 @@ mod tests {
         assert!(!w.take(path), "a change is consumed once");
         w.poll();
         assert!(!w.take(path));
+
+        fs::write(path, "xy").unwrap();
+        touch(path, 2000);
+        w.poll();
+        assert!(w.take(path), "a rewrite within the same clock tick shows in the length");
 
         let late = dir.join("later.txt");
         let late = late.to_str().unwrap();

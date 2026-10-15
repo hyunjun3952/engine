@@ -28,9 +28,20 @@ pub(crate) fn write_atomic(path: &str, text: &str) -> Result<(), String> {
         let mut file = std::fs::File::create(&tmp)?;
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
-        std::fs::rename(&tmp, path)
+        std::fs::rename(&tmp, path)?;
+        // The rename lives in the directory, which needs its own flush; Windows cannot open a directory, so unix only.
+        #[cfg(unix)]
+        if let Ok(dir) = std::fs::File::open(
+            std::path::Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(".".as_ref()),
+        ) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
     };
-    write().map_err(|e: std::io::Error| format!("{path}: {e}"))
+    write().map_err(|e: std::io::Error| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("{path}: {e}")
+    })
 }
 
 /// Like `read_text`, but a file that does not exist is `Ok(None)`.

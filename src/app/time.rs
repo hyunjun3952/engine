@@ -11,7 +11,7 @@ pub struct Timer {
 
 impl Timer {
     pub fn once(secs: f32) -> Self {
-        assert!(secs >= 0.0, "timer duration must not be negative");
+        assert!(secs >= 0.0, "timer duration must be a number, not negative: {secs}");
         Timer { duration: secs, elapsed: 0.0, looping: false, reported: false }
     }
 
