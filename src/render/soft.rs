@@ -467,6 +467,29 @@ mod tests {
     }
 
     #[test]
+    fn lines_and_circles_light_the_pixels_they_pass_through() {
+        let lit = |s: &Soft| -> Vec<(usize, usize)> {
+            (0..s.buf.len()).filter(|&i| s.buf[i] == 7).map(|i| (i % s.w, i / s.w)).collect()
+        };
+        let s = run(8, 8, |g| g.line((1.0, 2.0), (5.0, 2.0), 7));
+        assert_eq!(lit(&s), (1..=5).map(|x| (x, 2)).collect::<Vec<_>>(), "ends included");
+        let s = run(8, 8, |g| g.line((0.0, 0.0), (7.0, 7.0), 7));
+        assert!((0..8).all(|i| lit(&s).contains(&(i, i))), "the diagonal, no gaps: {:?}", lit(&s));
+        let s = run(8, 8, |g| g.line((6.0, 1.0), (1.0, 3.0), 7));
+        let rows: Vec<usize> = lit(&s).iter().map(|p| p.1).collect();
+        assert!((1..=6).all(|x| lit(&s).iter().any(|p| p.0 == x)) && rows.iter().all(|y| (1..=3).contains(y)));
+        let s = run(12, 12, |g| g.circle((6.0, 6.0), 3.0, 7));
+        let want: Vec<(usize, usize)> = (0..144)
+            .map(|i| (i % 12, i / 12))
+            .filter(|&(x, y)| (x as f32 + 0.5 - 6.0).hypot(y as f32 + 0.5 - 6.0) <= 3.0)
+            .collect();
+        assert_eq!(lit(&s), want);
+        run(8, 8, |g| g.circle((4.0, 4.0), 1e9, 7));
+        assert_eq!(lit(&run(8, 8, |g| g.circle((f32::NAN, 4.0), 2.0, 7))), vec![]);
+        assert_eq!(Gfx::text_width("한글 ab", 2), 5 * 16);
+    }
+
+    #[test]
     fn text_lights_exactly_the_glyph_bits_scaled() {
         let lit: u32 = font::bits(b'A').iter().map(|b| b.count_ones()).sum();
         let s = run(40, 40, |g| g.text("A", 3, 5, 2, 7));

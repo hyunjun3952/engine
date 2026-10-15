@@ -835,6 +835,9 @@ mod tests {
         g.draw(world.cmds().to_vec());
         g.draw(spun);
         g.text("HUD", 10, 10, 2, 0xffffff);
+        g.line((20.0, 40.0), (90.0, 61.0), 0xff00ff);
+        g.line((20.0, 70.0), (25.0, 120.0), 0x00ffff);
+        g.circle((120.0, 60.0), 12.5, 0xffff00);
         g
     }
 

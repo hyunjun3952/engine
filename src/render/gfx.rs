@@ -106,6 +106,40 @@ impl Gfx {
         self.push(r, Paint::Outline(c));
     }
 
+    /// A line a pixel thick through the pixels at `a` and `b`, ends included (screen pixels, no camera).
+    pub fn line(&mut self, a: impl Into<Vec2>, b: impl Into<Vec2>, c: u32) {
+        let (a, b) = (a.into(), b.into());
+        let d = b - a;
+        let len = d.length() + 1.0;
+        let mid = (a + b) * 0.5 + Vec2::new(0.5, 0.5);
+        let rect = Rect::new(mid.x - len / 2.0, mid.y - 0.5, len, 1.0);
+        // A turned flat rect: both backends already draw it alike, and a band a pixel wide leaves no gaps.
+        let xform = crate::Transform { angle: d.y.atan2(d.x), ..crate::Transform::IDENTITY };
+        self.cmds.push(DrawCmd { xform, ..DrawCmd::new(rect, Paint::Color(c)) });
+    }
+
+    /// A filled circle: every pixel whose centre is within `radius` of `center` (screen pixels, no camera).
+    pub fn circle(&mut self, center: impl Into<Vec2>, radius: f32, c: u32) {
+        let (o, r) = (center.into(), radius);
+        if !(r > 0.0 && o.x.is_finite() && o.y.is_finite()) {
+            return;
+        }
+        let (top, bottom) = ((o.y - r - 0.5).ceil().max(0.0), (o.y + r - 0.5).floor().min(self.h as f32 - 1.0));
+        for y in top as i32..=bottom as i32 {
+            let dy = y as f32 + 0.5 - o.y;
+            let half = (r * r - dy * dy).max(0.0).sqrt();
+            let (x0, x1) = ((o.x - half - 0.5).ceil(), (o.x + half - 0.5).floor() + 1.0);
+            if x1 > x0 {
+                self.fill(Rect::new(x0, y as f32, x1 - x0, 1.0), c);
+            }
+        }
+    }
+
+    /// How wide `text` draws `s` at `scale`, in pixels.
+    pub fn text_width(s: &str, scale: i32) -> i32 {
+        s.chars().count() as i32 * 8 * scale.max(1)
+    }
+
     pub fn blit(&mut self, s: &Arc<Sprite>, x: i32, y: i32) {
         self.push(Rect { x: x as f32, y: y as f32, ..s.bounds() }, Paint::Sprite(s.clone()));
     }
