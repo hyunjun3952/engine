@@ -63,22 +63,26 @@ impl LightMap {
         }
         let (x0, x1) = ((x - radius).floor().max(0.0) as usize, ((x + radius).ceil().max(0.0) as usize).min(self.w));
         let (y0, y1) = ((y - radius).floor().max(0.0) as usize, ((y + radius).ceil().max(0.0) as usize).min(self.h));
-        let channels = [(16, (color >> 16 & 255) as f32), (8, (color >> 8 & 255) as f32), (0, (color & 255) as f32)];
+        let (cr, cg, cb) = ((color >> 16 & 255) as f32, (color >> 8 & 255) as f32, (color & 255) as f32);
         let r2 = radius * radius;
+        // `+ 0.5` and truncation round a non-negative value; `round` is a library call without SSE4.1.
+        let lit = |now: u32, c: f32, gain: f32| (((now & 255) as i32 as f32 + c * gain + 0.5).min(255.0) as i32) as u32;
         for py in y0..y1 {
-            for px in x0..x1 {
-                let (dx, dy) = (px as f32 + 0.5 - x, py as f32 + 0.5 - y);
-                let d2 = dx * dx + dy * dy;
-                if d2 >= r2 {
-                    continue;
-                }
-                let falloff = 1.0 - d2 / r2;
+            let dy = py as f32 + 0.5 - y;
+            // Only the columns the circle reaches on this row, give or take a pixel (those add nothing).
+            let half = (r2 - dy * dy).max(0.0).sqrt();
+            let (a, b) = ((x - half).floor().max(x0 as f32) as usize, ((x + half).ceil() as usize + 1).min(x1));
+            if a >= b {
+                continue;
+            }
+            let row = &mut self.px[py * self.w..][a..b];
+            for (px, at) in (a..b).zip(row) {
+                let dx = px as f32 + 0.5 - x;
+                // No branch, so the loop vectorizes: outside the circle the gain is 0 and the pixel stays as it was.
+                let falloff = (1.0 - (dx * dx + dy * dy) / r2).max(0.0);
                 let gain = falloff * falloff * intensity;
-                let at = &mut self.px[py * self.w + px];
-                for (shift, c) in channels {
-                    let now = (*at >> shift & 255) as f32;
-                    *at = *at & !(255 << shift) | ((now + c * gain).round().min(255.0) as u32) << shift;
-                }
+                let p = *at;
+                *at = p & 0xFF00_0000 | lit(p >> 16, cr, gain) << 16 | lit(p >> 8, cg, gain) << 8 | lit(p, cb, gain);
             }
         }
     }
@@ -133,6 +137,40 @@ mod tests {
     use super::*;
     use crate::render::Soft;
     use crate::{Blend, Rect};
+
+    // The plain per-pixel loop `add` once was; the fast one must give the same bits.
+    fn reference(px: &mut [u32], w: usize, h: usize, l: Light) {
+        let (cr, cg, cb) = ((l.color >> 16 & 255) as f32, (l.color >> 8 & 255) as f32, (l.color & 255) as f32);
+        for (i, at) in px.iter_mut().enumerate().take(w * h) {
+            let (dx, dy) = ((i % w) as f32 + 0.5 - l.x, (i / w) as f32 + 0.5 - l.y);
+            let d2 = dx * dx + dy * dy;
+            if d2 >= l.radius * l.radius {
+                continue;
+            }
+            let falloff = 1.0 - d2 / (l.radius * l.radius);
+            let gain = falloff * falloff * l.intensity;
+            let ch =
+                |shift: u32, c: f32| ((((*at >> shift) & 255) as f32 + c * gain).round().min(255.0) as u32) << shift;
+            *at = *at & 0xFF00_0000 | ch(16, cr) | ch(8, cg) | ch(0, cb);
+        }
+    }
+
+    #[test]
+    fn lights_match_the_plain_per_pixel_loop_bit_for_bit() {
+        let mut rng = crate::Rng::new(7);
+        let (w, h) = (97, 61);
+        let mut map = LightMap::new(w, h);
+        map.clear(0x102030);
+        let mut want = map.px.clone();
+        for _ in 0..40 {
+            let light = Light::new((rng.range(-30.0, 130.0), rng.range(-30.0, 90.0)), rng.range(0.3, 50.0))
+                .colored(rng.below(0x100_0000) as u32)
+                .intensity(rng.range(0.1, 3.0));
+            map.add(light);
+            reference(&mut want, w, h, light);
+        }
+        assert!(map.px == want, "a pixel differs from the plain loop");
+    }
 
     #[test]
     fn a_light_brings_the_ambient_up_to_full_at_its_centre_and_fades_to_nothing_at_its_edge() {
