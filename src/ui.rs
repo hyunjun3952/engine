@@ -32,89 +32,129 @@ pub fn slider(input: &Input, r: Rect, value: f32) -> f32 {
     }
 }
 
-const BUTTON: u32 = 0x303048;
-const BUTTON_HOT: u32 = 0x454568;
-const BUTTON_DOWN: u32 = 0x202030;
-const EDGE: u32 = 0x8080a0;
-const TEXT: u32 = 0xffffff;
 const BOX: f32 = 10.0;
 
-fn shade(input: &Input, r: &Rect) -> u32 {
-    match (hovered(input, *r), input.mouse_down(MouseButton::Left)) {
-        (true, true) => BUTTON_DOWN,
-        (true, false) => BUTTON_HOT,
-        _ => BUTTON,
+/// The colours every widget draws with; `Theme::default()` is the engine's own look.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Theme {
+    /// Labels, typed text and the rows that are not highlighted.
+    pub text: u32,
+    /// The highlighted row of a list and the focus outline.
+    pub active: u32,
+    pub fill: u32,
+    /// A button or box under the cursor.
+    pub hot: u32,
+    /// A button held down.
+    pub down: u32,
+    pub edge: u32,
+}
+
+impl Theme {
+    pub const DEFAULT: Theme =
+        Theme { text: 0xffffff, active: 0xffd040, fill: 0x303048, hot: 0x454568, down: 0x202030, edge: 0x8080a0 };
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Theme::DEFAULT
     }
 }
 
-/// A labelled button: `update` once per step (true on the step it is clicked), `draw` with the font; the look
-/// follows the cursor as of the last `update`.
+#[derive(Clone, Copy, Default)]
+enum Shade {
+    #[default]
+    Idle,
+    Hot,
+    Down,
+}
+
+impl Shade {
+    fn of(input: &Input, r: Rect) -> Shade {
+        match (hovered(input, r), input.mouse_down(MouseButton::Left)) {
+            (true, true) => Shade::Down,
+            (true, false) => Shade::Hot,
+            _ => Shade::Idle,
+        }
+    }
+
+    fn color(self, theme: &Theme) -> u32 {
+        match self {
+            Shade::Idle => theme.fill,
+            Shade::Hot => theme.hot,
+            Shade::Down => theme.down,
+        }
+    }
+}
+
+/// A labelled button: `update` once per step (true on the step it is clicked), then `draw`; the look follows the
+/// cursor as of the last `update`.
 pub struct Button {
     pub rect: Rect,
     pub label: String,
-    fill: u32,
+    shade: Shade,
 }
 
 impl Button {
     pub fn new(rect: Rect, label: &str) -> Self {
-        Button { rect, label: label.to_string(), fill: BUTTON }
+        Button { rect, label: label.to_string(), shade: Shade::Idle }
     }
 
     pub fn update(&mut self, input: &Input) -> bool {
-        self.fill = shade(input, &self.rect);
+        self.shade = Shade::of(input, self.rect);
         clicked(input, self.rect)
     }
 
     /// The label is centred in the rectangle.
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font) {
-        draw_panel(gfx, self.rect, self.fill, EDGE);
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
+        draw_panel(gfx, self.rect, self.shade.color(theme), theme.edge);
         let r = &self.rect;
         let (x, y) = (
             r.x as i32 + (r.w as i32 - font.width(&self.label)) / 2,
             r.y as i32 + (r.h as i32 - font.line_height()) / 2,
         );
-        gfx.text_font(font, &self.label, x, y, TEXT);
+        gfx.text_font(font, &self.label, x, y, theme.text);
     }
 }
 
-/// A box with a label to its right that flips when the box or the label is clicked.
+/// A box with a label to its right that flips when the box or the label is clicked. `rect` covers both.
 pub struct Checkbox {
     pub checked: bool,
-    pos: (i32, i32),
+    pub rect: Rect,
     label: String,
-    hit: Rect,
-    fill: u32,
+    shade: Shade,
 }
 
 impl Checkbox {
-    pub fn new(font: &Font, pos: (i32, i32), label: &str, checked: bool) -> Self {
-        let (x, y) = (pos.0 as f32, pos.1 as f32);
-        let hit = Rect { x, y, w: BOX + 4.0 + font.width(label) as f32, h: BOX.max(font.line_height() as f32) };
-        Checkbox { checked, pos, label: label.to_string(), hit, fill: BUTTON }
+    pub fn new(font: &Font, x: i32, y: i32, label: &str, checked: bool) -> Self {
+        let w = BOX + 4.0 + font.width(label) as f32;
+        let rect = Rect::new(x as f32, y as f32, w, BOX.max(font.line_height() as f32));
+        Checkbox { checked, rect, label: label.to_string(), shade: Shade::Idle }
     }
 
     /// Returns true on the step it flips.
     pub fn update(&mut self, input: &Input) -> bool {
-        self.fill = if hovered(input, self.hit) { BUTTON_HOT } else { BUTTON };
-        let flip = clicked(input, self.hit);
+        self.shade = if hovered(input, self.rect) { Shade::Hot } else { Shade::Idle };
+        let flip = clicked(input, self.rect);
         self.checked ^= flip;
         flip
     }
 
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font) {
-        let r = Rect::new(self.pos.0 as f32, self.pos.1 as f32, BOX, BOX);
-        draw_panel(gfx, r, self.fill, EDGE);
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
+        let r = Rect::new(self.rect.x, self.rect.y, BOX, BOX);
+        draw_panel(gfx, r, self.shade.color(theme), theme.edge);
         if self.checked {
-            gfx.fill(Rect::new(r.x + 3.0, r.y + 3.0, BOX - 6.0, BOX - 6.0), TEXT);
+            gfx.fill(Rect::new(r.x + 3.0, r.y + 3.0, BOX - 6.0, BOX - 6.0), theme.text);
         }
-        gfx.text_font(font, &self.label, self.pos.0 + BOX as i32 + 4, self.pos.1, TEXT);
+        gfx.text_font(font, &self.label, r.x as i32 + BOX as i32 + 4, r.y as i32, theme.text);
     }
 }
 
-/// A single-line text box: call `update` once per fixed step with the typed characters and Backspace.
+/// A single-line text box at `x`, `y`: call `update` once per fixed step with the typed characters and Backspace.
 ///
 /// Composes Hangul itself (no input method): Korean-layout jamo join into syllables, and `set_korean(true)` maps letters.
 pub struct TextField {
+    pub x: i32,
+    pub y: i32,
     text: String,
     max: usize,
     korean: bool,
@@ -123,8 +163,8 @@ pub struct TextField {
 
 impl TextField {
     /// Holds at most `max` characters (not bytes).
-    pub fn new(max: usize) -> Self {
-        TextField { text: String::new(), max, korean: false, hangul: Hangul::default() }
+    pub fn new(x: i32, y: i32, max: usize) -> Self {
+        TextField { x, y, text: String::new(), max, korean: false, hangul: Hangul::default() }
     }
 
     pub fn text(&self) -> &str {
@@ -174,7 +214,11 @@ impl TextField {
     }
 
     /// Draws the text and, while `caret` is true, a `|` after it; callers blink it with a `Timer`.
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, caret: bool) {
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme, caret: bool) {
+        self.draw_at(gfx, font, self.x, self.y, theme.text, caret);
+    }
+
+    pub(crate) fn draw_at(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, caret: bool) {
         gfx.text_font(font, &self.text, x, y, color);
         if caret {
             gfx.text_font(font, "|", x + font.width(&self.text), y, color);
@@ -187,15 +231,18 @@ fn row_metrics(font: &Font) -> (i32, i32) {
     (font.line_height() + 3, font.width("> "))
 }
 
+/// A column of rows from `x`, `y`, one of them highlighted.
 pub struct Menu {
+    pub x: i32,
+    pub y: i32,
     items: Vec<String>,
     sel: usize,
 }
 
 impl Menu {
-    pub fn new(items: &[&str]) -> Self {
+    pub fn new(x: i32, y: i32, items: &[&str]) -> Self {
         assert!(!items.is_empty(), "a menu needs at least one item");
-        Menu { items: items.iter().map(|s| s.to_string()).collect(), sel: 0 }
+        Menu { x, y, items: items.iter().map(|s| s.to_string()).collect(), sel: 0 }
     }
 
     pub fn selected(&self) -> usize {
@@ -206,13 +253,24 @@ impl Menu {
         self.items[i] = text;
     }
 
-    /// Moves the highlight (wrapping) on `up`/`down` presses and returns the chosen index on `accept`.
-    pub fn update(&mut self, input: &Input, up: &str, down: &str, accept: &str) -> Option<usize> {
+    /// `up`/`down` presses move the highlight (wrapping) and moving the mouse over a row highlights it; returns the
+    /// chosen index on `accept` or a left click on a row.
+    pub fn update(&mut self, input: &Input, font: &Font, up: &str, down: &str, accept: &str) -> Option<usize> {
         if input.pressed(up) {
             self.select(-1);
         }
         if input.pressed(down) {
             self.select(1);
+        }
+        let over = (0..self.items.len()).find(|&i| hovered(input, self.row(font, i)));
+        if let Some(over) = over {
+            if input.mouse_moved() {
+                self.sel = over;
+            }
+            if input.mouse_pressed(MouseButton::Left) {
+                self.sel = over;
+                return Some(over);
+            }
         }
         input.pressed(accept).then_some(self.sel)
     }
@@ -222,31 +280,21 @@ impl Menu {
         self.sel = (self.sel as isize + delta).rem_euclid(self.items.len() as isize) as usize;
     }
 
-    /// Hovering a row highlights it and a left click on it returns its index; `x` and `y` must match `draw`.
-    pub fn mouse(&mut self, input: &Input, font: &Font, x: i32, y: i32) -> Option<usize> {
+    fn row(&self, font: &Font, i: usize) -> Rect {
         let (step, indent) = row_metrics(font);
-        let row = |i: usize, item: &str| Rect {
-            x: x as f32,
-            y: (y + i as i32 * step) as f32,
-            w: (indent + font.width(item)) as f32,
-            h: step as f32,
-        };
-        let over = self.items.iter().enumerate().position(|(i, item)| hovered(input, row(i, item)))?;
-        if input.mouse_moved() {
-            self.sel = over;
-        }
-        clicked(input, row(over, &self.items[over])).then_some(over)
+        let w = (indent + font.width(&self.items[i])) as f32;
+        Rect::new(self.x as f32, (self.y + i as i32 * step) as f32, w, step as f32)
     }
 
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, active: u32) {
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
         let (step, indent) = row_metrics(font);
         for (i, item) in self.items.iter().enumerate() {
-            let row = y + i as i32 * step;
+            let row = self.y + i as i32 * step;
             if i == self.sel {
-                gfx.text_font(font, ">", x, row, active);
-                gfx.text_font(font, item, x + indent, row, active);
+                gfx.text_font(font, ">", self.x, row, theme.active);
+                gfx.text_font(font, item, self.x + indent, row, theme.active);
             } else {
-                gfx.text_font(font, item, x + indent, row, color);
+                gfx.text_font(font, item, self.x + indent, row, theme.text);
             }
         }
     }
@@ -344,14 +392,15 @@ pub fn draw_wrapped(gfx: &mut Gfx, font: &Font, text: &str, r: Rect, color: u32)
 
 /// A list too long for its rectangle: arrow keys (as actions) move the highlight, the wheel scrolls, a click picks.
 pub struct ScrollList {
+    pub rect: Rect,
     items: Vec<String>,
     sel: usize,
     top: usize,
 }
 
 impl ScrollList {
-    pub fn new(items: &[&str]) -> Self {
-        ScrollList { items: items.iter().map(|s| s.to_string()).collect(), sel: 0, top: 0 }
+    pub fn new(rect: Rect, items: &[&str]) -> Self {
+        ScrollList { rect, items: items.iter().map(|s| s.to_string()).collect(), sel: 0, top: 0 }
     }
 
     pub fn selected(&self) -> usize {
@@ -366,8 +415,8 @@ impl ScrollList {
         self.items.is_empty()
     }
 
-    fn rows(r: &Rect, font: &Font) -> usize {
-        ((r.h as i32) / row_metrics(font).0).max(1) as usize
+    fn rows(&self, font: &Font) -> usize {
+        ((self.rect.h as i32) / row_metrics(font).0).max(1) as usize
     }
 
     // Keeps the window on the list and the highlighted row inside it.
@@ -382,21 +431,21 @@ impl ScrollList {
     }
 
     /// Moves the highlight by `delta` rows (not wrapping), keeping it in view.
-    pub fn select(&mut self, delta: isize, r: Rect, font: &Font) {
+    pub fn select(&mut self, delta: isize, font: &Font) {
         self.sel = (self.sel as isize + delta).clamp(0, self.items.len().saturating_sub(1) as isize) as usize;
-        self.settle(Self::rows(&r, font));
+        self.settle(self.rows(font));
     }
 
-    /// `up`/`down` move the highlight and bring it into view, the wheel over `r` scrolls three rows a notch (the
+    /// `up`/`down` move the highlight and bring it into view, the wheel over `rect` scrolls three rows a notch (the
     /// highlight may leave the view), a click on a row highlights it and returns its index, as does `accept` for the
     /// highlighted row.
-    pub fn update(&mut self, input: &Input, r: Rect, font: &Font, up: &str, down: &str, accept: &str) -> Option<usize> {
-        let (rows, step) = (Self::rows(&r, font), row_metrics(font).0);
+    pub fn update(&mut self, input: &Input, font: &Font, up: &str, down: &str, accept: &str) -> Option<usize> {
+        let (r, rows, step) = (self.rect, self.rows(font), row_metrics(font).0);
         if input.pressed(up) {
-            self.select(-1, r, font);
+            self.select(-1, font);
         }
         if input.pressed(down) {
-            self.select(1, r, font);
+            self.select(1, font);
         }
         if hovered(input, r) && input.wheel() != 0.0 {
             let max = self.items.len().saturating_sub(rows) as isize;
@@ -414,11 +463,11 @@ impl ScrollList {
         input.pressed(accept).then_some(self.sel).filter(|_| !self.items.is_empty())
     }
 
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font, r: Rect, color: u32, active: u32) {
-        let (rows, (step, indent)) = (Self::rows(&r, font), row_metrics(font));
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
+        let (r, rows, (step, indent)) = (self.rect, self.rows(font), row_metrics(font));
         for (n, item) in self.items.iter().enumerate().skip(self.top).take(rows) {
             let y = r.y as i32 + (n - self.top) as i32 * step;
-            let (mark, shade) = if n == self.sel { (">", active) } else { (" ", color) };
+            let (mark, shade) = if n == self.sel { (">", theme.active) } else { (" ", theme.text) };
             gfx.text_font(font, mark, r.x as i32, y, shade);
             gfx.text_font(font, item, r.x as i32 + indent, y, shade);
         }
@@ -430,7 +479,7 @@ impl ScrollList {
                 w: 2.0,
                 h: (track * rows as f32 / total).max(3.0),
             };
-            gfx.fill(thumb, EDGE);
+            gfx.fill(thumb, theme.edge);
         }
     }
 }
@@ -489,14 +538,15 @@ impl Focus {
     }
 
     /// An outline around the focused rectangle, two pixels out.
-    pub fn draw(&self, gfx: &mut Gfx, rects: &[Rect], color: u32) {
+    pub fn draw(&self, gfx: &mut Gfx, rects: &[Rect], theme: &Theme) {
         if let Some(r) = rects.get(self.index) {
-            gfx.outline(Rect::new(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0), color);
+            gfx.outline(Rect::new(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0), theme.active);
         }
     }
 }
 
 /// A key remapping screen with fixed Up/Down/Enter/Escape so it cannot lock the player out; `update` is true on a change.
+/// It takes the whole `Ctx` because it changes the bindings.
 pub struct Rebind {
     menu: Menu,
     actions: Vec<String>,
@@ -505,11 +555,11 @@ pub struct Rebind {
 
 impl Rebind {
     /// Panics when no action is bound, like `Menu::new` without rows.
-    pub fn new(input: &Input) -> Self {
+    pub fn new(input: &Input, x: i32, y: i32) -> Self {
         let actions: Vec<String> = input.actions().into_iter().map(String::from).collect();
         assert!(!actions.is_empty(), "bind actions before opening a Rebind screen");
         let mut screen = Rebind {
-            menu: Menu::new(&actions.iter().map(String::as_str).collect::<Vec<_>>()),
+            menu: Menu::new(x, y, &actions.iter().map(String::as_str).collect::<Vec<_>>()),
             actions,
             waiting: false,
         };
@@ -555,8 +605,8 @@ impl Rebind {
         changed
     }
 
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, active: u32) {
-        self.menu.draw(gfx, font, x, y, color, active);
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
+        self.menu.draw(gfx, font, theme);
     }
 }
 
@@ -581,19 +631,20 @@ mod tests {
 
     #[test]
     fn the_highlight_wraps_and_accept_returns_it_once() {
-        let (mut input, mut menu) = (menu_input(), Menu::new(&["a", "b", "c"]));
+        let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+        let (mut input, mut menu) = (menu_input(), Menu::new(0, 0, &["a", "b", "c"]));
         press(&mut input, Key::Up);
-        assert_eq!(menu.update(&input, "up", "down", "ok"), None);
+        assert_eq!(menu.update(&input, &font, "up", "down", "ok"), None);
         assert_eq!(menu.selected(), 2);
         press(&mut input, Key::Down);
-        menu.update(&input, "up", "down", "ok");
+        menu.update(&input, &font, "up", "down", "ok");
         assert_eq!(menu.selected(), 0);
         press(&mut input, Key::Down);
-        menu.update(&input, "up", "down", "ok");
+        menu.update(&input, &font, "up", "down", "ok");
         press(&mut input, Key::Enter);
-        assert_eq!(menu.update(&input, "up", "down", "ok"), Some(1));
+        assert_eq!(menu.update(&input, &font, "up", "down", "ok"), Some(1));
         input.end_step();
-        assert_eq!(menu.update(&input, "up", "down", "ok"), None, "held is not pressed again");
+        assert_eq!(menu.update(&input, &font, "up", "down", "ok"), None, "held is not pressed again");
     }
 
     fn at(input: &mut Input, x: f32, y: f32, left: bool) {
@@ -632,9 +683,9 @@ mod tests {
         assert!(b.update(&input));
         at(&mut input, 20.0, 12.0, true);
         assert!(!b.update(&input), "holding is not a new click");
-        assert_eq!(b.fill, BUTTON_DOWN);
+        assert_eq!(b.shade.color(&Theme::DEFAULT), Theme::DEFAULT.down);
         let mut g = Gfx::new(100, 50);
-        b.draw(&mut g, &font);
+        b.draw(&mut g, &font, &Theme::DEFAULT);
         let glyph =
             g.cmds().iter().find_map(|c| matches!(c.paint, crate::Paint::Mask { .. }).then_some(c.rect)).unwrap();
         assert_eq!(glyph.x as i32, 10 + (60 - font.width("확인")) / 2 + font.layout("확인").next().unwrap().1);
@@ -643,10 +694,10 @@ mod tests {
     #[test]
     fn a_checkbox_flips_on_a_click_on_the_box_or_its_label_and_shows_its_state() {
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
-        let (mut input, mut c) = (Input::default(), Checkbox::new(&font, (10, 10), "소리", false));
+        let (mut input, mut c) = (Input::default(), Checkbox::new(&font, 10, 10, "소리", false));
         let count = |c: &Checkbox| {
             let mut g = Gfx::new(100, 50);
-            c.draw(&mut g, &font);
+            c.draw(&mut g, &font, &Theme::DEFAULT);
             g.cmds().len()
         };
         let off = count(&c);
@@ -663,24 +714,24 @@ mod tests {
     #[test]
     fn a_menu_row_highlights_on_hover_and_returns_on_click_but_ignores_a_resting_cursor() {
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
-        let (mut input, mut menu) = (menu_input(), Menu::new(&["시작", "끝"]));
+        let (mut input, mut menu) = (menu_input(), Menu::new(0, 0, &["시작", "끝"]));
         let second_row = font.line_height() as f32 + 3.0 + 2.0;
         at(&mut input, 4.0, second_row, false);
-        assert_eq!(menu.mouse(&input, &font, 0, 0), None);
+        assert_eq!(menu.update(&input, &font, "up", "down", "ok"), None);
         assert_eq!(menu.selected(), 1);
         press(&mut input, Key::Up);
-        menu.update(&input, "up", "down", "ok");
+        menu.update(&input, &font, "up", "down", "ok");
         assert_eq!(menu.selected(), 0);
         at(&mut input, 4.0, second_row, false);
-        menu.mouse(&input, &font, 0, 0);
+        menu.update(&input, &font, "up", "down", "ok");
         assert_eq!(menu.selected(), 0, "a cursor that did not move leaves the keyboard choice");
         at(&mut input, 5.0, second_row, true);
-        assert_eq!(menu.mouse(&input, &font, 0, 0), Some(1));
+        assert_eq!(menu.update(&input, &font, "up", "down", "ok"), Some(1));
     }
 
     #[test]
     fn a_text_field_takes_typed_characters_up_to_its_limit_and_backspace_removes_one() {
-        let (mut input, mut field) = (Input::default(), TextField::new(3));
+        let (mut input, mut field) = (Input::default(), TextField::new(0, 0, 3));
         input.type_chars("가a나다");
         assert!(!field.update(&input));
         assert_eq!(field.text(), "가a나");
@@ -695,7 +746,7 @@ mod tests {
 
     #[test]
     fn a_text_field_composes_hangul_from_jamo_or_from_letter_keys_and_keeps_its_limit() {
-        let (mut input, mut field) = (Input::default(), TextField::new(2));
+        let (mut input, mut field) = (Input::default(), TextField::new(0, 0, 2));
         input.type_chars("ㅎㅏㄴㄱㅡㄹ");
         field.update(&input);
         assert_eq!(field.text(), "한글", "jamo from a Korean layout");
@@ -731,7 +782,7 @@ mod tests {
         assert_eq!(g.cmds().len(), 2);
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
         let mut g = Gfx::new(100, 50);
-        Menu::new(&["시작", "끝"]).draw(&mut g, &font, 0, 0, 1, 2);
+        Menu::new(0, 0, &["시작", "끝"]).draw(&mut g, &font, &Theme::DEFAULT);
         assert_eq!(g.cmds().len(), 1 + 2 + 1);
     }
 
@@ -739,7 +790,7 @@ mod tests {
     fn a_rebind_row_waits_for_a_key_binds_it_and_escape_cancels() {
         let mut ctx = Ctx::new(64, 64, 1.0 / 60.0, crate::Audio::disabled());
         ctx.bind("jump", &[Key::Space]);
-        let mut screen = Rebind::new(ctx.input());
+        let mut screen = Rebind::new(ctx.input(), 0, 0);
         let step = |ctx: &mut Ctx, screen: &mut Rebind, key: Option<Key>| {
             ctx.input.end_step();
             ctx.input.hold(key.as_slice());
@@ -762,7 +813,7 @@ mod tests {
         ctx.bind("jump", &[Key::Space]);
         ctx.bind("left", &[Key::Left, Key::A]);
         ctx.bind("fire", &[Key::Z]);
-        let mut screen = Rebind::new(ctx.input());
+        let mut screen = Rebind::new(ctx.input(), 0, 0);
         assert!(screen.menu.items.iter().all(|row| !row.contains("also")), "{:?}", screen.menu.items);
         ctx.bind("jump", &[Key::A]);
         screen.show(ctx.input());
@@ -817,48 +868,48 @@ mod tests {
         assert_eq!(ys.len(), 2, "only two lines fit: {ys:?}");
     }
 
-    fn list(n: usize) -> (ScrollList, Rect, Font) {
+    fn list(n: usize) -> (ScrollList, Font) {
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
         let items: Vec<String> = (0..n).map(|i| format!("item {i}")).collect();
         let r = Rect::new(0.0, 0.0, 100.0, (row_metrics(&font).0 * 3) as f32);
-        (ScrollList::new(&items.iter().map(String::as_str).collect::<Vec<_>>()), r, font)
+        (ScrollList::new(r, &items.iter().map(String::as_str).collect::<Vec<_>>()), font)
     }
 
     #[test]
     fn a_scroll_list_keeps_the_highlight_in_view_and_does_not_wrap() {
-        let (mut l, r, font) = list(10);
+        let (mut l, font) = list(10);
         let mut input = menu_input();
         for _ in 0..5 {
             press(&mut input, Key::Down);
-            l.update(&input, r, &font, "up", "down", "ok");
+            l.update(&input, &font, "up", "down", "ok");
         }
         assert_eq!((l.selected(), l.top), (5, 3), "scrolled so row 5 is the last of three");
-        l.select(100, r, &font);
+        l.select(100, &font);
         assert_eq!((l.selected(), l.top), (9, 7), "clamped at the end");
-        l.select(-100, r, &font);
+        l.select(-100, &font);
         assert_eq!((l.selected(), l.top), (0, 0));
     }
 
     #[test]
     fn the_wheel_scrolls_a_list_under_the_cursor_and_a_click_picks_the_row_under_it() {
-        let (mut l, r, font) = list(10);
+        let (mut l, font) = list(10);
         let mut input = menu_input();
         at(&mut input, 5.0, 5.0, false);
         input.scroll(-1.0);
-        l.update(&input, r, &font, "up", "down", "ok");
+        l.update(&input, &font, "up", "down", "ok");
         assert_eq!(l.top, 3, "a notch down moves three rows");
         input.scroll(-1.0);
-        l.update(&input, r, &font, "up", "down", "ok");
+        l.update(&input, &font, "up", "down", "ok");
         input.scroll(-1.0);
-        l.update(&input, r, &font, "up", "down", "ok");
+        l.update(&input, &font, "up", "down", "ok");
         assert_eq!(l.top, 7, "and stops at the last window");
         let step = row_metrics(&font).0 as f32;
         input.scroll(0.0);
         at(&mut input, 5.0, step + 1.0, true);
-        assert_eq!(l.update(&input, r, &font, "up", "down", "ok"), Some(8), "the second visible row");
+        assert_eq!(l.update(&input, &font, "up", "down", "ok"), Some(8), "the second visible row");
         at(&mut input, 500.0, 5.0, false);
         input.scroll(1.0);
-        l.update(&input, r, &font, "up", "down", "ok");
+        l.update(&input, &font, "up", "down", "ok");
         assert_eq!(l.top, 7, "the wheel off the list does nothing");
     }
 

@@ -191,7 +191,13 @@ pub struct Console {
 
 impl Console {
     pub fn new() -> Self {
-        Console { open: false, field: TextField::new(120), lines: VecDeque::new(), history: Vec::new(), recall: None }
+        Console {
+            open: false,
+            field: TextField::new(0, 0, 120),
+            lines: VecDeque::new(),
+            history: Vec::new(),
+            recall: None,
+        }
     }
 
     pub fn is_open(&self) -> bool {
@@ -258,7 +264,7 @@ impl Console {
         }
         gfx.text_font(font, "> ", 4, gfx.h as i32 - row, 0x66ff66);
         let prompt = font.width("> ");
-        self.field.draw(gfx, font, 4 + prompt, gfx.h as i32 - row, 0xffffff, true);
+        self.field.draw_at(gfx, font, 4 + prompt, gfx.h as i32 - row, 0xffffff, true);
     }
 }
 

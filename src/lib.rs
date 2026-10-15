@@ -51,7 +51,7 @@ pub use render::{
     TiledObject, Tilemap, Transform, scanlines, vignette,
 };
 pub use ui::{
-    Button, Checkbox, Focus, Layout, Menu, Rebind, ScrollList, TextField, clicked, draw_bar, draw_panel, draw_wrapped,
-    grid, hovered, slider, wrap,
+    Button, Checkbox, Focus, Layout, Menu, Rebind, ScrollList, TextField, Theme, clicked, draw_bar, draw_panel,
+    draw_wrapped, grid, hovered, slider, wrap,
 };
 pub use vec2::Vec2;
