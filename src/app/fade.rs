@@ -19,7 +19,11 @@ impl Fade {
     // `secs` is the whole fade, half going dark and half coming back.
     pub(crate) fn start(&mut self, trans: Trans, secs: f32) {
         let half = secs.max(0.0) / 2.0;
-        self.0 = Phase::Out(Timer::once(half), Box::new(trans), half);
+        let mut dark = Timer::once(half);
+        if let Phase::Back(t) = &self.0 {
+            dark.tick(half * (1.0 - t.fraction()));
+        }
+        self.0 = Phase::Out(dark, Box::new(trans), half);
     }
 
     pub(crate) fn blocking(&self) -> bool {
@@ -91,5 +95,19 @@ mod tests {
         assert_eq!(seen[6], (153, false));
         assert_eq!(seen[9], (0, false));
         assert_eq!(seen[11], (0, false));
+    }
+
+    #[test]
+    fn a_fade_started_while_brightening_goes_dark_from_where_it_is() {
+        let mut f = Fade::new();
+        f.start(Trans::Pop, 1.0);
+        for _ in 0..7 {
+            f.tick(0.1);
+        }
+        assert_eq!(f.alpha(), 153);
+        f.start(Trans::Pop, 1.0);
+        assert_eq!(f.alpha(), 153, "no jump back to clear");
+        f.tick(0.1);
+        assert_eq!(f.alpha(), 204);
     }
 }

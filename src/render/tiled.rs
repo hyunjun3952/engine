@@ -209,6 +209,9 @@ impl Tiled {
         if map.attr("orientation").is_some_and(|o| o != "orthogonal") || map.attr("infinite") == Some("1") {
             return Err("only finite orthogonal maps are supported".into());
         }
+        if map.kids("group").next().is_some() {
+            return Err("layer groups are not supported; move the layers out of their folders in Tiled".into());
+        }
         let (w, h): (usize, usize) = (map.number("width")?, map.number("height")?);
         let (tw, th): (usize, usize) = (map.number("tilewidth")?, map.number("tileheight")?);
         if tw != th || tw == 0 {
@@ -442,6 +445,7 @@ mod tests {
                 .contains("2 tilesets")
         );
         assert!(with("</layer>\n <layer", "</layr>\n <layer").contains("closes"));
+        assert!(with("<layer id=\"1\"", "<group id=\"9\" name=\"g\"/><layer id=\"1\"").contains("groups"));
         assert!(parse("not xml").err().unwrap().contains("not XML"));
         assert!(
             parse("<map").is_err()

@@ -3,7 +3,7 @@ use crate::{Ease, Tween};
 #[cfg(feature = "audio")]
 use crate::ecs::fx::FxMap;
 #[cfg(feature = "audio")]
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source, source::ChannelVolume};
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, source::ChannelVolume};
 #[cfg(feature = "audio")]
 use std::{io::Cursor, sync::Arc};
 
@@ -184,7 +184,7 @@ pub struct Audio {
 #[cfg(feature = "audio")]
 struct Dev {
     out: Option<MixerDeviceSink>,
-    files: FxMap<String, Arc<[u8]>>,
+    files: FxMap<String, Option<Arc<[u8]>>>,
     music: Option<Player>,
     sounds: Vec<Playing>,
 }
@@ -297,16 +297,12 @@ impl Audio {
 
     #[cfg(feature = "audio")]
     fn open(&mut self, path: &str) -> Option<Cursor<Arc<[u8]>>> {
-        if !self.dev.files.contains_key(path) {
-            match std::fs::read(path) {
-                Ok(bytes) => self.dev.files.insert(path.to_string(), bytes.into()),
-                Err(e) => {
-                    eprintln!("{path}: {e}");
-                    return None;
-                }
-            };
-        }
-        self.dev.files.get(path).map(|b| Cursor::new(b.clone()))
+        let bytes = self
+            .dev
+            .files
+            .entry(path.to_string())
+            .or_insert_with(|| std::fs::read(path).inspect_err(|e| eprintln!("{path}: {e}")).ok().map(Into::into));
+        bytes.clone().map(Cursor::new)
     }
 
     #[cfg(feature = "audio")]
@@ -351,13 +347,13 @@ impl Audio {
         }
         let Some(data) = self.open(path) else { return };
         let Some(out) = &self.dev.out else { return };
-        match Decoder::new(data) {
+        match Decoder::new_looped(data) {
             Ok(src) => {
                 let player = Player::connect_new(out.mixer());
                 self.mix.fade = None;
                 self.mix.fade_gain = 1.0;
                 player.set_volume(self.mix.music());
-                player.append(src.repeat_infinite());
+                player.append(src);
                 self.dev.music = Some(player);
             }
             Err(e) => eprintln!("{path}: {e}"),
