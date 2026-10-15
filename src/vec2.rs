@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec2 {
@@ -17,6 +17,29 @@ impl Vec2 {
     pub fn from_angle(angle: f32) -> Self {
         let (s, c) = angle.sin_cos();
         Vec2 { x: c, y: s }
+    }
+
+    /// The angle `from_angle` would make it from, in radians (0 along +x, clockwise on screen).
+    pub fn angle(self) -> f32 {
+        self.y.atan2(self.x)
+    }
+
+    /// The same vector, shortened to `max` if it is longer (a speed limit).
+    pub fn clamp_length(self, max: f32) -> Vec2 {
+        let len = self.length();
+        if len > max { self * (max.max(0.0) / len) } else { self }
+    }
+
+    pub fn min(self, o: Vec2) -> Vec2 {
+        Vec2 { x: self.x.min(o.x), y: self.y.min(o.y) }
+    }
+
+    pub fn max(self, o: Vec2) -> Vec2 {
+        Vec2 { x: self.x.max(o.x), y: self.y.max(o.y) }
+    }
+
+    pub fn abs(self) -> Vec2 {
+        Vec2 { x: self.x.abs(), y: self.y.abs() }
     }
 
     pub fn dot(self, o: Vec2) -> f32 {
@@ -122,6 +145,18 @@ impl MulAssign<f32> for Vec2 {
     }
 }
 
+impl DivAssign<f32> for Vec2 {
+    fn div_assign(&mut self, k: f32) {
+        *self = *self / k;
+    }
+}
+
+impl std::iter::Sum for Vec2 {
+    fn sum<I: Iterator<Item = Vec2>>(it: I) -> Vec2 {
+        it.fold(Vec2::ZERO, Add::add)
+    }
+}
+
 impl From<(f32, f32)> for Vec2 {
     fn from((x, y): (f32, f32)) -> Self {
         Vec2 { x, y }
@@ -182,6 +217,20 @@ mod tests {
         assert!(turned.distance(Vec2::new(0.0, 1.0)) < 1e-6);
         assert!(Vec2::from_angle(0.7).distance(Vec2::new(1.0, 0.0).rotated(0.7)) < 1e-6);
         assert_eq!(Vec2::new(0.0, 0.0).lerp(Vec2::new(10.0, -10.0), 0.25), Vec2::new(2.5, -2.5));
+        assert!((Vec2::from_angle(-2.0).angle() + 2.0).abs() < 1e-6);
+        assert_eq!(Vec2::new(30.0, 40.0).clamp_length(5.0), Vec2::new(3.0, 4.0));
+        assert_eq!(Vec2::new(3.0, 4.0).clamp_length(9.0), Vec2::new(3.0, 4.0));
+        assert_eq!(Vec2::new(3.0, 4.0).clamp_length(-1.0), Vec2::ZERO);
+    }
+
+    #[test]
+    fn per_component_helpers_and_sums() {
+        let (a, b) = (Vec2::new(1.0, -5.0), Vec2::new(-2.0, 3.0));
+        assert_eq!((a.min(b), a.max(b), a.abs()), (Vec2::new(-2.0, -5.0), Vec2::new(1.0, 3.0), Vec2::new(1.0, 5.0)));
+        assert_eq!([a, b, a].into_iter().sum::<Vec2>(), Vec2::new(0.0, -7.0));
+        let mut c = Vec2::new(4.0, 2.0);
+        c /= 2.0;
+        assert_eq!(c, Vec2::new(2.0, 1.0));
     }
 
     #[test]
