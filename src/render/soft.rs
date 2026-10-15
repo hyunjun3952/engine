@@ -278,7 +278,7 @@ impl Soft {
         if !img.holds(&src) {
             return;
         }
-        let (x, y) = (at.x as i32, at.y as i32);
+        let (x, y) = (at.x.floor() as i32, at.y.floor() as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
         let k = ((at.w / src.w) as usize).max(1);
         let (cols, rows) = self.visible(x, y, w * k, h * k);
@@ -299,7 +299,7 @@ impl Soft {
         if !img.holds(&src) {
             return;
         }
-        let (x, y) = (at.x as i32, at.y as i32);
+        let (x, y) = (at.x.floor() as i32, at.y.floor() as i32);
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
         let (cols, rows) = self.visible(x, y, w, h);
         for sy in rows {
@@ -461,6 +461,9 @@ mod tests {
                 g.blit(&sprite, x, y);
             }
         });
+        let two = std::sync::Arc::new(Sprite::new(2, 1, vec![0xFF00_0001, 0xFF00_0002]));
+        let s = run(4, 1, |g| g.draw([DrawCmd::new(Rect::new(-0.5, 0.0, 2.0, 1.0), Paint::Sprite(two))]));
+        assert_eq!(s.buf[0], 0xFF00_0002, "half a pixel off the left edge is a pixel off, as on the right");
     }
 
     #[test]

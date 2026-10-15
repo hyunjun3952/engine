@@ -551,7 +551,7 @@ impl Gpu {
                 let (u0, u1) = if flip { (u1, u0) } else { (u0, u1) };
                 let uv = (u0, src.y / sh, u1, (src.y + src.h) / sh);
                 if t.is_identity() {
-                    let (x, y) = (r.x.trunc(), r.y.trunc());
+                    let (x, y) = (r.x.floor(), r.y.floor());
                     self.quad(tex, (x, y, x + src.w, y + src.h), uv, color);
                 } else {
                     let nudged = (
@@ -580,7 +580,7 @@ impl Gpu {
                     let Some((tex, (sw, sh))) = self.texture(sheet) else { continue };
                     let sz = *size as f32;
                     for &(gx, gy, id) in tiles {
-                        let (x, y) = (r.x.trunc() + (gx * size) as f32, r.y.trunc() + (gy * size) as f32);
+                        let (x, y) = (r.x.floor() + (gx * size) as f32, r.y.floor() + (gy * size) as f32);
                         let src = Paint::tile_src(id, *size, sw as usize);
                         let uv = (src.x / sw, src.y / sh, (src.x + sz) / sw, (src.y + sz) / sh);
                         self.quad(tex, (x, y, x + sz, y + sz), uv, [1.0; 4]);
@@ -588,7 +588,7 @@ impl Gpu {
                 }
                 Paint::Mask { sheet, src, color } => {
                     let Some((tex, (sw, sh))) = self.texture(sheet) else { continue };
-                    let (x, y) = (r.x.trunc(), r.y.trunc());
+                    let (x, y) = (r.x.floor(), r.y.floor());
                     let uv = (src.x / sw, src.y / sh, (src.x + src.w) / sw, (src.y + src.h) / sh);
                     self.quad(tex, (x, y, x + r.w, y + r.h), uv, rgba(*color, 1.0));
                 }
