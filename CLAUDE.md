@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `ENGINE_MUTE=1` silences audio, `ENGINE_STATS=1` logs frame timings, `ENGINE_RENDERER=soft|gpu|auto` picks the renderer, `ENGINE_SCALE=n` scales the window, `ENGINE_RECORD=path` / `ENGINE_REPLAY=path` record and replay input. The window needs an X display (WSLg works); `minifb` is built with the `x11` feature only, because its Wayland backend spams EGL/Zink errors under WSL.
 
-Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (`feat|fix|refactor|perf|test|docs|chore|ci|build`, optional scope), plus `cargo fmt --check` and clippy with `-D warnings` for both the default and the `--no-default-features` build. `.github/workflows/ci.yml` runs fmt, clippy (both builds) and `cargo test` (both builds) on Linux, Windows and macOS on every push to `main`; `docs.yml` publishes the rustdoc to GitHub Pages. When asked to commit and push, commit on `main` and push `main` directly (no feature branch, no PR), with no `Co-Authored-By` trailer.
+Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (`feat|fix|refactor|perf|test|docs|chore|ci|build`, optional scope), plus `cargo fmt --check` and clippy with `-D warnings` for both the default and the `--no-default-features` build, and `cargo test -q` on pre-push. `.github/workflows/ci.yml` runs fmt, clippy (both builds) and `cargo test` (both builds) on Linux, Windows and macOS on every push to `main`; `docs.yml` publishes the rustdoc to GitHub Pages. When asked to commit and push, commit on `main` and push `main` directly (no feature branch, no PR), with no `Co-Authored-By` trailer.
 
 ## Project conventions
 
