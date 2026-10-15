@@ -252,38 +252,20 @@ impl Audio {
         self.mix.fade_bus(bus, to, secs);
     }
 
-    pub fn sfx_volume(&self) -> f32 {
-        self.bus_volume(Bus::SFX)
-    }
-
-    /// The volume of the sound effects bus.
-    pub fn set_sfx_volume(&mut self, v: f32) {
-        self.set_bus_volume(Bus::SFX, v);
-    }
-
-    pub fn music_volume(&self) -> f32 {
-        self.bus_volume(Bus::MUSIC)
-    }
-
-    /// The music's own volume, 0..=1, on top of the master volume.
-    pub fn set_music_volume(&mut self, v: f32) {
-        self.set_bus_volume(Bus::MUSIC, v);
-    }
-
     /// At most this many one-shots play at once (default 32, at least 1); a new one cuts off the oldest.
     pub fn set_max_sounds(&mut self, n: usize) {
         self.mix.max_sounds = n.max(1);
     }
 
     /// Starts the music from silence and brings it to full over `secs`.
-    pub fn music_fade_in(&mut self, path: &str, secs: f32) {
+    pub fn fade_in_music(&mut self, path: &str, secs: f32) {
         self.music(path);
         self.mix.fade_in(secs);
         self.retune();
     }
 
     /// Takes the music down to silence over `secs` and then stops it.
-    pub fn music_fade_out(&mut self, secs: f32) {
+    pub fn fade_out_music(&mut self, secs: f32) {
         self.mix.fade_out(secs);
     }
 
@@ -401,11 +383,11 @@ mod tests {
     #[test]
     fn volumes_start_full_and_are_kept_within_zero_and_one() {
         let mut a = Audio::disabled();
-        assert_eq!((a.volume(), a.sfx_volume(), a.music_volume()), (1.0, 1.0, 1.0));
+        assert_eq!((a.volume(), a.bus_volume(Bus::SFX), a.bus_volume(Bus::MUSIC)), (1.0, 1.0, 1.0));
         a.set_volume(1.7);
-        a.set_music_volume(-0.2);
-        a.set_sfx_volume(0.3);
-        assert_eq!((a.volume(), a.sfx_volume(), a.music_volume()), (1.0, 0.3, 0.0));
+        a.set_bus_volume(Bus::MUSIC, -0.2);
+        a.set_bus_volume(Bus::SFX, 0.3);
+        assert_eq!((a.volume(), a.bus_volume(Bus::SFX), a.bus_volume(Bus::MUSIC)), (1.0, 0.3, 0.0));
         a.set_volume(0.4);
         assert_eq!(a.volume(), 0.4);
     }
@@ -481,8 +463,8 @@ mod tests {
         assert_eq!(a.bus("voice"), voice, "the same name is the same bus");
         assert_ne!(voice, a.bus("ambience"));
         assert_eq!((a.bus("sfx"), a.bus("music")), (Bus::SFX, Bus::MUSIC));
-        a.set_sfx_volume(0.25);
-        a.set_music_volume(0.5);
+        a.set_bus_volume(Bus::SFX, 0.25);
+        a.set_bus_volume(Bus::MUSIC, 0.5);
         assert_eq!((a.bus_volume(Bus::SFX), a.bus_volume(Bus::MUSIC)), (0.25, 0.5));
         a.set_bus_volume(voice, f32::NAN);
         assert_eq!(a.bus_volume(voice), 0.0);

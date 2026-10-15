@@ -170,7 +170,7 @@ fn bench() {
         arena.spawn(wall(630.0, 0.0, 10.0, 360.0));
         for i in 0..n {
             let rect = Rect::new(20.0 + rng(&mut seed) * 590.0, -(i as f32) * 0.5, 8.0, 8.0);
-            let body = RigidBody::dynamic(1.0).with_bounce(0.2);
+            let body = RigidBody::dynamic(1.0).bounce(0.2);
             let body = if i % 2 == 0 { body.circle() } else { body };
             arena.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, body, Transform::IDENTITY));
         }
@@ -200,7 +200,7 @@ fn bench() {
         let (mut arena, mut physics) = (World::new(), Physics::default());
         for i in 0..n {
             let rect = Rect::new(20.0 + rng(&mut seed) * 590.0, -(i as f32) * 0.5, 8.0, 8.0);
-            let body = RigidBody::dynamic(1.0).with_bounce(0.2);
+            let body = RigidBody::dynamic(1.0).bounce(0.2);
             let body = if i % 2 == 0 { body.circle() } else { body };
             arena.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, body, Transform::IDENTITY));
         }
@@ -242,9 +242,9 @@ fn shake() {
                 let size = rng.range(14.0, 34.0);
                 let (x, y) = (20.0 + (i % 16) as f32 * 37.0, -((i / 16) as f32) * 40.0);
                 let body = RigidBody::dynamic(size * size / 100.0)
-                    .with_bounce(rng.range(0.0, 0.7))
-                    .with_friction(0.5)
-                    .with_spin(rng.range(-4.0, 4.0));
+                    .bounce(rng.range(0.0, 0.7))
+                    .friction(0.5)
+                    .spin(rng.range(-4.0, 4.0));
                 let turn = Transform { angle: rng.range(0.0, 3.0), ..Transform::IDENTITY };
                 ents.push(w.spawn((Body(Rect { x, y, w: size, h: size }), Vel::default(), body, turn)));
             }

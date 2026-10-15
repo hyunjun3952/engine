@@ -102,17 +102,17 @@ impl RigidBody {
         self
     }
 
-    pub fn with_bounce(mut self, restitution: f32) -> Self {
+    pub fn bounce(mut self, restitution: f32) -> Self {
         self.restitution = restitution;
         self
     }
 
-    pub fn with_friction(mut self, friction: f32) -> Self {
+    pub fn friction(mut self, friction: f32) -> Self {
         self.friction = friction;
         self
     }
 
-    pub fn with_spin(mut self, radians_per_sec: f32) -> Self {
+    pub fn spin(mut self, radians_per_sec: f32) -> Self {
         self.spin = radians_per_sec;
         self
     }
@@ -808,10 +808,10 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
         for tile in map.solid_in(near) {
             if seen.insert((tile.x as i32, tile.y as i32)) {
                 let s = map.size as f32;
-                let one_way = map.one_way((tile.x / s).floor() as i32, (tile.y / s).floor() as i32);
+                let one_way = map.one_way_at((tile.x / s).floor() as i32, (tile.y / s).floor() as i32);
                 let group = if one_way { Filter::PLATFORM } else { Filter::TERRAIN };
                 let filter = Filter { group, mask: u32::MAX };
-                let slope = map.slope((tile.x / s).floor() as i32, (tile.y / s).floor() as i32);
+                let slope = map.slope_at((tile.x / s).floor() as i32, (tile.y / s).floor() as i32);
                 nodes.push(Node { restitution: map.bounce, one_way, slope, filter, ..Node::wall(tile) });
             }
         }

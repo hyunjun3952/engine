@@ -366,12 +366,12 @@ mod tests {
         assert_eq!(t.layers.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["ground", "deco"]);
         let ground = t.layer("ground").unwrap();
         assert_eq!((ground.w, ground.h, ground.size), (4, 3, 16));
-        assert_eq!((ground.tile(0, 2), ground.tile(1, 1), ground.tile(0, 0)), (1, 4, 0));
+        assert_eq!((ground.tile((0, 2)), ground.tile((1, 1)), ground.tile((0, 0))), (1, 4, 0));
         assert!(!ground.solid_in(Rect::new(0.0, 32.0, 64.0, 16.0)).is_empty(), "tile 1 is solid");
         assert!(ground.solid_in(Rect::new(16.0, 16.0, 16.0, 16.0)).is_empty(), "tile 4 is not");
         let cmds = ground.draw_list(Rect::new(0.0, 0.0, 64.0, 48.0));
         assert_eq!(cmds.len(), 2, "the tile with `front` is drawn over entities, the rest behind");
-        assert_eq!(t.layer("deco").unwrap().tile(2, 0), 2);
+        assert_eq!(t.layer("deco").unwrap().tile((2, 0)), 2);
         assert!(t.layer("nope").is_none());
         let spawn = &t.objects[0];
         assert_eq!(
@@ -401,7 +401,7 @@ mod tests {
         let map = r#"<map orientation="orthogonal" width="2" height="1" tilewidth="16" tileheight="16"><tileset firstgid="1" source="t.tsx"/><layer name="a" width="2" height="1"><data encoding="csv">2,0</data></layer></map>"#;
         let t = Tiled::parse(map, |_| Ok(tsx.to_string()), Sprite::test_tiles()).unwrap();
         let ground = &t.layers[0].1;
-        assert!(ground.one_way(0, 0) && !ground.one_way(1, 0));
+        assert!(ground.one_way((0, 0)) && !ground.one_way((1, 0)));
         assert!(!ground.solid_in(Rect::new(0.0, 0.0, 16.0, 16.0)).is_empty(), "it still counts as a tile");
     }
 
@@ -414,8 +414,8 @@ mod tests {
         };
         let map = r#"<map orientation="orthogonal" width="2" height="1" tilewidth="16" tileheight="16"><tileset firstgid="1" source="t.tsx"/><layer name="a" width="2" height="1"><data encoding="csv">2,0</data></layer></map>"#;
         let load = |v: &str| Tiled::parse(map, |_| Ok(tsx(v)), Sprite::test_tiles());
-        assert_eq!(load("tl").unwrap().layers[0].1.slope(0, 0), Some(Slope::TopLeft));
-        assert_eq!(load("br").unwrap().layers[0].1.slope(0, 0), Some(Slope::BottomRight));
+        assert_eq!(load("tl").unwrap().layers[0].1.slope((0, 0)), Some(Slope::TopLeft));
+        assert_eq!(load("br").unwrap().layers[0].1.slope((0, 0)), Some(Slope::BottomRight));
         assert!(load("diagonal").err().unwrap().contains("slope"));
     }
 

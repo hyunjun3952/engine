@@ -47,7 +47,7 @@ pub use ecs::{
     movement, particles, query_rect, raycast, raycasts,
 };
 pub use render::{
-    Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Rect, Slope, Sprite, Style, Tile, TileHit, Tiled,
+    Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Rect, Slide, Slope, Sprite, Style, Tile, TileHit, Tiled,
     TiledObject, Tilemap, Transform, scanlines, vignette,
 };
 pub use ui::{

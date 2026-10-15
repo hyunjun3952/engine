@@ -316,7 +316,7 @@ mod tests {
         let mut w = World::new();
         let f = WorldFile::new().component::<RigidBody>("rb").component::<Body>("body");
         let shapes = [
-            RigidBody::dynamic(2.0).circle().with_bounce(0.3).with_friction(0.7).with_spin(1.5),
+            RigidBody::dynamic(2.0).circle().bounce(0.3).friction(0.7).spin(1.5),
             RigidBody::fixed().one_way(),
             RigidBody::kinematic(),
         ];

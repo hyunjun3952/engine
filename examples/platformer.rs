@@ -53,7 +53,7 @@ impl Platformer {
         let player = world.spawn((
             Body(rect),
             Vel::default(),
-            RigidBody::dynamic(1.0).with_friction(0.2),
+            RigidBody::dynamic(1.0).friction(0.2),
             Anim::new(sheet, 12, 24),
             states,
         ));

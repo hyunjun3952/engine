@@ -447,7 +447,7 @@ impl Focus {
         Focus::default()
     }
 
-    pub fn index(&self) -> usize {
+    pub fn selected(&self) -> usize {
         self.index
     }
 
@@ -542,7 +542,7 @@ impl Rebind {
         if self.waiting {
             if ctx.input().key_pressed(Key::Escape) {
                 self.waiting = false;
-            } else if let Some(key) = ctx.input().key_just_pressed() {
+            } else if let Some(key) = ctx.input().any_key_pressed() {
                 ctx.bind(&self.actions[self.menu.selected()], &[key]);
                 (self.waiting, changed) = (false, true);
             }
@@ -883,13 +883,13 @@ mod tests {
         let dirs = ["left", "right", "up", "down"];
         press(&mut input, Key::Right);
         assert_eq!(focus.update(&input, &rects, dirs, "ok"), None);
-        assert_eq!(focus.index(), 1);
+        assert_eq!(focus.selected(), 1);
         press(&mut input, Key::Down);
         focus.update(&input, &rects, dirs, "ok");
-        assert_eq!(focus.index(), 3);
+        assert_eq!(focus.selected(), 3);
         press(&mut input, Key::Right);
         focus.update(&input, &rects, dirs, "ok");
-        assert_eq!(focus.index(), 3, "nothing further right: it stays");
+        assert_eq!(focus.selected(), 3, "nothing further right: it stays");
         press(&mut input, Key::Left);
         focus.update(&input, &rects, dirs, "ok");
         press(&mut input, Key::Enter);
@@ -901,7 +901,7 @@ mod tests {
         let (rects, mut focus, mut input) = (four_buttons(), Focus::new(), pad_input());
         at(&mut input, 70.0, 35.0, false);
         assert_eq!(focus.update(&input, &rects, ["left", "right", "up", "down"], "ok"), None);
-        assert_eq!(focus.index(), 3);
+        assert_eq!(focus.selected(), 3);
         at(&mut input, 70.0, 35.0, true);
         assert_eq!(focus.update(&input, &rects, ["left", "right", "up", "down"], "ok"), Some(3));
         assert_eq!(focus.update(&input, &[], ["left", "right", "up", "down"], "ok"), None);

@@ -21,4 +21,4 @@ pub(crate) use gpu::Gpu;
 pub use light::{Light, LightMap, scanlines, vignette};
 pub(crate) use soft::Soft;
 pub use tiled::{Tiled, TiledObject};
-pub use tilemap::{Slope, Tile, TileHit, Tilemap};
+pub use tilemap::{Slide, Slope, Tile, TileHit, Tilemap};

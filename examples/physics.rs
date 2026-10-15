@@ -38,7 +38,7 @@ impl Sandbox {
         let rect = Rect { x: rng.range(20.0, W - 20.0 - size), y, w: size, h: size };
         let spin = rng.range(-4.0, 4.0);
         let angle = rng.range(0.0, 3.0);
-        let body = RigidBody::dynamic(size * size / 100.0).with_bounce(bounce).with_friction(0.5).with_spin(spin);
+        let body = RigidBody::dynamic(size * size / 100.0).bounce(bounce).friction(0.5).spin(spin);
         let turn = Transform { angle, ..Transform::IDENTITY };
         self.world.spawn((Body(rect), Vel::default(), Look::Color(color), body, turn))
     }
@@ -47,7 +47,7 @@ impl Sandbox {
 impl Sandbox {
     fn drop_ball(&mut self, ctx: &mut Ctx, x: f32, y: f32) -> Entity {
         let sprite = ctx.assets().sprite("assets/images/ball.png");
-        let body = RigidBody::dynamic(2.5).with_bounce(0.7).with_friction(0.2).circle();
+        let body = RigidBody::dynamic(2.5).bounce(0.7).friction(0.2).circle();
         let rect = Rect { x, y, w: 16.0, h: 16.0 };
         self.world.spawn((Body(rect), Vel::default(), Look::Sprite(sprite), body, Transform::IDENTITY))
     }
