@@ -1,7 +1,8 @@
 use crate::render::Soft;
 use crate::{
-    Body, Burst, Collider, DrawCmd, Font, Gfx, Look, Paint, Physics, Ray, RayIndex, Rect, RigidBody, Rng, Sprite,
-    Tilemap, Transform, Vec2, Vel, World, burst, collisions, draw_list, particles, raycast, raycasts,
+    Body, Burst, Collider, DrawCmd, Entity, Font, Gfx, Light, LightMap, Look, Paint, Physics, Ray, RayIndex, Rect,
+    RigidBody, Rng, Sprite, Tilemap, Transform, Vec2, Vel, World, burst, collisions, draw_list, particles, raycast,
+    raycasts, wrap,
 };
 use std::hint::black_box;
 use std::time::Instant;
@@ -215,7 +216,40 @@ fn bench() {
         time(&format!("tile physics step, {n} settled bodies"), 60, || {
             physics.step(&mut arena, Some(&ground), 1.0 / 60.0)
         });
+        let ents: Vec<Entity> = arena.query::<(Entity, &RigidBody)>().iter().map(|(e, _)| e).collect();
+        time(&format!("grounded for each of {n} settled bodies"), 60, || {
+            black_box(ents.iter().filter(|&&e| physics.grounded(e)).count());
+        });
     }
+
+    let mut lights = LightMap::new(640, 360);
+    let mut gfx = Gfx::new(640, 360);
+    time("light map: clear, 8 lights of radius 80, draw", 60, || {
+        lights.clear(0x202040);
+        for i in 0..8 {
+            lights.add(Light::new((40.0 + i as f32 * 80.0, 180.0), 80.0));
+        }
+        gfx.reset();
+        lights.draw(&mut gfx);
+    });
+
+    time("light map: clear and draw only", 60, || {
+        lights.clear(0x202040);
+        gfx.reset();
+        lights.draw(&mut gfx);
+    });
+
+    let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+    let text = "the quick brown fox jumps over the lazy dog 한글도 섞어서 ".repeat(40);
+    time("wrap 2400 characters to 200 px", 20, || {
+        black_box(wrap(&font, &text, 200));
+    });
+
+    let mut gfx = Gfx::new(640, 360);
+    time("gfx: draw 5000 sprite commands", 50, || {
+        gfx.reset();
+        gfx.draw(black_box(sprites.iter().cloned()));
+    });
 }
 
 #[test]
