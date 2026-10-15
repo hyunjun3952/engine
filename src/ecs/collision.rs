@@ -59,7 +59,7 @@ impl Sweep {
         for i in 1..n {
             let (cur, key) = (order[i], rects[order[i] as usize].x);
             let mut j = i;
-            while j > 0 && rects[order[j - 1] as usize].x > key {
+            while j > 0 && rects[order[j - 1] as usize].x.total_cmp(&key).is_gt() {
                 order[j] = order[j - 1];
                 j -= 1;
             }

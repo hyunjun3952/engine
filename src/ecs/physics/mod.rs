@@ -223,7 +223,7 @@ pub struct Physics {
     last_gravity: Vec2,
     last_tiles: Option<u64>,
     // Where the immovable bodies were last step: one the game moved must wake what sleeps near it.
-    walls: FxMap<Entity, Rect>,
+    walls: FxMap<Entity, (Rect, Filter, bool)>,
     sweep: Sweep,
     raw: Vec<Raw>,
     events: Vec<ContactEvent>,
@@ -458,8 +458,13 @@ impl Physics {
 
     /// A spring pulling the centres of `a` and `b` towards `length` apart, softly: `hz` is how often a mass on it
     /// would swing per second and `damping` how fast the swing dies (0 never, 1 not at all). Torque is ignored.
+    /// A `hz` of 0 is no spring at all.
     pub fn spring(&mut self, a: Entity, b: Entity, length: f32, hz: f32, damping: f32) {
         let (hz, damping) = (hz.max(0.0), damping.max(0.0));
+        // The soft constraint with no stiffness works out to a rigid rod.
+        if hz == 0.0 {
+            return;
+        }
         self.joints.push(Joint { a, b, kind: Kind::Spring { length, hz, damping } });
     }
 
@@ -613,12 +618,13 @@ impl Physics {
         let mut movers = movers;
         let mut walls = FxMap::default();
         for (e, n) in ents.iter().zip(nodes.iter()).filter(|(_, n)| n.inv_mass == 0.0) {
-            if let Some(old) = self.walls.get(e).filter(|old| **old != n.rect) {
+            // A wall that moved, or one that stopped holding things (a trapdoor clearing its filter), wakes them.
+            if let Some((old, ..)) = self.walls.get(e).filter(|old| **old != (n.rect, n.filter, n.one_way)) {
                 let (x, y) = (old.x.min(n.rect.x), old.y.min(n.rect.y));
                 let (x1, y1) = ((old.x + old.w).max(n.rect.x + n.rect.w), (old.y + old.h).max(n.rect.y + n.rect.h));
                 movers.push(grow(Rect { x, y, w: x1 - x, h: y1 - y }, 1.0));
             }
-            walls.insert(*e, n.rect);
+            walls.insert(*e, (n.rect, n.filter, n.one_way));
         }
         self.walls = walls;
         for (e, n) in ents.iter().zip(nodes.iter_mut()) {
@@ -858,7 +864,7 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>, sweep: &mut
                     let (nx, ny) = touch.normal;
                     let Vec2 { x: tx, y: ty } = tile.center();
                     let behind = Rect { x: tx - nx * tile.w, y: ty - ny * tile.h, ..*tile };
-                    if is_solid(map, behind.x, behind.y) {
+                    if hides(map, behind.x, behind.y, ny > 0.5) {
                         return None;
                     }
                 } else {
@@ -888,8 +894,12 @@ fn passes_one_way(a: &Node, b: &Node, normal: V2) -> bool {
     down > 0.5 && other.before.y + other.before.h <= platform.before.y + ONE_WAY_GRACE
 }
 
-fn is_solid(map: &Tilemap, x: f32, y: f32) -> bool {
-    !map.solid_in(Rect { x, y, w: 0.1, h: 0.1 }).is_empty()
+// Whether the tile at a point covers a neighbour's face; a one-way tile above covers nothing, or a body dropping
+// through it would also pass the ground it sits on.
+fn hides(map: &Tilemap, x: f32, y: f32, above: bool) -> bool {
+    let s = map.size as f32;
+    let (tx, ty) = ((x / s).floor() as i32, (y / s).floor() as i32);
+    map.solid(tx, ty) && !(above && map.one_way_at(tx, ty))
 }
 
 // A tile face or corner hidden by a solid neighbour is dropped, or a body walking the floor catches on seams.
@@ -898,8 +908,8 @@ fn is_hidden(map: &Tilemap, tile: &Rect, (px, py): V2, normal: V2) -> bool {
     let (dx, dy) = (px - mx, py - my);
     let toward = (-normal.0, -normal.1);
     let blocked = |d: f32, t: f32, half: f32| d.abs() >= half - 0.05 && d.signum() * t > 1e-6;
-    (blocked(dx, toward.0, tile.w / 2.0) && is_solid(map, mx + dx.signum() * tile.w, my))
-        || (blocked(dy, toward.1, tile.h / 2.0) && is_solid(map, mx, my + dy.signum() * tile.h))
+    (blocked(dx, toward.0, tile.w / 2.0) && hides(map, mx + dx.signum() * tile.w, my, false))
+        || (blocked(dy, toward.1, tile.h / 2.0) && hides(map, mx, my + dy.signum() * tile.h, dy < 0.0))
 }
 
 // How many times heavier the heavier of two movable bodies is; 1 when either is a wall.

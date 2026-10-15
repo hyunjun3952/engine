@@ -287,7 +287,7 @@ impl Tilemap {
         Vec2::new((self.w * self.size) as f32, (self.h * self.size) as f32)
     }
 
-    fn solid(&self, tx: i32, ty: i32) -> bool {
+    pub(crate) fn solid(&self, tx: i32, ty: i32) -> bool {
         if tx < 0 || tx >= self.w as i32 {
             return true;
         }

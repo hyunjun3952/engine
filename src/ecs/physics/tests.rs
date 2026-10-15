@@ -447,6 +447,18 @@ fn a_joint_added_to_a_sleeper_wakes_it() {
 }
 
 #[test]
+fn a_trapdoor_that_stops_meeting_a_sleeper_drops_it() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let door = w.spawn((Body(Rect::new(0.0, 100.0, 200.0, 20.0)), RigidBody::fixed()));
+    let e = boxed(&mut w, square(50.0, 60.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    run(&mut p, &mut w, None, 180);
+    assert!(p.asleep(e));
+    w.insert_one(door, Filter { group: 2, mask: 0 }).unwrap();
+    run(&mut p, &mut w, None, 30);
+    assert!(state(&w, e).0.y > 100.0, "still floating at {:?}", state(&w, e).0);
+}
+
+#[test]
 fn a_body_creeping_beside_a_sleeper_does_not_keep_waking_it() {
     let (mut p, mut w) = (Physics::default(), World::new());
     floor(&mut w);
@@ -1130,6 +1142,19 @@ fn clearing_the_platform_bit_drops_a_body_through_but_not_through_the_ground() {
         "fell past the platform onto the ground: {:?}",
         state(&w, b).0
     );
+}
+
+#[test]
+fn dropping_through_a_one_way_tile_that_sits_on_the_ground_lands_on_the_ground() {
+    let one_way = crate::Tile { ch: b'=', id: 3, solid: false, front: false, auto: false, one_way: true, slope: None };
+    let rows = ["......", "......", "......", ".====.", "######"];
+    let map =
+        Tilemap::try_from_ascii_with(&rows, 16, Sprite::test_tiles(), &[crate::Tile::DEFAULT[0], one_way]).unwrap();
+    let (mut w, mut p) = (World::new(), Physics::default());
+    let b = boxed(&mut w, square(40.0, 0.0, 12.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    w.insert_one(b, Filter { group: 1, mask: !Filter::PLATFORM }).unwrap();
+    run(&mut p, &mut w, Some(&map), 240);
+    assert!((state(&w, b).0.y + 12.0 - 64.0).abs() < 1.0, "rests on the ground under it: {:?}", state(&w, b).0);
 }
 
 #[test]
