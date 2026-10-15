@@ -30,19 +30,19 @@ fn cmd(rect: Rect, paint: Paint) -> DrawCmd {
 #[ignore]
 fn bench() {
     let mut seed = 1;
-    let mut world = World::new();
-    for _ in 0..3000 {
-        let rect = Rect { x: rng(&mut seed) * 640.0, y: rng(&mut seed) * 360.0, w: 8.0, h: 8.0 };
-        world.spawn((Body(rect), Collider));
-    }
+    let mut boxes = |w: f32, h: f32| {
+        let mut world = World::new();
+        for _ in 0..3000 {
+            let rect = Rect { x: rng(&mut seed) * w, y: rng(&mut seed) * h, w: 8.0, h: 8.0 };
+            world.spawn((Body(rect), Collider));
+        }
+        world
+    };
+    let world = boxes(640.0, 360.0);
+    let column = boxes(64.0, 3600.0);
     let mut n = 0;
     time("collisions 3000", 10, || n = collisions(&world).len());
     println!("  contacts: {n}");
-    let mut column = World::new();
-    for _ in 0..3000 {
-        let rect = Rect { x: rng(&mut seed) * 64.0, y: rng(&mut seed) * 3600.0, w: 8.0, h: 8.0 };
-        column.spawn((Body(rect), Collider));
-    }
     time("collisions 3000 in a tall column", 10, || n = collisions(&column).len());
     println!("  contacts: {n}");
 
@@ -259,9 +259,9 @@ fn shake() {
                 p.step(&mut w, None, 1.0 / 60.0);
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 if ms > worst_ms {
-                    worst_at = (seed, step, p.last_substeps);
+                    (worst_ms, worst_at) = (ms, (seed, step, p.last_substeps));
                 }
-                (worst_ms, total_ms) = (worst_ms.max(ms), total_ms + ms);
+                total_ms += ms;
                 slow += (ms > 2.0) as u32;
                 substeps[p.last_substeps] += 1;
                 let mut awake = 0;
