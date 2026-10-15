@@ -79,6 +79,11 @@ fn v2(v: impl Into<Vec2>) -> V2 {
     (v.x, v.y)
 }
 
+// `slab` would report a NaN ray as a hit at t = 0 on every box.
+fn finite(from: V2, dir: V2) -> bool {
+    from.0.is_finite() && from.1.is_finite() && dir.0.is_finite() && dir.1.is_finite()
+}
+
 fn hit((entity, t): (Entity, f32)) -> RayHit {
     RayHit { entity, t }
 }
@@ -86,6 +91,9 @@ fn hit((entity, t): (Entity, f32)) -> RayHit {
 /// Nearest collider in `mask` hit by `from + t * dir`, `0 <= t <= max`; follows `Transform::angle`, ignores scale.
 pub fn raycast(world: &World, from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32, mask: u32) -> Option<RayHit> {
     let (from, dir) = (v2(from), v2(dir));
+    if !finite(from, dir) {
+        return None;
+    }
     let mut best: Option<(Entity, f32)> = None;
     for item in world.query::<Row>().iter().map(Item::new).filter(|i| i.group & mask != 0) {
         // A box farther than the best hit so far cannot win, so the search range shrinks as hits come in.
@@ -176,6 +184,9 @@ impl RayIndex {
     /// Same answer as `raycast` over the world this was built from (the nearest of equal hits may be another one).
     pub fn cast(&self, from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32, mask: u32) -> Option<RayHit> {
         let (from, dir) = (v2(from), v2(dir));
+        if !finite(from, dir) {
+            return None;
+        }
         let (w, h) = (self.cols as f32 * self.cell, self.rows as f32 * self.cell);
         let (ox, oy) = (from.0 - self.origin.0, from.1 - self.origin.1);
         // Walk only the part of the ray inside the grid.
@@ -242,6 +253,8 @@ mod tests {
         assert!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 10.0, u32::MAX).is_none());
         assert!(raycast(&w, (0.0, 50.0), (1.0, 0.0), 100.0, u32::MAX).is_none());
         assert_eq!(raycast(&w, (25.0, 5.0), (0.0, 1.0), 5.0, u32::MAX).map(|h| h.t), Some(0.0));
+        assert!(raycast(&w, (0.0, 5.0), (f32::NAN, 0.0), 100.0, u32::MAX).is_none());
+        assert!(RayIndex::new(&w).cast((f32::NAN, 5.0), (1.0, 0.0), 100.0, u32::MAX).is_none());
     }
 
     #[test]
