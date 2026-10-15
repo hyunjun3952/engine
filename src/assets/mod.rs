@@ -3,7 +3,7 @@ mod audio;
 mod watch;
 
 pub use atlas::Atlas;
-pub use audio::{Audio, Bus, Sound};
+pub use audio::{Audio, Bus, Sound, Voice};
 
 use crate::ecs::fx::FxMap;
 use crate::{Font, Sprite};

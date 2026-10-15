@@ -43,7 +43,7 @@
 //! | Physics | [`Physics`], [`RigidBody`], [`ContactEvent`] |
 //! | Saving | [`Save`], [`WorldFile`], [`Persist`] |
 //! | Input | [`Input`], [`Key`], [`MouseButton`], [`Pad`], [`PadAxis`] |
-//! | Assets and audio | [`Assets`], [`Atlas`], [`Audio`], [`Sound`], [`Bus`] |
+//! | Assets and audio | [`Assets`], [`Atlas`], [`Audio`], [`Sound`], [`Voice`], [`Bus`] |
 //! | UI | [`Theme`], [`Button`], [`Checkbox`], [`Menu`], [`ScrollList`], [`TextField`], [`Focus`], [`Rebind`], [`Layout`], [`grid`], [`draw_panel`], [`draw_bar`], [`hovered`], [`clicked`], [`slider`] |
 //! | Debug | [`Inspector`], [`Console`], [`Command`] (F3 shows the frame overlay) |
 //!
@@ -77,7 +77,7 @@ mod vec2;
 pub use app::{
     Config, Ctx, Ease, Input, Key, MouseButton, Pad, PadAxis, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run,
 };
-pub use assets::{Assets, Atlas, Audio, Bus, Sound};
+pub use assets::{Assets, Atlas, Audio, Bus, Sound, Voice};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
     Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, Particle,

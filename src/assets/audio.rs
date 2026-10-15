@@ -25,20 +25,30 @@ impl Bus {
     pub const MUSIC: Bus = Bus(1);
 }
 
+/// One sound that `play` or `play_with` started, to `stop` it or ask whether it `is_playing`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Voice(u64);
+
 /// How one sound is played: on the `Bus::SFX` unless `on` says another, with `volume` (0..=1); `pan` from -1 (left) to
-/// 1 (right), which plays it as mono through both speakers at the balance; and `pitch`, a speed multiplier (0.25 to
-/// 4, 1 as recorded) that raises or lowers pitch together with speed.
+/// 1 (right), which plays it as mono through both speakers at the balance; `pitch`, a speed multiplier (0.25 to
+/// 4, 1 as recorded) that raises or lowers pitch together with speed; and `looped`, over and over until stopped.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sound {
     pub volume: f32,
     pub pan: f32,
     pub pitch: f32,
     pub bus: Bus,
+    pub looped: bool,
 }
 
 impl Sound {
     pub fn new() -> Self {
-        Sound { volume: 1.0, pan: 0.0, pitch: 1.0, bus: Bus::SFX }
+        Sound { volume: 1.0, pan: 0.0, pitch: 1.0, bus: Bus::SFX, looped: false }
+    }
+
+    /// Plays it over and over until `Audio::stop` (an engine hum, an alarm).
+    pub fn looped(self) -> Self {
+        Sound { looped: true, ..self }
     }
 
     pub fn volume(self, volume: f32) -> Self {
@@ -66,7 +76,7 @@ impl Sound {
             volume: or(self.volume, 1.0).clamp(0.0, 1.0),
             pan: or(self.pan, 0.0).clamp(-1.0, 1.0),
             pitch: or(self.pitch, 1.0).clamp(0.25, 4.0),
-            bus: self.bus,
+            ..self
         }
     }
 }
@@ -100,6 +110,7 @@ struct Mix {
     // 1 normally; a fade moves it, and `true` stops the music when the fade ends.
     fade_gain: f32,
     fade: Option<(Tween, bool)>,
+    voices: u64,
 }
 
 impl Mix {
@@ -111,7 +122,14 @@ impl Mix {
             max_sounds: MAX_SOUNDS,
             fade_gain: 1.0,
             fade: None,
+            voices: 0,
         }
+    }
+
+    // A fresh handle for every sound asked for, played or not, so the silent build hands them out too.
+    fn voice(&mut self) -> Voice {
+        self.voices += 1;
+        Voice(self.voices)
     }
 
     fn bus(&mut self, name: &str) -> Bus {
@@ -196,6 +214,7 @@ struct Dev {
 // A one-shot that is playing, with what it needs to be retuned when its bus moves.
 #[cfg(feature = "audio")]
 struct Playing {
+    voice: Voice,
     player: Player,
     bus: Bus,
     gain: f32,
@@ -291,39 +310,59 @@ impl Audio {
         bytes.clone().map(Cursor::new)
     }
 
-    #[cfg(feature = "audio")]
-    pub fn play(&mut self, path: &str) {
-        self.play_with(path, Sound::new());
+    pub fn play(&mut self, path: &str) -> Voice {
+        self.play_with(path, Sound::new())
     }
 
-    /// Like `play` with a volume, pan and pitch of its own.
+    /// Like `play` with a volume, pan, pitch and looping of its own.
     #[cfg(feature = "audio")]
-    pub fn play_with(&mut self, path: &str, sound: Sound) {
+    pub fn play_with(&mut self, path: &str, sound: Sound) -> Voice {
+        let voice = self.mix.voice();
         if self.dev.out.is_none() {
-            return;
+            return voice;
         }
-        let Some(data) = self.open(path) else { return };
-        let Some(out) = &self.dev.out else { return };
+        let Some(data) = self.open(path) else { return voice };
+        let Some(out) = &self.dev.out else { return voice };
         self.dev.sounds.retain(|p| !p.player.empty());
         if self.dev.sounds.len() >= self.mix.max_sounds {
             self.dev.sounds.remove(0);
         }
         let sound = sound.clamped();
-        match Decoder::new(data) {
-            Ok(src) => {
-                let player = Player::connect_new(out.mixer());
-                player.set_volume(self.mix.level(sound.bus) * sound.volume);
-                player.set_speed(sound.pitch);
-                if sound.pan == 0.0 {
-                    player.append(src);
-                } else {
-                    let (left, right) = pan_gains(sound.pan);
-                    player.append(ChannelVolume::new(src, vec![left, right]));
-                }
-                self.dev.sounds.push(Playing { player, bus: sound.bus, gain: sound.volume });
-            }
+        let player = Player::connect_new(out.mixer());
+        player.set_volume(self.mix.level(sound.bus) * sound.volume);
+        player.set_speed(sound.pitch);
+        let started = match sound.looped {
+            true => Decoder::new_looped(data).map(|src| start(&player, src, sound.pan)),
+            false => Decoder::new(data).map(|src| start(&player, src, sound.pan)),
+        };
+        match started {
+            Ok(()) => self.dev.sounds.push(Playing { voice, player, bus: sound.bus, gain: sound.volume }),
             Err(e) => eprintln!("{path}: {e}"),
         }
+        voice
+    }
+
+    /// Stops a sound `play` started; one that already ended or was cut off is left alone.
+    #[cfg(feature = "audio")]
+    pub fn stop(&mut self, voice: Voice) {
+        self.dev.sounds.retain(|p| p.voice != voice);
+    }
+
+    /// Whether a sound `play` started is still playing (never without a sound device).
+    #[cfg(feature = "audio")]
+    pub fn is_playing(&self, voice: Voice) -> bool {
+        self.dev.sounds.iter().any(|p| p.voice == voice && !p.player.empty())
+    }
+
+    /// Holds the music where it is until `resume_music`.
+    #[cfg(feature = "audio")]
+    pub fn pause_music(&mut self) {
+        self.dev.music.iter().for_each(Player::pause);
+    }
+
+    #[cfg(feature = "audio")]
+    pub fn resume_music(&mut self) {
+        self.dev.music.iter().for_each(Player::play);
     }
 
     #[cfg(feature = "audio")]
@@ -362,10 +401,23 @@ impl Audio {
     }
 
     #[cfg(not(feature = "audio"))]
-    pub fn play(&mut self, _path: &str) {}
+    pub fn play_with(&mut self, _path: &str, _sound: Sound) -> Voice {
+        self.mix.voice()
+    }
 
     #[cfg(not(feature = "audio"))]
-    pub fn play_with(&mut self, _path: &str, _sound: Sound) {}
+    pub fn stop(&mut self, _voice: Voice) {}
+
+    #[cfg(not(feature = "audio"))]
+    pub fn is_playing(&self, _voice: Voice) -> bool {
+        false
+    }
+
+    #[cfg(not(feature = "audio"))]
+    pub fn pause_music(&mut self) {}
+
+    #[cfg(not(feature = "audio"))]
+    pub fn resume_music(&mut self) {}
 
     #[cfg(not(feature = "audio"))]
     pub fn music(&mut self, _path: &str) {
@@ -378,6 +430,17 @@ impl Audio {
 
     #[cfg(not(feature = "audio"))]
     fn retune(&self) {}
+}
+
+// Puts a decoded sound on its player, through both speakers at `pan` unless it is centred.
+#[cfg(feature = "audio")]
+fn start<S: rodio::Source + Send + 'static>(player: &Player, src: S, pan: f32) {
+    if pan == 0.0 {
+        player.append(src);
+    } else {
+        let (left, right) = pan_gains(pan);
+        player.append(ChannelVolume::new(src, vec![left, right]));
+    }
 }
 
 #[cfg(test)]
@@ -451,13 +514,24 @@ mod tests {
         let (l, r) = pan_gains(0.0);
         assert!((l - r).abs() < 1e-6, "the middle plays both speakers alike");
         let wild = Sound::new().volume(7.0).pan(f32::NAN).pitch(100.0).clamped();
-        assert_eq!(wild, Sound { volume: 1.0, pan: 0.0, pitch: 4.0, bus: Bus::SFX });
+        assert_eq!(wild, Sound { volume: 1.0, pan: 0.0, pitch: 4.0, bus: Bus::SFX, looped: false });
         assert_eq!(
             Sound::new().pan(-3.0).pitch(0.0).volume(-1.0).clamped(),
-            Sound { volume: 0.0, pan: -1.0, pitch: 0.25, bus: Bus::SFX }
+            Sound { volume: 0.0, pan: -1.0, pitch: 0.25, bus: Bus::SFX, looped: false }
         );
         let mut a = Audio::disabled();
         a.play_with("no/such/file.wav", Sound::new().pan(1.0));
+    }
+
+    #[test]
+    fn every_sound_gets_its_own_voice_and_one_that_never_played_is_not_playing() {
+        let mut a = Audio::disabled();
+        let (one, two) = (a.play("no/such/file.wav"), a.play_with("no/such/file.wav", Sound::new().looped()));
+        assert_ne!(one, two);
+        assert!(!a.is_playing(one) && !a.is_playing(two));
+        a.stop(two);
+        a.pause_music();
+        a.resume_music();
     }
 
     #[test]
