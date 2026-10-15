@@ -99,7 +99,16 @@ impl Sweep {
 }
 
 pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)> {
-    Sweep::default().pairs(rects, |_| false).to_vec()
+    let span = |at: fn(&Rect) -> f32| {
+        let (lo, hi) = rects.iter().map(at).fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+        hi - lo
+    };
+    // Sweeping along x alone degrades towards every pair when the bodies are stacked in a tall column.
+    if span(|r| r.y) <= span(|r| r.x) {
+        return Sweep::default().pairs(rects, |_| false).to_vec();
+    }
+    let flipped: Vec<Rect> = rects.iter().map(|r| Rect { x: r.y, y: r.x, w: r.h, h: r.w }).collect();
+    Sweep::default().pairs(&flipped, |_| false).iter().map(|&(a, b, ox, oy)| (a, b, oy, ox)).collect()
 }
 
 pub fn collisions(world: &World) -> Vec<Contact> {
@@ -192,6 +201,9 @@ mod tests {
         }
         assert!(!sweep.pairs(&rects, |_| false).is_empty(), "the test world has overlaps to find");
         assert_eq!(normalized(&overlapping_pairs(&rects)), normalized(&brute(&rects, &|_| false)));
+        let tall: Vec<Rect> =
+            rects.iter().map(|r| Rect { x: r.y * 0.1, y: r.x * 10.0, w: r.h, h: r.w * 10.0 }).collect();
+        assert_eq!(normalized(&overlapping_pairs(&tall)), normalized(&brute(&tall, &|_| false)));
     }
 
     #[test]
