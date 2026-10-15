@@ -170,11 +170,12 @@ impl WorldFile {
         let mut builders: Vec<EntityBuilder> = Vec::new();
         let mut seen: Vec<&str> = Vec::new();
         for (i, line) in text.lines().enumerate() {
-            let (n, line) = (i + 1, line.trim());
-            if line.is_empty() || line.starts_with('#') {
+            // Only the left is trimmed for the value: trailing spaces belong to it.
+            let (n, line) = (i + 1, line.trim_start());
+            if line.trim().is_empty() || line.starts_with('#') {
                 continue;
             }
-            if line == "[entity]" {
+            if line.trim_end() == "[entity]" {
                 builders.push(EntityBuilder::new());
                 seen.clear();
                 continue;
@@ -245,7 +246,7 @@ mod tests {
             Filter { group: 2, mask: u32::MAX },
             Layer(-3),
             Collider,
-            Hp(9, "한글 = a # b\nsecond".into()),
+            Hp(9, "한글 = a # b\nsecond  ".into()),
         ));
         w.spawn((Hp(1, "x".into()),));
         w.spawn((5u8,));
@@ -256,7 +257,7 @@ mod tests {
         assert_eq!(made.len(), 2);
         let e = made.iter().copied().find(|&e| back.get::<&Collider>(e).is_ok()).unwrap();
         assert_eq!(back.get::<&Body>(e).unwrap().0, w.get::<&Body>(a).unwrap().0);
-        assert_eq!(back.get::<&Hp>(e).unwrap().1, "한글 = a # b\nsecond");
+        assert_eq!(back.get::<&Hp>(e).unwrap().1, "한글 = a # b\nsecond  ");
         assert_eq!(back.get::<&Layer>(e).unwrap().0, -3);
         assert_eq!(*back.get::<&Transform>(e).unwrap(), *w.get::<&Transform>(a).unwrap());
         assert_eq!(file().to_text(&back), text, "saving what was loaded gives the same text");
