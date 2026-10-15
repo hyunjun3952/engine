@@ -35,7 +35,9 @@ impl Fade {
         match &mut self.0 {
             Phase::Idle => None,
             Phase::Out(t, ..) => {
-                if !t.tick(dt) {
+                // `done`, not the return value: `start` may have used up the timer's one report already.
+                t.tick(dt);
+                if !t.done() {
                     return None;
                 }
                 let Phase::Out(_, trans, half) = std::mem::replace(&mut self.0, Phase::Idle) else { unreachable!() };
@@ -109,5 +111,15 @@ mod tests {
         assert_eq!(f.alpha(), 153, "no jump back to clear");
         f.tick(0.1);
         assert_eq!(f.alpha(), 204);
+    }
+
+    #[test]
+    fn a_fade_started_as_the_last_one_hands_over_still_ends() {
+        let mut f = Fade::new();
+        f.start(Trans::Pop, 1.0);
+        while f.tick(0.1).is_none() {}
+        f.start(Trans::Quit, 1.0);
+        assert!(matches!(f.tick(0.1), Some(Trans::Quit)), "already dark, so the change comes at once");
+        assert!(!f.blocking());
     }
 }
