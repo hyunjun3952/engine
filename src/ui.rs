@@ -196,7 +196,7 @@ impl TextField {
         if input.key_pressed(Key::RightAlt) {
             self.set_korean(!self.korean);
         }
-        if input.key_pressed(Key::Backspace) {
+        if input.key_repeated(Key::Backspace) {
             self.hangul.backspace(&mut self.text);
         }
         for &c in input.typed() {

@@ -99,8 +99,10 @@ pub struct Ctx {
 
 impl Ctx {
     pub(crate) fn new(w: usize, h: usize, dt: f32, audio: Audio) -> Self {
+        let mut input = Input::default();
+        input.set_step(dt);
         Ctx {
-            input: Input::default(),
+            input,
             assets: Assets::default(),
             audio,
             fade: Fade::new(),

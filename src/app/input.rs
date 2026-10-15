@@ -28,6 +28,10 @@ pub struct Input {
     latched_pad: FxSet<Pad>,
     latched_buttons: [bool; 5],
     wheel: f32,
+    // Steps in a row each held key or button had been down before this step, for `repeated`.
+    held: FxMap<Key, u32>,
+    pad_held: FxMap<Pad, u32>,
+    step: f32,
     typed: Vec<char>,
     typing: Arc<Mutex<Vec<char>>>,
 }
@@ -47,6 +51,14 @@ impl minifb::InputCallback for Typing {
             chars.push(c);
         }
     }
+}
+
+// How long a key is held before it repeats and how often it repeats then, as keyboards do for typing.
+const REPEAT_DELAY: f32 = 0.4;
+const REPEAT_EVERY: f32 = 1.0 / 30.0;
+
+fn count_held<T: Copy + Eq + std::hash::Hash>(down: &FxSet<T>, before: &FxMap<T, u32>) -> FxMap<T, u32> {
+    down.iter().map(|k| (*k, before.get(k).map_or(1, |n| n + 1))).collect()
 }
 
 const MOUSE: [MouseButton; 5] =
@@ -109,6 +121,7 @@ impl Input {
     }
 
     pub(crate) fn end_step(&mut self) {
+        (self.held, self.pad_held) = (count_held(&self.down, &self.held), count_held(&self.pad_down, &self.pad_held));
         self.prev = self.down.clone();
         self.pad_prev = self.pad_down.clone();
         self.buttons_prev = self.buttons;
@@ -117,6 +130,18 @@ impl Input {
         self.wheel = 0.0;
         self.typed.clear();
     }
+    // The length of the fixed step, so repeats come at the same rate whatever `tick_hz` is.
+    pub(crate) fn set_step(&mut self, dt: f32) {
+        self.step = dt;
+    }
+
+    // True on the step a key goes down, then after `REPEAT_DELAY` once every `REPEAT_EVERY` while it stays down.
+    fn repeats(&self, steps: Option<&u32>) -> bool {
+        let dt = if self.step > 0.0 { self.step } else { 1.0 / 60.0 };
+        let (delay, every) = (((REPEAT_DELAY / dt).round() as u32).max(1), ((REPEAT_EVERY / dt).round() as u32).max(1));
+        steps.is_none_or(|&n| n >= delay && (n - delay) % every == 0)
+    }
+
     pub(crate) fn bind(&mut self, action: &str, keys: &[Key]) {
         self.actions.insert(action.to_string(), keys.to_vec());
     }
@@ -189,6 +214,17 @@ impl Input {
     pub fn pressed(&self, action: &str) -> bool {
         self.down(action) && !self.held(action, &self.prev, &self.pad_prev)
     }
+
+    /// True on the step the action stops being held.
+    pub fn released(&self, action: &str) -> bool {
+        !self.down(action) && self.held(action, &self.prev, &self.pad_prev)
+    }
+
+    /// Like `pressed`, then again and again while it stays held (after 0.4 s, 30 times a second), as typing repeats.
+    pub fn repeated(&self, action: &str) -> bool {
+        self.keys(action).iter().any(|&k| self.key_repeated(k))
+            || self.pads(action).iter().any(|p| self.pad_down.contains(p) && self.repeats(self.pad_held.get(p)))
+    }
     pub fn axis(&self, neg: &str, pos: &str) -> f32 {
         self.down(pos) as i32 as f32 - self.down(neg) as i32 as f32
     }
@@ -241,6 +277,11 @@ impl Input {
 
     pub fn key_down(&self, key: Key) -> bool {
         self.down.contains(&key)
+    }
+
+    /// `repeated` for one key.
+    pub fn key_repeated(&self, key: Key) -> bool {
+        self.down.contains(&key) && self.repeats(self.held.get(&key))
     }
 }
 
@@ -405,6 +446,27 @@ mod tests {
         i.bind("right", &[Key::Right, Key::D]);
         i.down = down.iter().copied().collect();
         i
+    }
+
+    #[test]
+    fn a_held_key_repeats_after_a_delay_and_letting_go_is_released_once() {
+        let mut i = input_with(&[]);
+        i.set_step(0.1);
+        let mut seen = Vec::new();
+        for _ in 0..8 {
+            i.hold(&[Key::Space]);
+            seen.push(i.repeated("jump"));
+            i.end_step();
+        }
+        // pressed at step 0; a 0.4 s delay is 4 steps, then every step (1/30 s rounds to less than one).
+        assert_eq!(seen, [true, false, false, false, true, true, true, true]);
+        assert!(!i.released("jump"));
+        i.hold(&[]);
+        assert!(i.released("jump") && !i.repeated("jump"));
+        i.end_step();
+        assert!(!i.released("jump"));
+        i.hold(&[Key::Space]);
+        assert!(i.key_repeated(Key::Space), "pressed again starts over");
     }
 
     #[test]
