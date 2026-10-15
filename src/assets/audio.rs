@@ -175,6 +175,10 @@ impl Mix {
     }
 }
 
+/// Sound effects and one music track, reached through `ctx.audio()`.
+///
+/// Volumes are the master times a [`Bus`]: `Bus::SFX`, `Bus::MUSIC` or one made with `bus(name)`. Without the `audio`
+/// feature, with `ENGINE_MUTE=1` or with no output device every call does nothing. WAV and OGG Vorbis are read.
 pub struct Audio {
     mix: Mix,
     #[cfg(feature = "audio")]

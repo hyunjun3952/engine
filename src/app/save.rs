@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
+/// A game's own `key = value` file: settings, progress, high scores. `load` treats a missing file as empty and
+/// `save` writes atomically, so a crash cannot leave half a file.
 #[derive(Default, Debug, PartialEq)]
 pub struct Save {
     map: BTreeMap<String, String>,

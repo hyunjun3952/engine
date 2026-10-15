@@ -54,6 +54,11 @@ pub(crate) fn letterbox((ww, wh): (f32, f32), (w, h): (f32, f32)) -> Rect {
     Rect::new((ww - w * k) / 2.0, (wh - h * k) / 2.0, w * k, h * k)
 }
 
+/// What a scene draws on: it records [`DrawCmd`]s for the frame and the renderer draws them afterwards.
+///
+/// `fill`, `blit`, `text` and the other methods draw straight to the screen in canvas pixels (`i32` positions), for
+/// HUD and menus. [`Gfx::draw`] takes world-space commands (from [`draw_list`](crate::draw_list), [`Tilemap::draw_list`](crate::Tilemap::draw_list) or built with
+/// [`DrawCmd::new`]), applies the camera and zoom, and sorts them by layer.
 pub struct Gfx {
     pub w: usize,
     pub h: usize,
@@ -306,6 +311,7 @@ impl Image {
     }
 }
 
+/// An image, shared as `Arc<Sprite>`. Pixels are 0xAARRGGBB; hot reload swaps them inside the same sprite.
 pub struct Sprite {
     image: RwLock<Image>,
     version: AtomicU64,

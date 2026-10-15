@@ -25,6 +25,11 @@ const SLEEP_SPEED: f32 = 5.0;
 const WAKE_SPEED: f32 = 20.0;
 const SLEEP_TIME: f32 = 0.5;
 
+/// Makes an entity take part in [`Physics`]: `dynamic(mass)` moves, `fixed()` is a wall, `kinematic()` is a platform
+/// moved only by its `Vel`.
+///
+/// Chain `.circle()`, `.bounce(e)`, `.friction(f)`, `.spin(rad_per_sec)` and, for fixed or kinematic ones,
+/// `.one_way()` (holds a body only from above). Two bodies bounce by the smaller restitution, so walls need one too.
 #[derive(Debug)]
 pub struct RigidBody {
     inv_mass: f32,
@@ -196,6 +201,16 @@ struct Rest {
     contacts: Vec<ContactEvent>,
 }
 
+/// The rigid-body simulation: boxes and circles with rotation, joints, sleeping, one-way platforms and slopes.
+///
+/// Call [`Physics::step`] once per fixed update. Only entities with a [`RigidBody`] take part; give them a [`Body`]
+/// and a [`Vel`], and a [`Transform`] to let them turn. Set `gravity` and `iterations` after
+/// `Physics::default()`. The simulation is bit-for-bit repeatable, which input replay relies on.
+///
+/// A body slower than 5 px/s for half a second sleeps (acts as a wall) until something fast touches it or the game
+/// changes its `Body`, `Vel`, angle or `Filter`. Contacts of the last step are in [`Physics::events`]. Joints
+/// ([`rod`](Physics::rod), [`rope`](Physics::rope), [`spring`](Physics::spring), [`hinge`](Physics::hinge)) last until
+/// [`clear_joints`](Physics::clear_joints) and switch off when an end is despawned.
 pub struct Physics {
     pub gravity: Vec2,
     pub iterations: usize,

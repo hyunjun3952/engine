@@ -125,6 +125,11 @@ pub struct Slide {
     pub blocked_y: bool,
 }
 
+/// A grid of square tiles from one sheet: drawing, collision for [`Physics`](crate::Physics) and [`Tilemap::slide`], raycasts and A*.
+///
+/// Load a plain-text grid with [`Tilemap::load`] (`#` and `+` are solid, `.` or space is empty, any other character is
+/// a marker read with [`Tilemap::marks`]) or a Tiled map with [`Tiled::load`](crate::Tiled::load). Cells are `(usize, usize)`. Draw it with
+/// `gfx.draw(map.draw_list(gfx.view()))`.
 pub struct Tilemap {
     pub w: usize,
     pub h: usize,

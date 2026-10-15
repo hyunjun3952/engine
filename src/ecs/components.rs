@@ -1,6 +1,7 @@
 use crate::{Rect, Sprite, World};
 use std::sync::Arc;
 
+/// Where an entity is and how big, in world pixels.
 #[derive(Debug)]
 pub struct Body(pub Rect);
 
@@ -10,6 +11,7 @@ pub struct Vel {
     pub y: f32,
 }
 
+/// Makes a [`Body`] collide in [`collisions`](crate::collisions), [`raycast`](crate::raycast) and [`query_rect`](crate::query_rect); without a [`RigidBody`](crate::RigidBody) it is a trigger.
 #[derive(Debug)]
 pub struct Collider;
 
@@ -40,6 +42,7 @@ impl Filter {
     }
 }
 
+/// How [`draw_list`](crate::draw_list) draws an entity over its [`Body`].
 pub enum Look {
     Color(u32),
     Alpha(u32, u8),

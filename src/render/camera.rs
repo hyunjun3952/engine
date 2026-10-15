@@ -4,6 +4,12 @@ const FOLLOW_SPEED: f32 = 10.0;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 8.0;
 
+/// The one camera of the app, reached through `ctx.cam()`; it advances in the fixed update and persists across scenes.
+///
+/// `follow` eases towards a target and clamps to the world (the first call snaps; `cut` makes the next one snap),
+/// `shake` jitters, `set_zoom`/`zoom_to` zoom about the middle of the view (0.25..=8). It moves what [`Gfx::draw`](crate::Gfx::draw)
+/// draws; HUD drawn with `fill`, `blit` and `text` stays in screen space. Game scenes call `ctx.cam().reset()` in
+/// `on_enter`.
 pub struct Camera {
     // The top-left of the part of the world in view, in world pixels.
     pos: (f32, f32),

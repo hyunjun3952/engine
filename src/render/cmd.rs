@@ -4,6 +4,7 @@ use std::sync::Arc;
 /// Nudge towards the next texel so both backends break a pixel centre on a texel border the same way.
 pub(crate) const SAMPLE_BIAS: f32 = 1.0 / 256.0;
 
+/// What a [`DrawCmd`] puts in its rectangle. Colours are 0xRRGGBB.
 #[derive(Clone)]
 pub enum Paint {
     Clear(u32),
@@ -111,6 +112,8 @@ impl Default for Style {
     }
 }
 
+/// One thing to draw: where (`rect`), what (`paint`), on which `layer`, turned or scaled by `xform` and shown with
+/// `style`. Start from [`DrawCmd::new`] and set the rest with struct update syntax.
 #[derive(Clone)]
 pub struct DrawCmd {
     pub layer: i32,

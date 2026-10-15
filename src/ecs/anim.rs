@@ -84,6 +84,11 @@ impl Clip {
     }
 }
 
+/// Plays frames from a sheet cut into a grid of equal cells, one row per clip; [`animate`] advances it.
+///
+/// `play(row, frames, fps)` restarts only when the row changes; `play_clip`/`start` take a [`Clip`] with per-frame
+/// times, `once()` and named events (read with `fired` after `animate`). An [`AnimStates`] next to it picks the clip
+/// by state name.
 pub struct Anim {
     pub(super) sheet: Arc<Sprite>,
     size: (usize, usize),

@@ -29,6 +29,7 @@ pub enum RenderMode {
     Software,
 }
 
+/// How [`run`] opens the window and steps the game; start from `Config::default()` (640x360, 60 ticks a second).
 pub struct Config {
     pub title: &'static str,
     pub w: usize,
@@ -72,6 +73,10 @@ impl Default for Config {
     }
 }
 
+/// What a scene reaches during `update`: input, assets, audio, the camera, the random generator and the step length.
+///
+/// Each accessor borrows the whole `Ctx`, so read values into locals first: `let dt = ctx.dt();` then
+/// `ctx.cam().follow(.., dt)`.
 pub struct Ctx {
     pub(crate) input: Input,
     pub(crate) assets: Assets,
@@ -213,6 +218,7 @@ impl Ctx {
     }
 }
 
+/// What the scene stack does after an `update`.
 pub enum Trans {
     None,
     Push(Box<dyn Scene>),
@@ -224,6 +230,11 @@ pub enum Trans {
     Fade(Box<Trans>, f32),
 }
 
+/// One screen of the game. Only the top scene of the stack updates; every scene draws, bottom first.
+///
+/// `update` runs once per fixed step and returns a [`Trans`]; `on_enter` runs when the scene joins the stack and
+/// `on_exit` when it leaves (stop music there). A pushed overlay does not touch the scene beneath. The engine does
+/// not handle Esc; scenes do.
 pub trait Scene {
     fn update(&mut self, ctx: &mut Ctx) -> Trans;
     fn draw(&self, gfx: &mut Gfx);

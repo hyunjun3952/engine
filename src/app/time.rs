@@ -1,3 +1,4 @@
+/// Counts the fixed `dt` given to `tick`: `once(secs)` runs out, `looping(secs)` restarts.
 #[derive(Clone, Copy, Debug)]
 pub struct Timer {
     duration: f32,

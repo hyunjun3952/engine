@@ -42,6 +42,10 @@ pub(crate) fn read_text_if_exists(path: &str) -> Result<Option<String>, String> 
     }
 }
 
+/// Sprites and fonts by path, loaded once and kept, reached through `ctx.assets()`.
+///
+/// A file that cannot be read panics with its path; load with [`Sprite::load`] or [`Font::load`] to handle the error
+/// yourself. Sprites are reloaded in place when their file changes if `Config::hot_reload` is on.
 #[derive(Default)]
 pub struct Assets {
     sprites: FxMap<String, Arc<Sprite>>,

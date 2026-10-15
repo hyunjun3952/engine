@@ -24,6 +24,44 @@
 //!     Box::new(Game)
 //! });
 //! ```
+//!
+//! # Map
+//!
+//! Everything is at the crate root; this is where each part lives.
+//!
+//! | Area | Items |
+//! |---|---|
+//! | Loop and scenes | [`run`], [`Config`], [`Scene`], [`Trans`], [`Ctx`] |
+//! | Time | [`Timer`], [`Tween`], [`Ease`], [`Rng`] |
+//! | Drawing | [`Gfx`], [`DrawCmd`], [`Paint`], [`Style`], [`Blend`], [`Transform`], [`Sprite`], [`Rect`], [`Vec2`] |
+//! | Camera and light | [`Camera`], [`LightMap`], [`Light`], [`vignette`], [`scanlines`] |
+//! | Text | [`Gfx::text`], [`Font`], [`Gfx::text_font`], [`wrap`], [`draw_wrapped`] |
+//! | Levels | [`Tilemap`], [`Tile`], [`Slope`], [`Slide`], [`TileHit`], [`Tiled`], [`TiledObject`], [`Spawner`] |
+//! | ECS | [`World`], [`Entity`], [`Body`], [`Vel`], [`Look`], [`Layer`], [`movement`], [`draw_list`] |
+//! | Animation and particles | [`Anim`], [`Clip`], [`AnimStates`], [`animate`], [`Burst`], [`burst`], [`particles`], [`Particle`] |
+//! | Collisions and rays | [`Collider`], [`Filter`], [`collisions`], [`Contact`], [`query_rect`], [`raycast`], [`raycasts`], [`Ray`], [`RayHit`], [`RayIndex`] |
+//! | Physics | [`Physics`], [`RigidBody`], [`ContactEvent`] |
+//! | Saving | [`Save`], [`WorldFile`], [`Persist`] |
+//! | Input | [`Input`], [`Key`], [`MouseButton`], [`Pad`], [`PadAxis`] |
+//! | Assets and audio | [`Assets`], [`Atlas`], [`Audio`], [`Sound`], [`Bus`] |
+//! | UI | [`Theme`], [`Button`], [`Checkbox`], [`Menu`], [`ScrollList`], [`TextField`], [`Focus`], [`Rebind`], [`Layout`], [`grid`], [`draw_panel`], [`draw_bar`], [`hovered`], [`clicked`], [`slider`] |
+//! | Debug | [`Inspector`], [`Console`], [`Command`] (F3 shows the frame overlay) |
+//!
+//! # Conventions
+//!
+//! - World points and directions are [`Vec2`]; arguments take `impl Into<Vec2>`, so `(x, y)` works too.
+//! - Drawing straight to the screen (`fill`, `blit`, `text`, widgets) uses whole canvas pixels: `i32` positions.
+//! - Areas are a [`Rect`], always passed by value.
+//! - Tile cells are `(usize, usize)`.
+//! - Colours are `0xRRGGBB` and sprite pixels `0xAARRGGBB`.
+//! - Anything that reads or writes a file returns `Result<_, String>`, and the message names the file; a `load` that
+//!   makes a value (`Sprite::load`, `Tilemap::load`, `Save::load`, ...) takes the path first.
+//! - A mistake in the game's own code panics with a message: an unbound action, an unknown atlas region or animation
+//!   state, a sprite file missing from [`Assets`].
+//! - Builders chain plain names (`RigidBody::dynamic(1.0).bounce(0.5)`, `Sound::new().volume(0.8)`); getters are
+//!   the bare name and setters start with `set_`.
+//! - Systems over a [`World`] are free functions (`movement`, `animate`, `particles`, `collisions`); stateful parts
+//!   ([`Physics`], [`Camera`], widgets) are types with `update`/`step` and `draw`.
 
 mod app;
 mod assets;

@@ -5,6 +5,11 @@ use crate::render::letterbox;
 pub use minifb::{Key, MouseButton};
 use std::sync::{Arc, Mutex};
 
+/// Keys, mouse and pad as of this fixed step, read by action name.
+///
+/// Bind actions once with `ctx.bind("jump", &[Key::Space])` (and `bind_pad`), then read `down`, `pressed` or `axis`;
+/// asking for an action that was never bound panics. `ctx.load_bindings(path)` lets the player rebind them in a text
+/// file of `action = Key Key pad.A` lines. A tap shorter than a step still counts.
 #[derive(Default)]
 pub struct Input {
     down: FxSet<Key>,
