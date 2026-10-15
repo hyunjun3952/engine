@@ -42,6 +42,7 @@ fn unescape(s: &str) -> String {
 struct Reader<'a> {
     src: &'a str,
     at: usize,
+    depth: usize,
 }
 
 impl<'a> Reader<'a> {
@@ -81,6 +82,16 @@ impl<'a> Reader<'a> {
     }
 
     fn element(&mut self) -> Result<Node, String> {
+        if self.depth >= 64 {
+            return Err(self.err("elements are nested too deep"));
+        }
+        self.depth += 1;
+        let node = self.element_inner();
+        self.depth -= 1;
+        node
+    }
+
+    fn element_inner(&mut self) -> Result<Node, String> {
         self.at += 1;
         let mut node =
             Node { name: self.name()?.to_string(), attrs: Vec::new(), kids: Vec::new(), text: String::new() };
@@ -138,7 +149,7 @@ impl<'a> Reader<'a> {
 }
 
 fn parse_xml(src: &str) -> Result<Node, String> {
-    let mut r = Reader { src: src.strip_prefix('\u{feff}').unwrap_or(src), at: 0 };
+    let mut r = Reader { src: src.strip_prefix('\u{feff}').unwrap_or(src), at: 0, depth: 0 };
     loop {
         r.skip_space();
         if !r.skip_misc()? {
@@ -285,8 +296,9 @@ impl Tiled {
                 .filter(|v| !v.is_empty())
                 .map(|v| v.parse::<u32>().map_err(|_| what(format!("{v:?} is not a tile number"))))
                 .collect::<Result<Vec<_>, _>>()?;
-            if gids.len() != w * h {
-                return Err(what(format!("has {} tiles, expected {}", gids.len(), w * h)));
+            let cells = w.checked_mul(h).ok_or_else(|| what("is too big".into()))?;
+            if gids.len() != cells {
+                return Err(what(format!("has {} tiles, expected {cells}", gids.len())));
             }
             let mut tiles = Vec::with_capacity(gids.len());
             for (i, &gid) in gids.iter().enumerate() {
@@ -439,6 +451,8 @@ mod tests {
         assert!(with("0,4,0,0", "0,9,0,0").contains("past the 4 tiles"));
         assert!(with("0,4,0,0", "0,4,0").contains("has 11 tiles, expected 12"));
         assert!(with("0,4,0,0", "0,x,0,0").contains("not a tile number"));
+        let nested = format!("{}{}", "<a>".repeat(1000), "</a>".repeat(1000));
+        assert!(parse_xml(&nested).err().unwrap_or_default().contains("too deep"));
         assert!(
             with("<layer id=\"2\" name=\"deco\" width=\"4\"", "<layer id=\"2\" name=\"deco\" width=\"5\"")
                 .contains("5x3")

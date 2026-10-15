@@ -23,7 +23,7 @@ fn strip_bom(text: String) -> String {
 /// one, never half of it (and never an empty one: a rename alone can reach the disk before the data does).
 pub(crate) fn write_atomic(path: &str, text: &str) -> Result<(), String> {
     use std::io::Write;
-    let tmp = format!("{path}.tmp");
+    let tmp = format!("{path}.{}.tmp", std::process::id());
     let write = || {
         let mut file = std::fs::File::create(&tmp)?;
         file.write_all(text.as_bytes())?;
@@ -141,7 +141,7 @@ mod tests {
         write_atomic(path, "first\n").unwrap();
         write_atomic(path, "second\n").unwrap();
         assert_eq!(std::fs::read_to_string(path).unwrap(), "second\n");
-        assert!(!std::path::Path::new(&format!("{path}.tmp")).exists());
+        assert!(!std::path::Path::new(&format!("{path}.{}.tmp", std::process::id())).exists());
         let missing = dir.join("missing").join("x.txt");
         let missing = missing.to_str().unwrap();
         let err = write_atomic(missing, "x").unwrap_err();

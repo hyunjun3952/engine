@@ -1383,3 +1383,13 @@ fn a_sleeper_wakes_when_its_filter_changes() {
     run(&mut p, &mut w, Some(&map), 90);
     assert!(state(&w, b).0.y > 300.0, "the plank let it go: {:?}", state(&w, b).0);
 }
+
+#[test]
+fn a_negative_or_nan_friction_is_no_friction_instead_of_a_panic() {
+    for bad in [-1.0, f32::NAN, f32::INFINITY] {
+        let mut w = World::new();
+        floor(&mut w);
+        boxed(&mut w, square(0.0, 60.0, 20.0), RigidBody::dynamic(1.0).friction(bad), (50.0, 0.0));
+        run(&mut Physics::default(), &mut w, None, 60);
+    }
+}

@@ -10,7 +10,7 @@ pub trait Persist: Sized + Send + Sync + 'static {
 
 /// The numbers of a line like `1 2.5 3`, exactly `N` of them.
 pub(crate) fn numbers<const N: usize>(text: &str) -> Option<[f32; N]> {
-    let mut it = text.split_whitespace().map(|v| v.parse::<f32>().ok());
+    let mut it = text.split_whitespace().map(|v| v.parse::<f32>().ok().filter(|v| v.is_finite()));
     let mut out = [0.0; N];
     for slot in &mut out {
         *slot = it.next()??;

@@ -861,7 +861,7 @@ fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
                 inv_inertia: if rotates { 1.0 / inertia } else { 0.0 },
                 circle: rb.circle,
                 restitution: rb.restitution,
-                friction: rb.friction,
+                friction: if rb.friction.is_finite() { rb.friction.max(0.0) } else { 0.4 },
                 filter: filter.copied().unwrap_or_default(),
                 moves: vel.is_some() && rb.kinematic,
                 one_way: rb.one_way,
