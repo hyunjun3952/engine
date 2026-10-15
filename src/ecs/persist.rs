@@ -1,6 +1,7 @@
 use crate::app::save::{escape, unescape};
 use crate::{Body, Collider, Entity, Filter, Layer, Rect, Transform, Vel, World};
 use hecs::{EntityBuilder, EntityRef};
+use std::collections::VecDeque;
 
 /// A component's text form for a saved world. `read` gets back what `write` made; `None` means malformed.
 pub trait Persist: Sized + Send + Sync + 'static {
@@ -207,6 +208,48 @@ impl WorldFile {
     }
 }
 
+/// The last `cap` snapshots of a world, to step back through: rewind, checkpoints. Call `record` once per fixed step
+/// (or every few) and `back` to restore. The world is replaced as `WorldFile` saves it, so entities are new, and what
+/// it does not save is lost (an entity with no registered component, physics sleep and joints): rebuild `Physics` after.
+pub struct Rewind {
+    frames: VecDeque<String>,
+    cap: usize,
+}
+
+impl Rewind {
+    pub fn new(cap: usize) -> Self {
+        Rewind { frames: VecDeque::new(), cap: cap.max(1) }
+    }
+
+    pub fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    pub fn record(&mut self, file: &WorldFile, world: &World) {
+        if self.frames.len() == self.cap {
+            self.frames.pop_front();
+        }
+        self.frames.push_back(file.to_text(world));
+    }
+
+    /// Goes `steps` snapshots back (at least one, at most all there are): the world's entities are replaced by the ones
+    /// saved then and returned, and the snapshots after it are dropped. An `Err` leaves the world and the snapshots as
+    /// they were.
+    pub fn back(&mut self, file: &WorldFile, world: &mut World, steps: usize) -> Result<Vec<Entity>, String> {
+        let at = self.frames.len().checked_sub(steps.clamp(1, self.frames.len().max(1))).filter(|_| !self.is_empty());
+        let at = at.ok_or("no snapshot to go back to")?;
+        let old: Vec<Entity> = world.iter().map(|e| e.entity()).collect();
+        let made = file.spawn_from(world, &self.frames[at])?;
+        old.into_iter().for_each(|e| drop(world.despawn(e)));
+        self.frames.truncate(at);
+        Ok(made)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,5 +377,25 @@ mod tests {
     #[should_panic(expected = "registered twice")]
     fn registering_a_name_twice_panics() {
         WorldFile::new().component::<Vel>("v").component::<Body>("v");
+    }
+
+    #[test]
+    fn rewind_restores_an_older_world_and_keeps_only_the_last_few() {
+        let (f, mut w, mut r) = (file(), World::new(), Rewind::new(3));
+        assert!(r.back(&f, &mut w, 1).is_err());
+        let e = w.spawn((Vel { x: 0.0, y: 0.0 },));
+        w.spawn((5u8,));
+        for x in 1..=5 {
+            w.get::<&mut Vel>(e).unwrap().x = x as f32;
+            r.record(&f, &w);
+        }
+        assert_eq!(r.len(), 3, "snapshots 3, 4 and 5 are left");
+        let made = r.back(&f, &mut w, 2).unwrap();
+        assert_eq!((made.len(), w.len()), (1, 1), "every old entity goes, also the one with nothing registered");
+        assert_eq!(w.get::<&Vel>(made[0]).unwrap().x, 4.0);
+        assert_eq!(r.len(), 1);
+        r.back(&f, &mut w, 99).unwrap();
+        assert_eq!(w.get::<&Vel>(w.iter().find(|e| e.has::<Vel>()).unwrap().entity()).unwrap().x, 3.0);
+        assert!(r.is_empty());
     }
 }

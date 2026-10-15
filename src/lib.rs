@@ -41,7 +41,7 @@
 //! | Animation and particles | [`Anim`], [`Clip`], [`AnimStates`], [`animate`], [`Burst`], [`burst`], [`particles`], [`Particle`] |
 //! | Collisions and rays | [`Collider`], [`Filter`], [`collisions`], [`Contact`], [`Overlaps`], [`query_rect`], [`raycast`], [`raycasts`], [`Ray`], [`RayHit`], [`RayIndex`] |
 //! | Physics | [`Physics`], [`RigidBody`], [`ContactEvent`] |
-//! | Saving | [`Save`], [`data_dir`], [`WorldFile`], [`Persist`] |
+//! | Saving | [`Save`], [`data_dir`], [`WorldFile`], [`Persist`], [`Rewind`] |
 //! | Input | [`Input`], [`Key`], [`MouseButton`], [`Pad`], [`PadAxis`] |
 //! | Assets and audio | [`Assets`], [`Atlas`], [`Audio`], [`Sound`], [`Voice`], [`Bus`] |
 //! | UI | [`Theme`], [`Button`], [`Checkbox`], [`Menu`], [`ScrollList`], [`TextField`], [`Focus`], [`Rebind`], [`Layout`], [`grid`], [`draw_panel`], [`draw_bar`], [`hovered`], [`clicked`], [`slider`] |
@@ -82,8 +82,8 @@ pub use assets::{Assets, Atlas, Audio, Bus, Sound, Voice};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
     Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, JointId, Layer, Look,
-    OverlapChanges, Overlaps, Particle, Persist, Physics, Ray, RayHit, RayIndex, RigidBody, Spawner, Vel, World,
-    WorldFile, animate, burst, collisions, draw_list, movement, particles, query_rect, raycast, raycasts,
+    OverlapChanges, Overlaps, Particle, Persist, Physics, Ray, RayHit, RayIndex, Rewind, RigidBody, Spawner, Vel,
+    World, WorldFile, animate, burst, collisions, draw_list, movement, particles, query_rect, raycast, raycasts,
 };
 pub use render::{
     Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Rect, Slide, Slope, Sprite, Style, Tile, TileHit, Tiled,

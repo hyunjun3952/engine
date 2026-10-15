@@ -15,7 +15,7 @@ pub use components::{Body, Collider, Filter, Layer, Look, Vel, movement};
 pub use draw::draw_list;
 pub use hecs::{Entity, World};
 pub use particles::{Burst, Particle, burst, particles};
-pub use persist::{Persist, WorldFile};
+pub use persist::{Persist, Rewind, WorldFile};
 pub use physics::{ContactEvent, JointId, Physics, RigidBody};
 pub use ray::{Ray, RayHit, RayIndex, raycast, raycasts};
 pub use spawn::Spawner;
