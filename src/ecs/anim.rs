@@ -123,7 +123,7 @@ impl Anim {
 
     /// Plays a clip; restarts only when its row differs from what is playing (see `start`).
     pub fn play_clip(&mut self, clip: &Clip) {
-        let restart = self.clip.row != clip.row;
+        let restart = self.clip.row != clip.row || self.done;
         self.clip = clip.clone();
         if restart {
             self.rewind();
@@ -331,6 +331,9 @@ mod tests {
         assert!(a.finished());
         a.start(&Clip::new(0, 3, 10.0).once());
         assert!(!a.finished() && a.frame() == 0, "starting again rewinds it");
+        frames(&mut a, 5, 0.1);
+        a.play(0, 3, 10.0);
+        assert_eq!(frames(&mut a, 3, 0.1), [1, 2, 0], "a finished clip played again on its row runs, not frozen");
     }
 
     #[test]
