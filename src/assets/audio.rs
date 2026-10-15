@@ -282,9 +282,10 @@ impl Audio {
 
     /// Starts the music from silence and brings it to full over `secs`.
     pub fn fade_in_music(&mut self, path: &str, secs: f32) {
-        self.music(path);
-        self.mix.fade_in(secs);
-        self.retune();
+        if self.start_music(path) {
+            self.mix.fade_in(secs);
+            self.retune();
+        }
     }
 
     /// Takes the music down to silence over `secs` and then stops it.
@@ -364,13 +365,18 @@ impl Audio {
         self.dev.music.iter().for_each(Player::play);
     }
 
-    #[cfg(feature = "audio")]
     pub fn music(&mut self, path: &str) {
+        self.start_music(path);
+    }
+
+    // Whether the track started; when it did not, whatever was playing is left alone.
+    #[cfg(feature = "audio")]
+    fn start_music(&mut self, path: &str) -> bool {
         if self.dev.out.is_none() {
-            return;
+            return false;
         }
-        let Some(data) = self.open(path) else { return };
-        let Some(out) = &self.dev.out else { return };
+        let Some(data) = self.open(path) else { return false };
+        let Some(out) = &self.dev.out else { return false };
         match Decoder::new_looped(data) {
             Ok(src) => {
                 let player = Player::connect_new(out.mixer());
@@ -379,8 +385,12 @@ impl Audio {
                 player.set_volume(self.mix.music());
                 player.append(src);
                 self.dev.music = Some(player);
+                true
             }
-            Err(e) => eprintln!("{path}: {e}"),
+            Err(e) => {
+                eprintln!("{path}: {e}");
+                false
+            }
         }
     }
 
@@ -419,9 +429,10 @@ impl Audio {
     pub fn resume_music(&mut self) {}
 
     #[cfg(not(feature = "audio"))]
-    pub fn music(&mut self, _path: &str) {
+    fn start_music(&mut self, _path: &str) -> bool {
         self.mix.fade = None;
         self.mix.fade_gain = 1.0;
+        true
     }
 
     #[cfg(not(feature = "audio"))]
@@ -445,6 +456,14 @@ fn start<S: rodio::Source + Send + 'static>(player: &Player, src: S, pan: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "audio")]
+    #[test]
+    fn a_fade_in_of_music_that_did_not_start_leaves_the_current_music_alone() {
+        let mut a = Audio::disabled();
+        a.fade_in_music("assets/sounds/missing.ogg", 1.0);
+        assert_eq!((a.mix.fade_gain, a.mix.fade.is_none()), (1.0, true));
+    }
 
     #[test]
     fn volumes_start_full_and_are_kept_within_zero_and_one() {
