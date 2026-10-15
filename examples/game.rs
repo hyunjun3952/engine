@@ -271,6 +271,28 @@ mod stage {
         }
     }
 
+    const TUNING: &str = "assets/tuning.txt";
+
+    struct Tuning {
+        walk: f32,
+        run: f32,
+        jump: f32,
+    }
+
+    impl Tuning {
+        fn load() -> Self {
+            let save = engine::Save::load(TUNING).unwrap_or_else(|e| {
+                eprintln!("{e}");
+                engine::Save::new()
+            });
+            Tuning {
+                walk: save.get_or("walk", 120.0),
+                run: save.get_or("run", 160.0),
+                jump: save.get_or("jump", 330.0),
+            }
+        }
+    }
+
     pub struct Stage {
         n: usize,
         coins: u32,
@@ -286,6 +308,7 @@ mod stage {
         flash: Option<Timer>,
         drop: Option<Timer>,
         banner: Timer,
+        tuning: Tuning,
         console: Console,
         inspector: Inspector,
         ropes: Vec<(Entity, Entity)>,
@@ -299,6 +322,7 @@ mod stage {
 
     impl Stage {
         pub fn new(ctx: &mut Ctx, n: usize, coins: u32) -> Self {
+            ctx.watch(TUNING);
             let sheet = ctx.assets().sprite("assets/images/platformer_tiles.png");
             let rows = level::rows(n);
             let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
@@ -428,6 +452,7 @@ mod stage {
                 flash: None,
                 drop: None,
                 banner: Timer::once(6.0),
+                tuning: Tuning::load(),
                 console: Console::new(),
                 inspector,
                 ropes,
@@ -519,7 +544,7 @@ mod stage {
             }
         }
 
-        fn control(&mut self, ctx: &Ctx, typing: bool) -> f32 {
+        fn control(&mut self, ctx: &mut Ctx, typing: bool) -> f32 {
             let dt = ctx.dt();
             let walk = if typing { 0.0 } else { ctx.input().axis("left", "right") };
             let grounded = self.physics.grounded(self.player);
@@ -528,10 +553,11 @@ mod stage {
                 let under = self.physics.ground(self.player).and_then(|c| c.other(self.player));
                 let carried = under.and_then(|e| self.world.get::<&Vel>(e).ok().map(|v| v.x)).unwrap_or(0.0);
                 let mut vel = self.world.get::<&mut Vel>(self.player).unwrap();
-                let speed = if ctx.input().down("run") { 160.0 } else { 120.0 };
+                let speed = if ctx.input().down("run") { self.tuning.run } else { self.tuning.walk };
                 vel.x = walk * speed + carried;
                 if ctx.input().pressed("jump") && grounded {
-                    vel.y = -330.0;
+                    vel.y = -self.tuning.jump;
+                    ctx.audio().play("assets/sounds/jump.wav");
                 } else if grounded {
                     // Walking up a slope turns sideways speed into upward speed that would launch the player at the crest.
                     vel.y = vel.y.max(0.0);
@@ -563,11 +589,13 @@ mod stage {
                 *self.world.get::<&mut Vel>(self.player).unwrap() = Vel::default();
             }
             self.flash = Some(Timer::once(0.5));
+            ctx.audio().play("assets/sounds/hurt.wav");
             ctx.cam().cut();
             ctx.cam().shake(5.0, 0.3);
         }
 
         fn finish(&self, ctx: &mut Ctx) -> Trans {
+            ctx.audio().play("assets/sounds/goal.wav");
             let mut save = super::load_save();
             let cleared: usize = save.get_or("cleared", 0);
             save.set("cleared", cleared.max(self.n + 1));
@@ -605,6 +633,9 @@ mod stage {
             self.patrol();
             self.look();
             self.chase(dt);
+            if ctx.changed(TUNING) {
+                self.tuning = Tuning::load();
+            }
             let walk = self.control(ctx, typing);
             self.physics.step(&mut self.world, Some(&self.map), dt);
 
@@ -628,6 +659,7 @@ mod stage {
                         &Burst { count: 8, color: 0xffd040, speed: 90.0, life: 0.4, size: 2.0, gravity: 200.0 },
                     );
                     self.world.despawn(other).unwrap();
+                    ctx.audio().play("assets/sounds/coin.wav");
                     (self.picked, self.coins) = (self.picked + 1, self.coins + 1);
                 } else if self.world.get::<&Goal>(other).is_ok() {
                     won = true;

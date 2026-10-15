@@ -1,0 +1,4 @@
+# walk, run and jump speeds in pixels per second; saved changes apply to the running game
+walk = 120
+run = 160
+jump = 330

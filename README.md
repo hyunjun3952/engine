@@ -37,6 +37,7 @@ A window needs an X display (WSLg works). Press F3 for the debug overlay. CI bui
 |----------|--------|
 | `ENGINE_RENDERER=soft\|gpu\|auto` | pick the renderer |
 | `ENGINE_SCALE=n` | window is `n` times the internal resolution |
+| `ENGINE_TICK_HZ=n` | fixed steps (and frames) per second |
 | `ENGINE_MUTE=1` | silence audio |
 | `ENGINE_STATS=1` | log frame timings |
 | `ENGINE_RECORD=path` / `ENGINE_REPLAY=path` | record and replay input |
