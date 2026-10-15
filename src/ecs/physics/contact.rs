@@ -101,19 +101,25 @@ fn tilted_boxes(a: &Node, b: &Node, only_b_axes: bool) -> Option<Touch> {
     for sign in [1.0, -1.0] {
         let dist = |p: V2| side_half - sign * dot(sub(p, cr), t);
         let (d0, d1) = (dist(seg[0]), dist(seg[1]));
-        if d0 < 0.0 && d1 < 0.0 {
-            return None;
-        }
-        if d0 < 0.0 || d1 < 0.0 {
-            let (keep, cut, dk, dc) = if d0 < 0.0 { (1, 0, d1, d0) } else { (0, 1, d0, d1) };
-            let f = dk / (dk - dc);
-            let (pk, pc) = (seg[keep], seg[cut]);
-            seg[cut] = (pk.0 + (pc.0 - pk.0) * f, pk.1 + (pc.1 - pk.1) * f);
-        }
+        clip(&mut seg, d0, d1)?;
     }
     let mut pts: Pts = seg.into_iter().map(|p| Pt::new(p, face_half - dot(sub(p, cr), nr))).collect();
     pts.retain(|p| p.depth > 0.0);
     (!pts.is_empty()).then_some(Touch { normal, pts, whole_face: false })
+}
+
+// Cuts the segment where it leaves a half-plane, given each end's distance inside it; `None` when both ends are out.
+fn clip(seg: &mut [V2; 2], d0: f32, d1: f32) -> Option<()> {
+    if d0 < 0.0 && d1 < 0.0 {
+        return None;
+    }
+    if d0 < 0.0 || d1 < 0.0 {
+        let (keep, cut, dk, dc) = if d0 < 0.0 { (1, 0, d1, d0) } else { (0, 1, d0, d1) };
+        let f = dk / (dk - dc);
+        let (pk, pc) = (seg[keep], seg[cut]);
+        seg[cut] = (pk.0 + (pc.0 - pk.0) * f, pk.1 + (pc.1 - pk.1) * f);
+    }
+    Some(())
 }
 
 // Normal points from the box to the circle; works in the box's own frame so a tilted box needs no special case.
@@ -239,15 +245,7 @@ fn slope_touch(a: &Node, triangle: [V2; 3]) -> Option<Touch> {
     for (from, sign) in [(r0, 1.0), (r1, -1.0)] {
         let inside = |p: V2| sign * dot(sub(p, from), t);
         let (d0, d1) = (inside(seg[0]), inside(seg[1]));
-        if d0 < 0.0 && d1 < 0.0 {
-            return None;
-        }
-        if d0 < 0.0 || d1 < 0.0 {
-            let (keep, cut, dk, dc) = if d0 < 0.0 { (1, 0, d1, d0) } else { (0, 1, d0, d1) };
-            let f = dk / (dk - dc);
-            let (pk, pc) = (seg[keep], seg[cut]);
-            seg[cut] = (pk.0 + (pc.0 - pk.0) * f, pk.1 + (pc.1 - pk.1) * f);
-        }
+        clip(&mut seg, d0, d1)?;
     }
     let normal = if ref_is_b { (-nr.0, -nr.1) } else { nr };
     let mut pts: Pts = seg.into_iter().map(|p| Pt::new(p, -dot(sub(p, r0), nr))).collect();
