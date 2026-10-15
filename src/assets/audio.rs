@@ -206,7 +206,7 @@ pub struct Audio {
 #[cfg(feature = "audio")]
 struct Dev {
     out: Option<MixerDeviceSink>,
-    files: FxMap<String, Option<Arc<[u8]>>>,
+    files: FxMap<String, Arc<[u8]>>,
     music: Option<Player>,
     sounds: Vec<Playing>,
 }
@@ -302,12 +302,11 @@ impl Audio {
 
     #[cfg(feature = "audio")]
     fn open(&mut self, path: &str) -> Option<Cursor<Arc<[u8]>>> {
-        let bytes = self
-            .dev
-            .files
-            .entry(path.to_string())
-            .or_insert_with(|| std::fs::read(path).inspect_err(|e| eprintln!("{path}: {e}")).ok().map(Into::into));
-        bytes.clone().map(Cursor::new)
+        if !self.dev.files.contains_key(path) {
+            let bytes: Arc<[u8]> = std::fs::read(path).inspect_err(|e| eprintln!("{path}: {e}")).ok()?.into();
+            self.dev.files.insert(path.to_string(), bytes);
+        }
+        self.dev.files.get(path).cloned().map(Cursor::new)
     }
 
     pub fn play(&mut self, path: &str) -> Voice {
