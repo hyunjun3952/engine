@@ -517,8 +517,10 @@ impl Focus {
                 self.index = over;
             }
         }
-        let click = input.mouse().is_some() && clicked(input, rects[self.index]);
-        (input.pressed(accept) || click).then_some(self.index)
+        // The rect under the click, not the focused one: keys may have moved the focus while the cursor sat still.
+        let click = input.mouse().and_then(|_| rects.iter().position(|r| clicked(input, *r)));
+        self.index = click.unwrap_or(self.index);
+        (input.pressed(accept) || click.is_some()).then_some(self.index)
     }
 
     // The rectangle ahead in `dir` whose centre is closest, counting sideways drift double so a neighbour in line wins.
@@ -956,5 +958,18 @@ mod tests {
         at(&mut input, 70.0, 35.0, true);
         assert_eq!(focus.update(&input, &rects, ["left", "right", "up", "down"], "ok"), Some(3));
         assert_eq!(focus.update(&input, &[], ["left", "right", "up", "down"], "ok"), None);
+    }
+
+    #[test]
+    fn a_click_picks_what_is_under_the_cursor_after_keys_moved_the_focus() {
+        let (rects, mut focus, mut input) = (four_buttons(), Focus::new(), pad_input());
+        let dirs = ["left", "right", "up", "down"];
+        at(&mut input, 70.0, 35.0, false);
+        focus.update(&input, &rects, dirs, "ok");
+        press(&mut input, Key::Left);
+        focus.update(&input, &rects, dirs, "ok");
+        assert_eq!(focus.selected(), 2);
+        at(&mut input, 70.0, 35.0, true);
+        assert_eq!(focus.update(&input, &rects, dirs, "ok"), Some(3));
     }
 }
