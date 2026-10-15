@@ -44,6 +44,7 @@ A window needs an X display (WSLg works).
 ```sh
 cargo fmt && cargo clippy --all-targets -- -D warnings
 cargo test --release -- --ignored --nocapture   # benchmarks in src/bench.rs
+cargo doc --open                                # API reference
 pre-commit install                              # Conventional Commits, fmt, clippy
 ```
 

@@ -1,3 +1,30 @@
+//! A small 2D game engine: software and wgpu renderers, ECS, physics, tilemaps, audio and UI.
+//!
+//! A game is a [`Scene`] handed to [`run`]. Only the top scene updates, every scene draws.
+//!
+//! ```no_run
+//! use engine::{Config, Ctx, Gfx, Key, Rect, Scene, Trans};
+//!
+//! struct Game;
+//!
+//! impl Scene for Game {
+//!     fn update(&mut self, ctx: &mut Ctx) -> Trans {
+//!         if ctx.input().pressed("back") { Trans::Quit } else { Trans::None }
+//!     }
+//!
+//!     fn draw(&self, g: &mut Gfx) {
+//!         g.clear(0x101018);
+//!         g.fill(&Rect { x: 20.0, y: 20.0, w: 40.0, h: 40.0 }, 0xffd040);
+//!         g.text("hello", 16, 80, 1, 0xffffff);
+//!     }
+//! }
+//!
+//! engine::run(Config::default(), |ctx| {
+//!     ctx.bind("back", &[Key::Escape]);
+//!     Box::new(Game)
+//! });
+//! ```
+
 mod app;
 mod assets;
 #[cfg(test)]
