@@ -373,7 +373,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut ctx = Ctx::new(cfg.w, cfg.h, dt, Audio::new());
     ctx.set_fullscreen(cfg.fullscreen);
     ctx.input.listen(&mut win);
-    let mut tape = Tape::from_env(seed).unwrap_or_else(|e| panic!("{e}"));
+    let mut tape = Tape::from_env(seed, cfg.tick_hz).unwrap_or_else(|e| panic!("{e}"));
     ctx.rng = Rng::new(tape.seed().unwrap_or(seed));
     let mut stack = Stack::new();
     let scene = first(&mut ctx);
@@ -388,7 +388,8 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         let now = Instant::now();
         acc = (acc + (now - last).as_secs_f32()).min(0.25);
         last = now;
-        if cfg.hot_reload && last_poll.elapsed().as_secs_f32() >= 0.5 {
+        // A file changed mid-replay would make the run differ from the recording.
+        if cfg.hot_reload && !matches!(tape, Tape::Play(..)) && last_poll.elapsed().as_secs_f32() >= 0.5 {
             ctx.poll_files();
             last_poll = Instant::now();
         }
@@ -581,7 +582,7 @@ mod tests {
     }
 
     fn recorded(frames: Vec<replay::Frame>) -> Tape {
-        Tape::Play(replay::Recording { seed: 1, frames }, 0)
+        Tape::Play(replay::Recording { seed: 1, hz: None, frames }, 0)
     }
 
     fn held(keys: &[Key]) -> replay::Frame {

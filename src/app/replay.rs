@@ -14,6 +14,8 @@ pub(crate) struct Frame {
 #[derive(Debug, PartialEq)]
 pub(crate) struct Recording {
     pub seed: u32,
+    /// Steps a second it was recorded at; files from before this was written have none.
+    pub hz: Option<f32>,
     pub frames: Vec<Frame>,
 }
 
@@ -33,9 +35,10 @@ fn items<T: Copy>(word: &str, table: &[(&str, T)], what: &str) -> Result<Vec<T>,
 }
 
 impl Recording {
-    /// `seed N`, then a line per step: keys, pad buttons, mouse x,y (or `-`) and five 0/1 mouse buttons.
+    /// `seed N hz H`, then a line per step: keys, pad buttons, mouse x,y (or `-`) and five 0/1 mouse buttons.
     pub(crate) fn to_text(&self) -> String {
-        let mut out = format!("seed {}\n", self.seed);
+        let hz = self.hz.map_or(String::new(), |hz| format!(" hz {hz}"));
+        let mut out = format!("seed {}{hz}\n", self.seed);
         for f in &self.frames {
             let mouse = f.mouse.map_or("-".to_string(), |(x, y)| format!("{x},{y}"));
             let buttons: String = f.buttons.iter().map(|&b| if b { '1' } else { '0' }).collect();
@@ -46,11 +49,13 @@ impl Recording {
 
     pub(crate) fn parse(text: &str) -> Result<Recording, String> {
         let mut lines = text.lines();
-        let seed = lines
-            .next()
-            .and_then(|l| l.strip_prefix("seed "))
-            .and_then(|n| n.trim().parse().ok())
-            .ok_or("the first line must be `seed N`")?;
+        let head: Vec<&str> = lines.next().unwrap_or("").split_whitespace().collect();
+        let (seed, hz) = match head[..] {
+            ["seed", n] => (n.parse().ok(), Some(None)),
+            ["seed", n, "hz", hz] => (n.parse().ok(), hz.parse().ok().map(Some)),
+            _ => (None, None),
+        };
+        let (Some(seed), Some(hz)) = (seed, hz) else { return Err("the first line must be `seed N hz H`".into()) };
         let mut frames = Vec::new();
         for (i, line) in lines.enumerate() {
             let bad = |why: String| format!("line {}: {why}", i + 2);
@@ -78,7 +83,7 @@ impl Recording {
                 buttons: down,
             });
         }
-        Ok(Recording { seed, frames })
+        Ok(Recording { seed, hz, frames })
     }
 }
 
@@ -90,14 +95,20 @@ pub(crate) enum Tape {
 }
 
 impl Tape {
-    pub(crate) fn from_env(seed: u32) -> Result<Tape, String> {
+    pub(crate) fn from_env(seed: u32, hz: f32) -> Result<Tape, String> {
         if let Some(path) = std::env::var_os("ENGINE_REPLAY") {
             let path = path.to_string_lossy().into_owned();
             let text = crate::assets::read_text(&path)?;
-            return Ok(Tape::Play(Recording::parse(&text).map_err(|e| format!("{path}: {e}"))?, 0));
+            let rec = Recording::parse(&text).map_err(|e| format!("{path}: {e}"))?;
+            return match rec.hz {
+                Some(at) if at != hz => Err(format!("{path}: recorded at {at} steps a second, the game runs at {hz}")),
+                _ => Ok(Tape::Play(rec, 0)),
+            };
         }
         Ok(match std::env::var_os("ENGINE_RECORD") {
-            Some(path) => Tape::Record(path.to_string_lossy().into_owned(), Recording { seed, frames: Vec::new() }),
+            Some(path) => {
+                Tape::Record(path.to_string_lossy().into_owned(), Recording { seed, hz: Some(hz), frames: Vec::new() })
+            }
             None => Tape::Off,
         })
     }
@@ -158,23 +169,26 @@ mod tests {
     fn a_recording_survives_a_round_trip_through_text() {
         let rec = Recording {
             seed: 77,
+            hz: Some(60.0),
             frames: vec![
                 frame(&[Key::Space, Key::Left], Some((12.5, 30.0))),
                 Frame { keys: vec![], pads: vec![], mouse: None, buttons: [false; 5] },
             ],
         };
         let text = rec.to_text();
-        assert_eq!(text, "seed 77\nLeft,Space A 12.5,30 10001\n- - - 00000\n");
+        assert_eq!(text, "seed 77 hz 60\nLeft,Space A 12.5,30 10001\n- - - 00000\n");
         assert_eq!(Recording::parse(&text).unwrap().frames.len(), 2);
         let back = Recording::parse(&text).unwrap();
         assert_eq!(back.frames[0].mouse, Some((12.5, 30.0)));
-        assert_eq!((back.seed, back.frames[1].keys.len()), (77, 0));
+        assert_eq!((back.seed, back.hz, back.frames[1].keys.len()), (77, Some(60.0), 0));
+        assert_eq!(Recording::parse("seed 5\n").unwrap().hz, None, "a file from before the rate was written");
     }
 
     #[test]
     fn a_bad_recording_names_the_line() {
         for (text, want) in [
             ("nope\n", "seed"),
+            ("seed 1 hz fast\n", "seed N hz H"),
             ("seed 1\nSpace A\n", "line 2: expected four"),
             ("seed 1\n- - - 00000\nWarp - - 00000\n", "line 3: unknown key"),
             ("seed 1\n- Z - 00000\n", "unknown pad button"),
@@ -190,14 +204,15 @@ mod tests {
     fn a_tape_records_each_step_and_plays_it_back_until_it_runs_out() {
         let mut live = Input::default();
         let sink = std::env::temp_dir().join(format!("engine-replay-sink-{}.rec", std::process::id()));
-        let mut tape = Tape::Record(sink.to_string_lossy().into_owned(), Recording { seed: 9, frames: vec![] });
+        let mut tape =
+            Tape::Record(sink.to_string_lossy().into_owned(), Recording { seed: 9, hz: None, frames: vec![] });
         live.hold(&[Key::Space]);
         live.point(Some((3.0, 4.0)), true);
         assert!(tape.step(&mut live));
         live.hold(&[]);
         assert!(tape.step(&mut live));
         let Tape::Record(_, recorded) = &mut tape else { panic!() };
-        let rec = std::mem::replace(recorded, Recording { seed: 0, frames: vec![] });
+        let rec = std::mem::replace(recorded, Recording { seed: 0, hz: None, frames: vec![] });
         drop(tape);
         std::fs::remove_file(&sink).ok();
         let mut play = Tape::Play(rec, 0);
@@ -218,7 +233,7 @@ mod tests {
     #[test]
     fn finishing_a_recording_writes_a_file_that_reads_back() {
         let path = std::env::temp_dir().join(format!("engine-replay-test-{}.rec", std::process::id()));
-        let rec = Recording { seed: 3, frames: vec![frame(&[Key::A], None)] };
+        let rec = Recording { seed: 3, hz: Some(30.0), frames: vec![frame(&[Key::A], None)] };
         let want = rec.to_text();
         drop(Tape::Record(path.to_string_lossy().into_owned(), rec));
         let text = std::fs::read_to_string(&path).unwrap();
