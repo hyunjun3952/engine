@@ -54,6 +54,19 @@ pub(crate) fn letterbox((ww, wh): (f32, f32), (w, h): (f32, f32)) -> Rect {
     Rect::new((ww - w * k) / 2.0, (wh - h * k) / 2.0, w * k, h * k)
 }
 
+// A plain quad wholly outside the view, with a pixel to spare for the rounding zoom does; anything turned or scaled, and
+// every other kind of command, is kept.
+fn off_screen(c: &DrawCmd, view: Rect) -> bool {
+    let (w, h) = match &c.paint {
+        Paint::Color(_) | Paint::Alpha(..) => (c.rect.w, c.rect.h),
+        Paint::Sprite(s) => (s.size().0 as f32, s.size().1 as f32),
+        Paint::Region { src, .. } => (src.w, src.h),
+        _ => return false,
+    };
+    let seen = Rect::new(view.x - 1.0, view.y - 1.0, view.w + 2.0, view.h + 2.0);
+    c.xform.is_identity() && !Rect::new(c.rect.x, c.rect.y, w, h).overlaps(seen)
+}
+
 /// What a scene draws on: it records [`DrawCmd`]s for the frame and the renderer draws them afterwards.
 ///
 /// `fill`, `blit`, `text` and the other methods draw straight to the screen in canvas pixels (`i32` positions), for
@@ -224,7 +237,8 @@ impl Gfx {
 
     /// Draws the commands lowest layer first (ties keep their order), so tiles behind and in front of entities mix.
     pub fn draw(&mut self, cmds: impl IntoIterator<Item = DrawCmd>) {
-        let mut cmds: Vec<DrawCmd> = cmds.into_iter().collect();
+        let view = self.view();
+        let mut cmds: Vec<DrawCmd> = cmds.into_iter().filter(|c| !off_screen(c, view)).collect();
         cmds.sort_by_key(|c| c.layer);
         for mut c in cmds {
             if c.debug_only && !self.debug {
@@ -459,6 +473,17 @@ mod tests {
         assert_eq!(g.cmds().len(), 2);
     }
 
+    #[test]
+    fn draw_drops_plain_quads_outside_the_view_and_keeps_turned_ones() {
+        let quad = |x| DrawCmd::new(Rect::new(x, 2.0, 4.0, 4.0), Paint::Color(7));
+        let turned = DrawCmd { xform: Transform { angle: 1.0, ..Transform::IDENTITY }, ..quad(40.0) };
+        let mut g = Gfx::new(8, 8);
+        g.cam = Vec2::new(10.0, 0.0);
+        g.draw([quad(2.0), quad(7.0), quad(17.0), quad(25.0), turned]);
+        let xs: Vec<f32> = g.cmds().iter().map(|c| c.rect.x).collect();
+        assert_eq!(xs, [-3.0, 7.0, 30.0], "left of the view, inside it, at its edge, and the kept turned one");
+    }
+
     fn zoomed(zoom: f32, cam: (f32, f32)) -> Gfx {
         let mut g = Gfx::new(100, 60);
         (g.zoom, g.cam) = (zoom, cam.into());
@@ -646,7 +671,7 @@ mod tests {
 
     #[test]
     fn a_parallax_layer_follows_the_camera_by_its_factor_and_the_camera_is_left_alone() {
-        let mut g = Gfx::new(100, 100);
+        let mut g = Gfx::new(200, 200);
         g.cam = Vec2::new(100.0, 40.0);
         let mark = DrawCmd::new(Rect::new(150.0, 50.0, 4.0, 4.0), Paint::Color(1));
         g.draw_parallax([mark.clone()], (0.5, 1.0));
