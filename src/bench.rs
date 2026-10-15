@@ -22,10 +22,6 @@ fn time(name: &str, runs: u32, mut f: impl FnMut()) {
     println!("{name}: {:.3} ms/run", t.elapsed().as_secs_f64() * 1000.0 / runs as f64);
 }
 
-fn cmd(rect: Rect, paint: Paint) -> DrawCmd {
-    DrawCmd::new(rect, paint)
-}
-
 #[test]
 #[ignore]
 fn bench() {
@@ -95,7 +91,7 @@ fn bench() {
                 w: 16.0,
                 h: 16.0,
             };
-            cmd(at, Paint::Sprite(sprite.clone()))
+            DrawCmd::new(at, Paint::Sprite(sprite.clone()))
         })
         .collect();
     time("soft: 5000 sprites", 20, || soft.render(black_box(&sprites)));
@@ -113,8 +109,8 @@ fn bench() {
         }
     });
 
-    time("soft: clear", 200, || soft.render(black_box(&[cmd(full, Paint::Clear(0x101018))])));
-    time("soft: full-screen alpha", 200, || soft.render(black_box(&[cmd(full, Paint::Alpha(0, 150))])));
+    time("soft: clear", 200, || soft.render(black_box(&[DrawCmd::new(full, Paint::Clear(0x101018))])));
+    time("soft: full-screen alpha", 200, || soft.render(black_box(&[DrawCmd::new(full, Paint::Alpha(0, 150))])));
 
     let map = Tilemap::load("assets/levels/level1.txt", 16, Sprite::test_tiles());
     let mut tiles = 0;
