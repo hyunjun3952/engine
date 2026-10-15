@@ -4,7 +4,7 @@ A small 2D game engine in Rust: software and wgpu renderers, ECS, physics, tilem
 
 API docs: <https://hyunjun3952.github.io/engine/>
 
-- **Rendering**: a software rasterizer and a wgpu backend that produce the same pixels. Camera with follow, shake and zoom, sprite transforms, blend styles, lighting, parallax.
+- **Rendering**: a software rasterizer and a wgpu backend that produce the same pixels. Camera with follow, shake and zoom, sprite transforms, blend styles, lighting, parallax. Scaled, letterboxed and fullscreen (F11) windows.
 - **ECS**: [hecs](https://crates.io/crates/hecs) plus animation, particles, collisions, raycasts and world save/load.
 - **Physics**: in-house boxes and circles with rotation, joints, sleeping, one-way platforms and slopes. Deterministic, so input replay works.
 - **Levels**: plain-text grids and Tiled `.tmx` maps, A* pathfinding, tile raycasts.
@@ -20,7 +20,7 @@ cargo run --example platformer   # also: camera, physics, raycast, text
 cargo test                       # run from the repo root, tests load assets/ by relative path
 ```
 
-A window needs an X display (WSLg works).
+A window needs an X display (WSLg works). Press F3 for the debug overlay. CI builds and tests on Linux, Windows and macOS.
 
 ## Features
 
@@ -59,6 +59,7 @@ src/app/      loop, scenes, input, time, save data, replay
 src/render/   Gfx, Soft and Gpu backends, camera, tilemap, Tiled, light
 src/ecs/      components, systems, physics, persistence
 src/assets/   sprite and font cache, atlas, audio, hot reload
+src/          UI widgets, debug tools, Hangul composition, Vec2
 examples/     runnable demos
 assets/       fonts, images, levels
 ```
