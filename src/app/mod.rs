@@ -10,7 +10,7 @@ mod time;
 pub use input::{Input, Key, MouseButton};
 pub use pad::{Pad, PadAxis};
 pub use rng::Rng;
-pub use save::Save;
+pub use save::{Save, data_dir};
 pub use time::{Ease, Timer, Tween};
 
 #[cfg(feature = "gpu")]

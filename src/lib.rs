@@ -41,7 +41,7 @@
 //! | Animation and particles | [`Anim`], [`Clip`], [`AnimStates`], [`animate`], [`Burst`], [`burst`], [`particles`], [`Particle`] |
 //! | Collisions and rays | [`Collider`], [`Filter`], [`collisions`], [`Contact`], [`Overlaps`], [`query_rect`], [`raycast`], [`raycasts`], [`Ray`], [`RayHit`], [`RayIndex`] |
 //! | Physics | [`Physics`], [`RigidBody`], [`ContactEvent`] |
-//! | Saving | [`Save`], [`WorldFile`], [`Persist`] |
+//! | Saving | [`Save`], [`data_dir`], [`WorldFile`], [`Persist`] |
 //! | Input | [`Input`], [`Key`], [`MouseButton`], [`Pad`], [`PadAxis`] |
 //! | Assets and audio | [`Assets`], [`Atlas`], [`Audio`], [`Sound`], [`Voice`], [`Bus`] |
 //! | UI | [`Theme`], [`Button`], [`Checkbox`], [`Menu`], [`ScrollList`], [`TextField`], [`Focus`], [`Rebind`], [`Layout`], [`grid`], [`draw_panel`], [`draw_bar`], [`hovered`], [`clicked`], [`slider`] |
@@ -75,7 +75,8 @@ mod ui;
 mod vec2;
 
 pub use app::{
-    Config, Ctx, Ease, Input, Key, MouseButton, Pad, PadAxis, RenderMode, Rng, Save, Scene, Timer, Trans, Tween, run,
+    Config, Ctx, Ease, Input, Key, MouseButton, Pad, PadAxis, RenderMode, Rng, Save, Scene, Timer, Trans, Tween,
+    data_dir, run,
 };
 pub use assets::{Assets, Atlas, Audio, Bus, Sound, Voice};
 pub use debug::{Command, Console, Inspector};

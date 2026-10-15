@@ -1,6 +1,33 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
+/// A folder for the player's own files (saves, settings, `input.txt`), made if it is missing: `$XDG_DATA_HOME/<app>`
+/// or `~/.local/share/<app>` on Linux, `%APPDATA%\<app>` on Windows, `~/Library/Application Support/<app>` on macOS.
+/// Join file names onto it, as in `format!("{dir}/save.txt")`.
+pub fn data_dir(app: &str) -> Result<String, String> {
+    let dir = data_dir_in(app, std::env::consts::OS, |k| std::env::var(k).ok().filter(|v| !v.is_empty()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{dir}: {e}"))?;
+    Ok(dir)
+}
+
+// Where `data_dir` points on `os`, with `env` standing in for the environment so tests need not change it.
+fn data_dir_in(app: &str, os: &str, env: impl Fn(&str) -> Option<String>) -> Result<String, String> {
+    if app.is_empty() || app.contains(['/', '\\', ':']) || app == "." || app == ".." {
+        return Err(format!("{app:?} is not a folder name"));
+    }
+    let missing = |k: &str| format!("no {k} to find the data folder by");
+    let base = match os {
+        "windows" => env("APPDATA").ok_or_else(|| missing("APPDATA"))?,
+        "macos" => format!("{}/Library/Application Support", env("HOME").ok_or_else(|| missing("HOME"))?),
+        _ => match env("XDG_DATA_HOME") {
+            Some(xdg) => xdg,
+            None => format!("{}/.local/share", env("HOME").ok_or_else(|| missing("HOME"))?),
+        },
+    };
+    let sep = if os == "windows" { '\\' } else { '/' };
+    Ok(format!("{}{sep}{app}", base.trim_end_matches(['/', '\\'])))
+}
+
 /// A game's own `key = value` file: settings, progress, high scores. `load` treats a missing file as empty and
 /// `save` writes atomically, so a crash cannot leave half a file.
 #[derive(Default, Debug, PartialEq)]
@@ -150,5 +177,23 @@ mod tests {
         s.save(path).unwrap();
         assert_eq!(Save::load(path).unwrap().get::<i32>("hi"), Some(10));
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn the_data_folder_follows_each_system_and_refuses_a_path_for_a_name() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| pairs.iter().find(|p| p.0 == k).map(|p| p.1.to_string())
+        };
+        let home = env(&[("HOME", "/home/a")]);
+        assert_eq!(data_dir_in("g", "linux", home).unwrap(), "/home/a/.local/share/g");
+        let xdg = env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data/")]);
+        assert_eq!(data_dir_in("g", "linux", xdg).unwrap(), "/data/g");
+        assert_eq!(data_dir_in("g", "macos", home).unwrap(), "/home/a/Library/Application Support/g");
+        let appdata = env(&[("APPDATA", "C:\\Users\\a\\AppData\\Roaming")]);
+        assert_eq!(data_dir_in("g", "windows", appdata).unwrap(), "C:\\Users\\a\\AppData\\Roaming\\g");
+        assert!(data_dir_in("g", "windows", home).unwrap_err().contains("APPDATA"));
+        for bad in ["", "..", "a/b", "a\\b", "c:"] {
+            assert!(data_dir_in(bad, "linux", home).is_err(), "{bad:?}");
+        }
     }
 }
