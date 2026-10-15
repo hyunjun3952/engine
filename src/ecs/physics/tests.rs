@@ -447,6 +447,26 @@ fn a_joint_added_to_a_sleeper_wakes_it() {
 }
 
 #[test]
+fn a_body_feels_its_own_share_of_gravity_and_a_change_wakes_it() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    floor(&mut w);
+    let float = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0).gravity(0.0), (0.0, 0.0));
+    let up = boxed(&mut w, square(30.0, 0.0, 10.0), RigidBody::dynamic(1.0).gravity(-0.5), (0.0, 0.0));
+    run(&mut p, &mut w, None, 60);
+    assert_eq!(state(&w, float).0.y, 0.0);
+    assert!((state(&w, up).1.1 + 450.0).abs() < 1.0, "half of gravity, upwards: {:?}", state(&w, up).1);
+    run(&mut p, &mut w, None, 60);
+    assert!(p.asleep(float));
+    w.get::<&mut RigidBody>(float).unwrap().gravity = 1.0;
+    run(&mut p, &mut w, None, 10);
+    assert!(state(&w, float).0.y > 0.0, "it fell once gravity reached it");
+    use crate::Persist;
+    let old = RigidBody::read("1 0 0 0 0.2 0.4 0").unwrap();
+    assert_eq!(old.gravity, 1.0, "a body saved before the scale existed");
+    assert_eq!(RigidBody::read(&RigidBody::dynamic(2.0).gravity(0.25).write()).unwrap().gravity, 0.25);
+}
+
+#[test]
 fn a_trapdoor_that_stops_meeting_a_sleeper_drops_it() {
     let (mut p, mut w) = (Physics::default(), World::new());
     let door = w.spawn((Body(Rect::new(0.0, 100.0, 200.0, 20.0)), RigidBody::fixed()));

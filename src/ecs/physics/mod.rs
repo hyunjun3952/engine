@@ -28,7 +28,7 @@ const SLEEP_TIME: f32 = 0.5;
 /// Makes an entity take part in [`Physics`]: `dynamic(mass)` moves, `fixed()` is a wall, `kinematic()` is a platform
 /// moved only by its `Vel`.
 ///
-/// Chain `.circle()`, `.bounce(e)`, `.friction(f)`, `.spin(rad_per_sec)` and, for fixed or kinematic ones,
+/// Chain `.circle()`, `.bounce(e)`, `.friction(f)`, `.spin(rad_per_sec)`, `.gravity(scale)` and, for fixed or kinematic ones,
 /// `.one_way()` (holds a body only from above). Two bodies bounce by the smaller restitution, so walls need one too.
 #[derive(Debug)]
 pub struct RigidBody {
@@ -39,25 +39,31 @@ pub struct RigidBody {
     pub restitution: f32,
     pub friction: f32,
     pub spin: f32,
+    /// How much of `Physics::gravity` pulls it: 1 by default, 0 floats, negative falls up.
+    pub gravity: f32,
 }
 
 impl crate::Persist for RigidBody {
     fn write(&self) -> String {
         let flag = |b: bool| b as u8;
         format!(
-            "{} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {}",
             self.inv_mass,
             flag(self.circle),
             flag(self.kinematic),
             flag(self.one_way),
             self.restitution,
             self.friction,
-            self.spin
+            self.spin,
+            self.gravity
         )
     }
 
     fn read(text: &str) -> Option<Self> {
-        let [inv_mass, circle, kinematic, one_way, restitution, friction, spin] = crate::ecs::persist::numbers(text)?;
+        use crate::ecs::persist::numbers;
+        // Files saved before `gravity` existed have seven numbers.
+        let [inv_mass, circle, kinematic, one_way, restitution, friction, spin, gravity] =
+            numbers(text).or_else(|| numbers::<7>(text).map(|[a, b, c, d, e, f, g]| [a, b, c, d, e, f, g, 1.0]))?;
         let valid = inv_mass >= 0.0 && inv_mass.is_finite();
         valid.then_some(RigidBody {
             inv_mass,
@@ -67,6 +73,7 @@ impl crate::Persist for RigidBody {
             restitution,
             friction,
             spin,
+            gravity,
         })
     }
 }
@@ -82,6 +89,7 @@ impl RigidBody {
             restitution: 0.0,
             friction: 0.4,
             spin: 0.0,
+            gravity: 1.0,
         }
     }
 
@@ -104,6 +112,12 @@ impl RigidBody {
 
     pub fn circle(mut self) -> Self {
         self.circle = true;
+        self
+    }
+
+    /// Scales `Physics::gravity` for this body alone (0 for a balloon or a bullet that flies straight).
+    pub fn gravity(mut self, scale: f32) -> Self {
+        self.gravity = scale;
         self
     }
 
@@ -201,7 +215,7 @@ struct Joint {
 #[derive(Default)]
 struct Rest {
     calm: f32,
-    asleep: Option<(Rect, f32, Filter)>,
+    asleep: Option<(Rect, f32, Filter, f32)>,
     // What it touched when it fell asleep, which stays true while it sleeps (a sleeper makes no contacts of its own).
     contacts: Vec<ContactEvent>,
 }
@@ -280,6 +294,7 @@ struct Node {
     one_way: bool,
     // A tile cut into a triangle; only tiles have one.
     slope: Option<crate::Slope>,
+    gravity: f32,
 }
 
 impl Node {
@@ -300,6 +315,7 @@ impl Node {
             moves: false,
             one_way: false,
             slope: None,
+            gravity: 0.0,
         }
     }
 
@@ -622,8 +638,9 @@ impl Physics {
                 return false;
             }
             let n = &nodes[i];
-            r.asleep.is_none_or(|(at, angle, filter)| {
-                at == n.rect && angle == n.angle && filter == n.filter && n.vel == (0.0, 0.0) && n.spin == 0.0
+            r.asleep.is_none_or(|(at, angle, filter, gravity)| {
+                let same = at == n.rect && angle == n.angle && filter == n.filter && gravity == n.gravity;
+                same && n.vel == (0.0, 0.0) && n.spin == 0.0
             })
         });
         // Whatever a sleeper rested on may be gone (a despawned body or wall, a dug tile) or pulling another way.
@@ -685,7 +702,7 @@ impl Physics {
             r.calm += dt;
             if r.calm >= SLEEP_TIME {
                 (n.vel, n.spin) = ((0.0, 0.0), 0.0);
-                r.asleep = Some((n.rect, n.angle, n.filter));
+                r.asleep = Some((n.rect, n.angle, n.filter, n.gravity));
                 r.contacts = self
                     .events
                     .iter()
@@ -702,7 +719,7 @@ impl Physics {
     // huge velocity from freezing the game.
     fn substeps(&mut self, nodes: &[Node], tiles: Option<&Tilemap>, dt: f32) -> usize {
         let gravity = self.gravity.length() * dt;
-        let reach = |n: &Node| (speed(n) + gravity) * dt;
+        let reach = |n: &Node| (speed(n) + gravity * n.gravity.abs()) * dt;
         let need = |n: &Node| if n.mobile() { reach(n) / (n.rect.w.min(n.rect.h) * TRAVEL) } else { 0.0 };
         if nodes.iter().all(|n| need(n) <= 1.0) {
             return 1;
@@ -728,7 +745,8 @@ impl Physics {
                 // Its path, not a box grown on every side, and kept near the map: the side walls are solid at any
                 // height, so a body falling past the map must not reach them or make this query huge.
                 let (r, v) = (nodes[i].bounds(), nodes[i].vel);
-                let (dx, dy) = ((v.0 + gx) * dt, (v.1 + gy) * dt);
+                let k = nodes[i].gravity;
+                let (dx, dy) = ((v.0 + gx * k) * dt, (v.1 + gy * k) * dt);
                 let (x0, x1) = (r.x.min(r.x + dx).max(-size), (r.x + r.w).max(r.x + r.w + dx).min(mw + size));
                 let (y0, y1) = (r.y.min(r.y + dy).max(-size), (r.y + r.h).max(r.y + r.h + dy).min(mh + size));
                 if x1 > x0 && y1 > y0 && !map.solid_in(Rect::new(x0, y0, x1 - x0, y1 - y0)).is_empty() {
@@ -812,8 +830,8 @@ impl Physics {
         for n in nodes.iter_mut().filter(|n| n.mobile()) {
             n.before = n.rect;
             if n.inv_mass > 0.0 {
-                n.vel.0 += self.gravity.x * dt;
-                n.vel.1 += self.gravity.y * dt;
+                n.vel.0 += self.gravity.x * n.gravity * dt;
+                n.vel.1 += self.gravity.y * n.gravity * dt;
             }
             n.rect.x += n.vel.0 * dt;
             n.rect.y += n.vel.1 * dt;
@@ -848,6 +866,7 @@ fn gather(world: &World) -> (Vec<Entity>, Vec<Node>) {
                 moves: vel.is_some() && rb.kinematic,
                 one_way: rb.one_way,
                 slope: None,
+                gravity: if rb.gravity.is_finite() { rb.gravity } else { 1.0 },
             };
             (e, node)
         })
