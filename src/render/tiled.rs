@@ -167,7 +167,7 @@ pub struct TiledObject {
 
 impl TiledObject {
     pub fn rect(&self) -> Rect {
-        Rect { x: self.x, y: self.y, w: self.w, h: self.h }
+        Rect::new(self.x, self.y, self.w, self.h)
     }
 
     pub fn prop(&self, name: &str) -> Option<&str> {
@@ -367,9 +367,9 @@ mod tests {
         let ground = t.layer("ground").unwrap();
         assert_eq!((ground.w, ground.h, ground.size), (4, 3, 16));
         assert_eq!((ground.tile(0, 2), ground.tile(1, 1), ground.tile(0, 0)), (1, 4, 0));
-        assert!(!ground.solid_in(Rect { x: 0.0, y: 32.0, w: 64.0, h: 16.0 }).is_empty(), "tile 1 is solid");
-        assert!(ground.solid_in(Rect { x: 16.0, y: 16.0, w: 16.0, h: 16.0 }).is_empty(), "tile 4 is not");
-        let cmds = ground.draw_list(Rect { x: 0.0, y: 0.0, w: 64.0, h: 48.0 });
+        assert!(!ground.solid_in(Rect::new(0.0, 32.0, 64.0, 16.0)).is_empty(), "tile 1 is solid");
+        assert!(ground.solid_in(Rect::new(16.0, 16.0, 16.0, 16.0)).is_empty(), "tile 4 is not");
+        let cmds = ground.draw_list(Rect::new(0.0, 0.0, 64.0, 48.0));
         assert_eq!(cmds.len(), 2, "the tile with `front` is drawn over entities, the rest behind");
         assert_eq!(t.layer("deco").unwrap().tile(2, 0), 2);
         assert!(t.layer("nope").is_none());
@@ -378,7 +378,7 @@ mod tests {
             (spawn.name.as_str(), spawn.kind.as_str(), spawn.x, spawn.y, spawn.prop("hp")),
             ("spawn", "player", 20.0, 30.5, Some("3"))
         );
-        assert_eq!(t.objects[1].rect(), Rect { x: 48.0, y: 0.0, w: 16.0, h: 32.0 });
+        assert_eq!(t.objects[1].rect(), Rect::new(48.0, 0.0, 16.0, 32.0));
     }
 
     #[test]
@@ -391,10 +391,7 @@ mod tests {
             Sprite::test_tiles(),
         )
         .unwrap();
-        assert!(
-            !t.layers[0].1.solid_in(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }).is_empty(),
-            "tile id 1 here is gid 2"
-        );
+        assert!(!t.layers[0].1.solid_in(Rect::new(0.0, 0.0, 16.0, 16.0)).is_empty(), "tile id 1 here is gid 2");
         assert!(Tiled::parse(map, |_| Err("missing".into()), Sprite::test_tiles()).err().unwrap().contains("missing"));
     }
 
@@ -405,7 +402,7 @@ mod tests {
         let t = Tiled::parse(map, |_| Ok(tsx.to_string()), Sprite::test_tiles()).unwrap();
         let ground = &t.layers[0].1;
         assert!(ground.one_way(0, 0) && !ground.one_way(1, 0));
-        assert!(!ground.solid_in(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }).is_empty(), "it still counts as a tile");
+        assert!(!ground.solid_in(Rect::new(0.0, 0.0, 16.0, 16.0)).is_empty(), "it still counts as a tile");
     }
 
     #[test]

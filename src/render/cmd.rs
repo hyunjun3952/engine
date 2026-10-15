@@ -23,7 +23,7 @@ impl Paint {
     pub(crate) fn tile_src(id: u8, size: u32, sheet_w: usize) -> Rect {
         let columns = (sheet_w as u32 / size).max(1);
         let n = id as u32 - 1;
-        Rect { x: (n % columns * size) as f32, y: (n / columns * size) as f32, w: size as f32, h: size as f32 }
+        Rect::new((n % columns * size) as f32, (n / columns * size) as f32, size as f32, size as f32)
     }
 
     /// The sheet, source area and mirroring of a paint that copies pixels from a sprite as they are.
@@ -134,17 +134,17 @@ mod tests {
 
     #[test]
     fn tile_ids_start_at_one_and_walk_along_the_sheet() {
-        assert_eq!(Paint::tile_src(1, 16, 64), Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 });
-        assert_eq!(Paint::tile_src(4, 8, 32), Rect { x: 24.0, y: 0.0, w: 8.0, h: 8.0 });
+        assert_eq!(Paint::tile_src(1, 16, 64), Rect::new(0.0, 0.0, 16.0, 16.0));
+        assert_eq!(Paint::tile_src(4, 8, 32), Rect::new(24.0, 0.0, 8.0, 8.0));
     }
 
     #[test]
     fn ids_wrap_onto_the_next_row_of_a_taller_sheet() {
-        assert_eq!(Paint::tile_src(5, 8, 32), Rect { x: 0.0, y: 8.0, w: 8.0, h: 8.0 });
-        assert_eq!(Paint::tile_src(7, 8, 32), Rect { x: 16.0, y: 8.0, w: 8.0, h: 8.0 });
+        assert_eq!(Paint::tile_src(5, 8, 32), Rect::new(0.0, 8.0, 8.0, 8.0));
+        assert_eq!(Paint::tile_src(7, 8, 32), Rect::new(16.0, 8.0, 8.0, 8.0));
         assert_eq!(
             Paint::tile_src(3, 8, 4),
-            Rect { x: 0.0, y: 16.0, w: 8.0, h: 8.0 },
+            Rect::new(0.0, 16.0, 8.0, 8.0),
             "a sheet narrower than a tile is one column"
         );
     }

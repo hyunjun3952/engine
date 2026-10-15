@@ -46,7 +46,7 @@ impl Scene for Rays {
         if let Some(p) = ctx.input().mouse() {
             self.dir = (p.x - FROM.0, p.y - FROM.1);
         }
-        self.hit = raycast(&self.world, FROM, self.dir, 1000.0, self.mask).map(|(_, t)| t);
+        self.hit = raycast(&self.world, FROM, self.dir, 1000.0, self.mask).map(|h| h.t);
         Trans::None
     }
 
@@ -57,8 +57,8 @@ impl Scene for Rays {
         let end = self.hit.unwrap_or(f32::MAX).min(1000.0 / len) * len;
         for i in 0..(end / 4.0) as i32 {
             let t = i as f32 * 4.0 / len;
-            let dot = Rect { x: FROM.0 + self.dir.0 * t - 1.0, y: FROM.1 + self.dir.1 * t - 1.0, w: 2.0, h: 2.0 };
-            g.fill(&dot, 0xffffff);
+            let dot = Rect::new(FROM.0 + self.dir.0 * t - 1.0, FROM.1 + self.dir.1 * t - 1.0, 2.0, 2.0);
+            g.fill(dot, 0xffffff);
         }
         let name = match self.mask {
             u32::MAX => "all groups",

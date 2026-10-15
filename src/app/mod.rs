@@ -433,7 +433,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             s.draw(&mut gfx);
         }
         if ctx.fade.alpha() > 0 {
-            gfx.fill_alpha(&Rect { x: 0.0, y: 0.0, w: cfg.w as f32, h: cfg.h as f32 }, 0x000000, ctx.fade.alpha());
+            gfx.fill_alpha(Rect::new(0.0, 0.0, cfg.w as f32, cfg.h as f32), 0x000000, ctx.fade.alpha());
         }
         if gfx.debug {
             let line = format!("FPS {} TPS {} {:.2}ms cmds {}", stats.fps, stats.tps, stats.ms, gfx.cmds().len());
@@ -442,7 +442,7 @@ pub fn run(cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
                 Backend::Gpu(gpu) => format!("{line} batches {}", gpu.batches()),
                 Backend::Soft(_) => line,
             };
-            gfx.fill(&Rect { x: 0.0, y: 0.0, w: line.len() as f32 * 8.0 + 8.0, h: 16.0 }, 0x000000);
+            gfx.fill(Rect::new(0.0, 0.0, line.len() as f32 * 8.0 + 8.0, 16.0), 0x000000);
             gfx.text(&line, 4, 4, 1, 0x66ff66);
         }
         stats.frames += 1;

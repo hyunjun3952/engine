@@ -49,7 +49,7 @@ impl Platformer {
             .state("idle", Clip::new(0, 4, 6.0))
             .state("run", Clip::new(1, 4, 12.0).event(0, "step").event(2, "step"))
             .state("air", Clip::new(2, 1, 1.0));
-        let rect = Rect { x: 120.0, y: 100.0, w: 12.0, h: 24.0 };
+        let rect = Rect::new(120.0, 100.0, 12.0, 24.0);
         let player = world.spawn((
             Body(rect),
             Vel::default(),
@@ -173,7 +173,7 @@ impl Scene for Platformer {
         drop(anim);
         engine::animate(&mut self.world, dt);
         let target = self.world.get::<&Body>(self.player).unwrap().0;
-        ctx.cam().follow(&target, self.map.pixel_size(), dt);
+        ctx.cam().follow(target, self.map.pixel_size(), dt);
         Trans::None
     }
 

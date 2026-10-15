@@ -1,29 +1,29 @@
 use crate::hangul::{Hangul, latin_to_jamo};
 use crate::{Ctx, Font, Gfx, Input, Key, MouseButton, Rect, Vec2};
 
-pub fn draw_panel(gfx: &mut Gfx, r: &Rect, fill: u32, border: u32) {
+pub fn draw_panel(gfx: &mut Gfx, r: Rect, fill: u32, border: u32) {
     gfx.fill(r, fill);
     gfx.outline(r, border);
 }
 
 /// Fills `frac` (clamped to 0..=1) of `r` from the left over a `back` track.
-pub fn draw_bar(gfx: &mut Gfx, r: &Rect, frac: f32, color: u32, back: u32) {
+pub fn draw_bar(gfx: &mut Gfx, r: Rect, frac: f32, color: u32, back: u32) {
     gfx.fill(r, back);
-    gfx.fill(&Rect { w: (r.w * frac.clamp(0.0, 1.0)).floor(), ..*r }, color);
+    gfx.fill(Rect { w: (r.w * frac.clamp(0.0, 1.0)).floor(), ..r }, color);
 }
 
-pub fn hovered(input: &Input, r: &Rect) -> bool {
+pub fn hovered(input: &Input, r: Rect) -> bool {
     input.mouse().is_some_and(|p| r.contains(p))
 }
 
 /// True on the step the left button goes down over `r`.
-pub fn clicked(input: &Input, r: &Rect) -> bool {
+pub fn clicked(input: &Input, r: Rect) -> bool {
     input.mouse_pressed(MouseButton::Left) && hovered(input, r)
 }
 
 /// While the left button is held over `r`, the value (0..=1) under the cursor (first pixel 0, last pixel 1); otherwise `value` unchanged.
 /// Dragging off the rectangle stops it following, so make the rectangle taller than the drawn track.
-pub fn slider(input: &Input, r: &Rect, value: f32) -> f32 {
+pub fn slider(input: &Input, r: Rect, value: f32) -> f32 {
     match input.mouse() {
         Some(Vec2 { x, .. }) if input.mouse_down(MouseButton::Left) && hovered(input, r) => {
             ((x.floor() - r.x) / (r.w - 1.0).max(1.0)).clamp(0.0, 1.0)
@@ -40,7 +40,7 @@ const TEXT: u32 = 0xffffff;
 const BOX: f32 = 10.0;
 
 fn shade(input: &Input, r: &Rect) -> u32 {
-    match (hovered(input, r), input.mouse_down(MouseButton::Left)) {
+    match (hovered(input, *r), input.mouse_down(MouseButton::Left)) {
         (true, true) => BUTTON_DOWN,
         (true, false) => BUTTON_HOT,
         _ => BUTTON,
@@ -62,12 +62,12 @@ impl Button {
 
     pub fn update(&mut self, input: &Input) -> bool {
         self.fill = shade(input, &self.rect);
-        clicked(input, &self.rect)
+        clicked(input, self.rect)
     }
 
     /// The label is centred in the rectangle.
     pub fn draw(&self, gfx: &mut Gfx, font: &Font) {
-        draw_panel(gfx, &self.rect, self.fill, EDGE);
+        draw_panel(gfx, self.rect, self.fill, EDGE);
         let r = &self.rect;
         let (x, y) = (
             r.x as i32 + (r.w as i32 - font.width(&self.label)) / 2,
@@ -95,17 +95,17 @@ impl Checkbox {
 
     /// Returns true on the step it flips.
     pub fn update(&mut self, input: &Input) -> bool {
-        self.fill = if hovered(input, &self.hit) { BUTTON_HOT } else { BUTTON };
-        let flip = clicked(input, &self.hit);
+        self.fill = if hovered(input, self.hit) { BUTTON_HOT } else { BUTTON };
+        let flip = clicked(input, self.hit);
         self.checked ^= flip;
         flip
     }
 
     pub fn draw(&self, gfx: &mut Gfx, font: &Font) {
-        let r = Rect { x: self.pos.0 as f32, y: self.pos.1 as f32, w: BOX, h: BOX };
-        draw_panel(gfx, &r, self.fill, EDGE);
+        let r = Rect::new(self.pos.0 as f32, self.pos.1 as f32, BOX, BOX);
+        draw_panel(gfx, r, self.fill, EDGE);
         if self.checked {
-            gfx.fill(&Rect { x: r.x + 3.0, y: r.y + 3.0, w: BOX - 6.0, h: BOX - 6.0 }, TEXT);
+            gfx.fill(Rect::new(r.x + 3.0, r.y + 3.0, BOX - 6.0, BOX - 6.0), TEXT);
         }
         gfx.text_font(font, &self.label, self.pos.0 + BOX as i32 + 4, self.pos.1, TEXT);
     }
@@ -231,11 +231,11 @@ impl Menu {
             w: (indent + font.width(item)) as f32,
             h: step as f32,
         };
-        let over = self.items.iter().enumerate().position(|(i, item)| hovered(input, &row(i, item)))?;
+        let over = self.items.iter().enumerate().position(|(i, item)| hovered(input, row(i, item)))?;
         if input.mouse_moved() {
             self.sel = over;
         }
-        clicked(input, &row(over, &self.items[over])).then_some(over)
+        clicked(input, row(over, &self.items[over])).then_some(over)
     }
 
     pub fn draw(&self, gfx: &mut Gfx, font: &Font, x: i32, y: i32, color: u32, active: u32) {
@@ -333,7 +333,7 @@ pub fn wrap(font: &Font, text: &str, max: i32) -> Vec<String> {
 
 /// Draws `text` wrapped to the width of `r` and as many lines as fit its height; returns the number of lines the
 /// whole text takes, so a caller can tell it was cut off.
-pub fn draw_wrapped(gfx: &mut Gfx, font: &Font, text: &str, r: &Rect, color: u32) -> usize {
+pub fn draw_wrapped(gfx: &mut Gfx, font: &Font, text: &str, r: Rect, color: u32) -> usize {
     let lines = wrap(font, text, r.w as i32);
     let fit = ((r.h as i32) / font.line_height().max(1)).max(0) as usize;
     for (i, line) in lines.iter().take(fit).enumerate() {
@@ -382,24 +382,16 @@ impl ScrollList {
     }
 
     /// Moves the highlight by `delta` rows (not wrapping), keeping it in view.
-    pub fn select(&mut self, delta: isize, r: &Rect, font: &Font) {
+    pub fn select(&mut self, delta: isize, r: Rect, font: &Font) {
         self.sel = (self.sel as isize + delta).clamp(0, self.items.len().saturating_sub(1) as isize) as usize;
-        self.settle(Self::rows(r, font));
+        self.settle(Self::rows(&r, font));
     }
 
     /// `up`/`down` move the highlight and bring it into view, the wheel over `r` scrolls three rows a notch (the
     /// highlight may leave the view), a click on a row highlights it and returns its index, as does `accept` for the
     /// highlighted row.
-    pub fn update(
-        &mut self,
-        input: &Input,
-        r: &Rect,
-        font: &Font,
-        up: &str,
-        down: &str,
-        accept: &str,
-    ) -> Option<usize> {
-        let (rows, step) = (Self::rows(r, font), row_metrics(font).0);
+    pub fn update(&mut self, input: &Input, r: Rect, font: &Font, up: &str, down: &str, accept: &str) -> Option<usize> {
+        let (rows, step) = (Self::rows(&r, font), row_metrics(font).0);
         if input.pressed(up) {
             self.select(-1, r, font);
         }
@@ -422,8 +414,8 @@ impl ScrollList {
         input.pressed(accept).then_some(self.sel).filter(|_| !self.items.is_empty())
     }
 
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font, r: &Rect, color: u32, active: u32) {
-        let (rows, (step, indent)) = (Self::rows(r, font), row_metrics(font));
+    pub fn draw(&self, gfx: &mut Gfx, font: &Font, r: Rect, color: u32, active: u32) {
+        let (rows, (step, indent)) = (Self::rows(&r, font), row_metrics(font));
         for (n, item) in self.items.iter().enumerate().skip(self.top).take(rows) {
             let y = r.y as i32 + (n - self.top) as i32 * step;
             let (mark, shade) = if n == self.sel { (">", active) } else { (" ", color) };
@@ -438,7 +430,7 @@ impl ScrollList {
                 w: 2.0,
                 h: (track * rows as f32 / total).max(3.0),
             };
-            gfx.fill(&thumb, EDGE);
+            gfx.fill(thumb, EDGE);
         }
     }
 }
@@ -472,11 +464,11 @@ impl Focus {
             }
         }
         if input.mouse_moved() {
-            if let Some(over) = rects.iter().position(|r| hovered(input, r)) {
+            if let Some(over) = rects.iter().position(|r| hovered(input, *r)) {
                 self.index = over;
             }
         }
-        let click = input.mouse().is_some() && clicked(input, &rects[self.index]);
+        let click = input.mouse().is_some() && clicked(input, rects[self.index]);
         (input.pressed(accept) || click).then_some(self.index)
     }
 
@@ -499,7 +491,7 @@ impl Focus {
     /// An outline around the focused rectangle, two pixels out.
     pub fn draw(&self, gfx: &mut Gfx, rects: &[Rect], color: u32) {
         if let Some(r) = rects.get(self.index) {
-            gfx.outline(&Rect { x: r.x - 2.0, y: r.y - 2.0, w: r.w + 4.0, h: r.h + 4.0 }, color);
+            gfx.outline(Rect::new(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0), color);
         }
     }
 }
@@ -611,29 +603,29 @@ mod tests {
 
     #[test]
     fn clicks_and_sliders_follow_the_cursor() {
-        let (mut input, r) = (Input::default(), Rect { x: 10.0, y: 10.0, w: 100.0, h: 8.0 });
+        let (mut input, r) = (Input::default(), Rect::new(10.0, 10.0, 100.0, 8.0));
         at(&mut input, 20.0, 12.0, false);
-        assert!(hovered(&input, &r) && !clicked(&input, &r));
+        assert!(hovered(&input, r) && !clicked(&input, r));
         at(&mut input, 20.0, 12.0, true);
-        assert!(clicked(&input, &r));
-        assert!((slider(&input, &r, 0.9) - 10.0 / 99.0).abs() < 1e-6);
+        assert!(clicked(&input, r));
+        assert!((slider(&input, r, 0.9) - 10.0 / 99.0).abs() < 1e-6);
         at(&mut input, 109.9, 12.0, true);
-        assert_eq!(slider(&input, &r, 0.0), 1.0, "the last pixel is the full value");
+        assert_eq!(slider(&input, r, 0.0), 1.0, "the last pixel is the full value");
         at(&mut input, 10.2, 12.0, true);
-        assert_eq!(slider(&input, &r, 1.0), 0.0);
+        assert_eq!(slider(&input, r, 1.0), 0.0);
         at(&mut input, 20.0, 12.0, true);
         at(&mut input, 20.0, 12.0, true);
-        assert!(!clicked(&input, &r), "holding is not a new click");
+        assert!(!clicked(&input, r), "holding is not a new click");
         at(&mut input, 500.0, 12.0, true);
-        assert_eq!(slider(&input, &r, 0.9), 0.9, "outside leaves the value alone");
+        assert_eq!(slider(&input, r, 0.9), 0.9, "outside leaves the value alone");
         at(&mut input, 20.0, 40.0, true);
-        assert!(!hovered(&input, &r));
+        assert!(!hovered(&input, r));
     }
 
     #[test]
     fn a_button_reports_a_click_once_and_centres_its_label() {
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
-        let (mut input, mut b) = (Input::default(), Button::new(Rect { x: 10.0, y: 10.0, w: 60.0, h: 20.0 }, "확인"));
+        let (mut input, mut b) = (Input::default(), Button::new(Rect::new(10.0, 10.0, 60.0, 20.0), "확인"));
         at(&mut input, 200.0, 12.0, false);
         assert!(!b.update(&input));
         at(&mut input, 20.0, 12.0, true);
@@ -735,7 +727,7 @@ mod tests {
     #[test]
     fn bar_clamps_and_menu_draws_one_command_per_glyph() {
         let mut g = Gfx::new(100, 50);
-        draw_bar(&mut g, &Rect { x: 0.0, y: 0.0, w: 50.0, h: 4.0 }, 7.0, 1, 2);
+        draw_bar(&mut g, Rect::new(0.0, 0.0, 50.0, 4.0), 7.0, 1, 2);
         assert_eq!(g.cmds().len(), 2);
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
         let mut g = Gfx::new(100, 50);
@@ -781,23 +773,23 @@ mod tests {
 
     #[test]
     fn a_column_hands_out_rectangles_down_the_area_and_runs_dry_politely() {
-        let mut col = Layout::column(Rect { x: 10.0, y: 20.0, w: 100.0, h: 50.0 }, 4.0);
-        assert_eq!(col.next(10.0), Rect { x: 10.0, y: 20.0, w: 100.0, h: 10.0 });
-        assert_eq!(col.next(10.0), Rect { x: 10.0, y: 34.0, w: 100.0, h: 10.0 });
-        assert_eq!(col.rest(), Rect { x: 10.0, y: 48.0, w: 100.0, h: 22.0 });
+        let mut col = Layout::column(Rect::new(10.0, 20.0, 100.0, 50.0), 4.0);
+        assert_eq!(col.next(10.0), Rect::new(10.0, 20.0, 100.0, 10.0));
+        assert_eq!(col.next(10.0), Rect::new(10.0, 34.0, 100.0, 10.0));
+        assert_eq!(col.rest(), Rect::new(10.0, 48.0, 100.0, 22.0));
         assert_eq!(col.next(10.0).h, 0.0, "nothing left");
-        let mut row = Layout::row(Rect { x: 0.0, y: 0.0, w: 30.0, h: 8.0 }, 0.0);
+        let mut row = Layout::row(Rect::new(0.0, 0.0, 30.0, 8.0), 0.0);
         assert_eq!(row.next(20.0).w, 20.0);
-        assert_eq!(row.next(20.0), Rect { x: 20.0, y: 0.0, w: 10.0, h: 8.0 }, "cut short at the edge");
+        assert_eq!(row.next(20.0), Rect::new(20.0, 0.0, 10.0, 8.0), "cut short at the edge");
     }
 
     #[test]
     fn a_grid_fills_the_area_with_equal_cells() {
-        let cells = grid(Rect { x: 0.0, y: 0.0, w: 22.0, h: 10.0 }, 2, 2, 2.0);
+        let cells = grid(Rect::new(0.0, 0.0, 22.0, 10.0), 2, 2, 2.0);
         assert_eq!(cells.len(), 4);
-        assert_eq!(cells[0], Rect { x: 0.0, y: 0.0, w: 10.0, h: 4.0 });
-        assert_eq!(cells[3], Rect { x: 12.0, y: 6.0, w: 10.0, h: 4.0 });
-        assert_eq!(grid(Rect { x: 0.0, y: 0.0, w: 5.0, h: 5.0 }, 0, 0, 1.0).len(), 1, "never empty from a zero count");
+        assert_eq!(cells[0], Rect::new(0.0, 0.0, 10.0, 4.0));
+        assert_eq!(cells[3], Rect::new(12.0, 6.0, 10.0, 4.0));
+        assert_eq!(grid(Rect::new(0.0, 0.0, 5.0, 5.0), 0, 0, 1.0).len(), 1, "never empty from a zero count");
     }
 
     #[test]
@@ -818,8 +810,8 @@ mod tests {
     fn drawing_wrapped_text_stops_at_the_height_and_reports_the_full_length() {
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
         let mut g = Gfx::new(200, 100);
-        let r = Rect { x: 0.0, y: 0.0, w: font.width("aaaa") as f32, h: font.line_height() as f32 * 2.0 };
-        let total = draw_wrapped(&mut g, &font, "aaaa bbbb cccc dddd", &r, 0xffffff);
+        let r = Rect::new(0.0, 0.0, font.width("aaaa") as f32, font.line_height() as f32 * 2.0);
+        let total = draw_wrapped(&mut g, &font, "aaaa bbbb cccc dddd", r, 0xffffff);
         assert_eq!(total, 4);
         let ys: std::collections::BTreeSet<_> = g.cmds().iter().map(|c| c.rect.y as i32).collect();
         assert_eq!(ys.len(), 2, "only two lines fit: {ys:?}");
@@ -828,7 +820,7 @@ mod tests {
     fn list(n: usize) -> (ScrollList, Rect, Font) {
         let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
         let items: Vec<String> = (0..n).map(|i| format!("item {i}")).collect();
-        let r = Rect { x: 0.0, y: 0.0, w: 100.0, h: (row_metrics(&font).0 * 3) as f32 };
+        let r = Rect::new(0.0, 0.0, 100.0, (row_metrics(&font).0 * 3) as f32);
         (ScrollList::new(&items.iter().map(String::as_str).collect::<Vec<_>>()), r, font)
     }
 
@@ -838,12 +830,12 @@ mod tests {
         let mut input = menu_input();
         for _ in 0..5 {
             press(&mut input, Key::Down);
-            l.update(&input, &r, &font, "up", "down", "ok");
+            l.update(&input, r, &font, "up", "down", "ok");
         }
         assert_eq!((l.selected(), l.top), (5, 3), "scrolled so row 5 is the last of three");
-        l.select(100, &r, &font);
+        l.select(100, r, &font);
         assert_eq!((l.selected(), l.top), (9, 7), "clamped at the end");
-        l.select(-100, &r, &font);
+        l.select(-100, r, &font);
         assert_eq!((l.selected(), l.top), (0, 0));
     }
 
@@ -853,20 +845,20 @@ mod tests {
         let mut input = menu_input();
         at(&mut input, 5.0, 5.0, false);
         input.scroll(-1.0);
-        l.update(&input, &r, &font, "up", "down", "ok");
+        l.update(&input, r, &font, "up", "down", "ok");
         assert_eq!(l.top, 3, "a notch down moves three rows");
         input.scroll(-1.0);
-        l.update(&input, &r, &font, "up", "down", "ok");
+        l.update(&input, r, &font, "up", "down", "ok");
         input.scroll(-1.0);
-        l.update(&input, &r, &font, "up", "down", "ok");
+        l.update(&input, r, &font, "up", "down", "ok");
         assert_eq!(l.top, 7, "and stops at the last window");
         let step = row_metrics(&font).0 as f32;
         input.scroll(0.0);
         at(&mut input, 5.0, step + 1.0, true);
-        assert_eq!(l.update(&input, &r, &font, "up", "down", "ok"), Some(8), "the second visible row");
+        assert_eq!(l.update(&input, r, &font, "up", "down", "ok"), Some(8), "the second visible row");
         at(&mut input, 500.0, 5.0, false);
         input.scroll(1.0);
-        l.update(&input, &r, &font, "up", "down", "ok");
+        l.update(&input, r, &font, "up", "down", "ok");
         assert_eq!(l.top, 7, "the wheel off the list does nothing");
     }
 

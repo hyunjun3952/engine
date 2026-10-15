@@ -129,7 +129,7 @@ impl Font {
                     }
                 }
             }
-            let src = Rect { x: gx as f32, y: gy as f32, w: w as f32, h: h as f32 };
+            let src = Rect::new(gx as f32, gy as f32, w as f32, h as f32);
             glyphs.push((g.ch, Glyph { src, xoff, yoff: ascent - yoff - h, advance: g.advance }));
         }
         // A character listed twice keeps its later entry, as it did when these went into a map.

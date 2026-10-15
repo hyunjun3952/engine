@@ -61,7 +61,7 @@ fn main() {
             menu: Menu::new(&["시작", "설정", "끝"]),
             said: String::new(),
             blink: Timer::looping(1.0),
-            clear: Button::new(Rect { x: 300.0, y: 36.0, w: 60.0, h: 18.0 }, "지우기"),
+            clear: Button::new(Rect::new(300.0, 36.0, 60.0, 18.0), "지우기"),
             korean,
         })
     });

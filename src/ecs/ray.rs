@@ -1,5 +1,5 @@
 use super::collision::turned_box;
-use crate::{Body, Collider, Entity, Filter, Rect, Transform, World};
+use crate::{Body, Collider, Entity, Filter, Rect, Transform, Vec2, World};
 
 type V2 = (f32, f32);
 
@@ -52,8 +52,40 @@ fn slab(x: (f32, f32, f32, f32), y: (f32, f32, f32, f32), max: f32) -> Option<f3
     (t0 <= t1).then_some(t0)
 }
 
-// Nearest collider in `mask` hit by `from + t * dir`, 0 <= t <= max; follows `Transform::angle`, ignores scale.
-pub fn raycast(world: &World, from: V2, dir: V2, max: f32, mask: u32) -> Option<(Entity, f32)> {
+/// What a ray met: the entity and how far along the ray, in multiples of `dir`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RayHit {
+    pub entity: Entity,
+    pub t: f32,
+}
+
+/// One ray for `raycasts`: `from + t * dir` for `0 <= t <= max`, meeting only colliders whose group is in `mask`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ray {
+    pub from: Vec2,
+    pub dir: Vec2,
+    pub max: f32,
+    pub mask: u32,
+}
+
+impl Ray {
+    pub fn new(from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32, mask: u32) -> Self {
+        Ray { from: from.into(), dir: dir.into(), max, mask }
+    }
+}
+
+fn v2(v: impl Into<Vec2>) -> V2 {
+    let v = v.into();
+    (v.x, v.y)
+}
+
+fn hit((entity, t): (Entity, f32)) -> RayHit {
+    RayHit { entity, t }
+}
+
+/// Nearest collider in `mask` hit by `from + t * dir`, `0 <= t <= max`; follows `Transform::angle`, ignores scale.
+pub fn raycast(world: &World, from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32, mask: u32) -> Option<RayHit> {
+    let (from, dir) = (v2(from), v2(dir));
     let mut best: Option<(Entity, f32)> = None;
     for item in world.query::<Row>().iter().map(Item::new).filter(|i| i.group & mask != 0) {
         // A box farther than the best hit so far cannot win, so the search range shrinks as hits come in.
@@ -61,19 +93,19 @@ pub fn raycast(world: &World, from: V2, dir: V2, max: f32, mask: u32) -> Option<
             best = Some((item.e, t));
         }
     }
-    best
+    best.map(hit)
 }
 
 // Building a `RayIndex` costs about as much as five scans, so fewer rays than this are scanned.
 const INDEX_FROM: usize = 8;
 
-/// `raycast` for many rays at once, each `(from, dir, max, mask)`; from a handful of rays on it builds a `RayIndex`.
-pub fn raycasts(world: &World, rays: &[(V2, V2, f32, u32)]) -> Vec<Option<(Entity, f32)>> {
+/// `raycast` for many rays at once; from a handful of rays on it builds a `RayIndex`.
+pub fn raycasts(world: &World, rays: &[Ray]) -> Vec<Option<RayHit>> {
     if rays.len() < INDEX_FROM {
-        return rays.iter().map(|&(from, dir, max, mask)| raycast(world, from, dir, max, mask)).collect();
+        return rays.iter().map(|r| raycast(world, r.from, r.dir, r.max, r.mask)).collect();
     }
     let index = RayIndex::new(world);
-    rays.iter().map(|&(from, dir, max, mask)| index.cast(from, dir, max, mask)).collect()
+    rays.iter().map(|r| index.cast(r.from, r.dir, r.max, r.mask)).collect()
 }
 
 /// The colliders on a uniform grid for many rays against one snapshot; rebuild it after bodies move.
@@ -142,7 +174,8 @@ impl RayIndex {
     }
 
     /// Same answer as `raycast` over the world this was built from (the nearest of equal hits may be another one).
-    pub fn cast(&self, from: V2, dir: V2, max: f32, mask: u32) -> Option<(Entity, f32)> {
+    pub fn cast(&self, from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32, mask: u32) -> Option<RayHit> {
+        let (from, dir) = (v2(from), v2(dir));
         let (w, h) = (self.cols as f32 * self.cell, self.rows as f32 * self.cell);
         let (ox, oy) = (from.0 - self.origin.0, from.1 - self.origin.1);
         // Walk only the part of the ray inside the grid.
@@ -171,13 +204,13 @@ impl RayIndex {
             }
             let exit = tx.min(ty);
             if best.is_some_and(|b| b.1 <= exit) || exit > max {
-                return best;
+                return best.map(hit);
             }
             let (c, n, step, t, d) =
                 if tx < ty { (&mut cx, self.cols, sx, &mut tx, dx) } else { (&mut cy, self.rows, sy, &mut ty, dy) };
             let next = *c as i32 + step;
             if next < 0 || next >= n as i32 {
-                return best;
+                return best.map(hit);
             }
             (*c, *t) = (next as usize, *t + d);
         }
@@ -204,11 +237,11 @@ mod tests {
         boxed(&mut w, 50.0, true);
         boxed(&mut w, -30.0, true);
         boxed(&mut w, 80.0, false);
-        let (e, t) = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX).unwrap();
-        assert_eq!((e, t), (near, 20.0));
+        let h = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX).unwrap();
+        assert_eq!(h, RayHit { entity: near, t: 20.0 });
         assert!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 10.0, u32::MAX).is_none());
         assert!(raycast(&w, (0.0, 50.0), (1.0, 0.0), 100.0, u32::MAX).is_none());
-        assert_eq!(raycast(&w, (25.0, 5.0), (0.0, 1.0), 5.0, u32::MAX).map(|h| h.1), Some(0.0));
+        assert_eq!(raycast(&w, (25.0, 5.0), (0.0, 1.0), 5.0, u32::MAX).map(|h| h.t), Some(0.0));
     }
 
     #[test]
@@ -217,14 +250,14 @@ mod tests {
         let wall = boxed(&mut w, 20.0, true);
         w.insert_one(wall, Filter { group: 2, mask: u32::MAX }).unwrap();
         assert!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 1).is_none());
-        assert_eq!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 2).map(|h| h.0), Some(wall));
+        assert_eq!(raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 2).map(|h| h.entity), Some(wall));
         // a 10x10 box turned 45 degrees about (25, 5) reaches 7.07 either side of it, so a ray along y = 5 meets it at 17.9
         let turned = Transform { angle: std::f32::consts::FRAC_PI_4, ..Transform::IDENTITY };
         w.insert_one(wall, turned).unwrap();
-        let t = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 2).unwrap().1;
+        let t = raycast(&w, (0.0, 5.0), (1.0, 0.0), 100.0, 2).unwrap().t;
         assert!((t - 17.93).abs() < 0.01, "{t}");
         // along y = 0.5 the unturned box would be met at 20; the diamond is only 2.57 wide either side there
-        let t = raycast(&w, (0.0, 0.5), (1.0, 0.0), 100.0, 2).unwrap().1;
+        let t = raycast(&w, (0.0, 0.5), (1.0, 0.0), 100.0, 2).unwrap().t;
         assert!((t - 22.43).abs() < 0.01, "{t}");
     }
 
@@ -254,7 +287,7 @@ mod tests {
             };
             let (max, mask) = (rng.range(10.0, 400.0), 1 << (i % 3));
             let (scan, grid) = (raycast(&w, from, dir, max, mask), index.cast(from, dir, max, mask));
-            assert_eq!(scan.map(|h| h.1), grid.map(|h| h.1), "ray {i}: {from:?} {dir:?} {max}");
+            assert_eq!(scan.map(|h| h.t), grid.map(|h| h.t), "ray {i}: {from:?} {dir:?} {max}");
             hits += scan.is_some() as u32;
         }
         assert!((300..1700).contains(&hits), "{hits} of 2000 rays hit, so the test checks too little");
@@ -270,14 +303,14 @@ mod tests {
         let rays: Vec<_> = (0..40)
             .map(|i| {
                 let a = i as f32 * 0.157;
-                ((300.0, 200.0), (a.cos(), a.sin()), 300.0, u32::MAX)
+                Ray::new((300.0, 200.0), (a.cos(), a.sin()), 300.0, u32::MAX)
             })
             .collect();
         for n in [0, 1, INDEX_FROM - 1, INDEX_FROM, 40] {
             let got = raycasts(&w, &rays[..n]);
             assert_eq!(got.len(), n);
             for (r, h) in rays.iter().zip(&got) {
-                assert_eq!(h.map(|h| h.1), raycast(&w, r.0, r.1, r.2, r.3).map(|h| h.1));
+                assert_eq!(h.map(|h| h.t), raycast(&w, r.from, r.dir, r.max, r.mask).map(|h| h.t));
             }
         }
     }
@@ -290,6 +323,6 @@ mod tests {
         let index = RayIndex::new(&w);
         assert!(index.cast((0.0, 100.0), (1.0, 0.0), 1000.0, u32::MAX).is_none());
         assert!(index.cast((-50.0, 5.0), (-1.0, 0.0), 1000.0, u32::MAX).is_none());
-        assert_eq!(index.cast((-50.0, 5.0), (1.0, 0.0), 1000.0, u32::MAX).map(|h| h.1), Some(50.0));
+        assert_eq!(index.cast((-50.0, 5.0), (1.0, 0.0), 1000.0, u32::MAX).map(|h| h.t), Some(50.0));
     }
 }

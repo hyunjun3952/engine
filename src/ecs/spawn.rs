@@ -69,7 +69,7 @@ mod tests {
         let objects = [object("a", "coin", 1.0), object("start", "spawn", 5.0), object("b", "enemy", 2.0)];
         let made = spawner().spawn(&mut w, &objects).unwrap();
         assert_eq!(made.len(), 2, "the skipped kind makes none");
-        assert_eq!(w.get::<&Body>(made[0]).unwrap().0, Rect { x: 1.0, y: 10.0, w: 8.0, h: 8.0 });
+        assert_eq!(w.get::<&Body>(made[0]).unwrap().0, Rect::new(1.0, 10.0, 8.0, 8.0));
         assert_eq!(*w.get::<&u32>(made[1]).unwrap(), 3, "properties reach the maker");
     }
 

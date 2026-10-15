@@ -22,7 +22,7 @@ pub fn burst(world: &mut World, rng: &mut Rng, at: impl Into<Vec2>, b: &Burst) {
         let angle = rng.range(0.0, std::f32::consts::TAU);
         let speed = rng.range(0.3, 1.0) * b.speed;
         world.spawn((
-            Body(Rect { x: at.x - b.size / 2.0, y: at.y - b.size / 2.0, w: b.size, h: b.size }),
+            Body(Rect::new(at.x - b.size / 2.0, at.y - b.size / 2.0, b.size, b.size)),
             Look::Alpha(b.color, 255),
             Layer(10),
             Particle {

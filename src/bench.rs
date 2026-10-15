@@ -1,7 +1,7 @@
 use crate::render::Soft;
 use crate::{
-    Body, Burst, Collider, DrawCmd, Font, Gfx, Look, Paint, Physics, RayIndex, Rect, RigidBody, Rng, Sprite, Tilemap,
-    Transform, Vec2, Vel, World, burst, collisions, draw_list, particles, raycast, raycasts,
+    Body, Burst, Collider, DrawCmd, Font, Gfx, Look, Paint, Physics, Ray, RayIndex, Rect, RigidBody, Rng, Sprite,
+    Tilemap, Transform, Vec2, Vel, World, burst, collisions, draw_list, particles, raycast, raycasts,
 };
 use std::hint::black_box;
 use std::time::Instant;
@@ -29,7 +29,7 @@ fn bench() {
     let mut boxes = |w: f32, h: f32| {
         let mut world = World::new();
         for _ in 0..3000 {
-            let rect = Rect { x: rng(&mut seed) * w, y: rng(&mut seed) * h, w: 8.0, h: 8.0 };
+            let rect = Rect::new(rng(&mut seed) * w, rng(&mut seed) * h, 8.0, 8.0);
             world.spawn((Body(rect), Collider));
         }
         world
@@ -57,7 +57,7 @@ fn bench() {
         let (dir, from) = (i as f32 * 0.0628, (320.0, 180.0));
         let dir = (dir.cos(), dir.sin());
         let (scan, grid) = (raycast(&world, from, dir, 400.0, u32::MAX), index.cast(from, dir, 400.0, u32::MAX));
-        assert_eq!(scan.map(|h| h.1), grid.map(|h| h.1), "ray {i}: the index and the scan disagree");
+        assert_eq!(scan.map(|h| h.t), grid.map(|h| h.t), "ray {i}: the index and the scan disagree");
     }
     time("raycast grid, 100 rays", 100, || {
         for i in 0..100 {
@@ -69,7 +69,7 @@ fn bench() {
     let rays: Vec<_> = (0..100)
         .map(|i| {
             let a = i as f32 * 0.0628;
-            ((320.0, 180.0), (a.cos(), a.sin()), 400.0, u32::MAX)
+            Ray::new((320.0, 180.0), (a.cos(), a.sin()), 400.0, u32::MAX)
         })
         .collect();
     time("raycasts 3000 colliders, 100 rays (builds the index)", 100, || {
@@ -81,7 +81,7 @@ fn bench() {
     });
 
     let mut soft = Soft::new(640, 360, 1);
-    let full = Rect { x: 0.0, y: 0.0, w: 640.0, h: 360.0 };
+    let full = Rect::new(0.0, 0.0, 640.0, 360.0);
     let sprite = Sprite::test_ball();
     let sprites: Vec<DrawCmd> = (0..5000)
         .map(|_| {
@@ -132,7 +132,7 @@ fn bench() {
 
     let mut ents = World::new();
     for _ in 0..2000 {
-        let rect = Rect { x: rng(&mut seed) * 640.0, y: rng(&mut seed) * 360.0, w: 8.0, h: 8.0 };
+        let rect = Rect::new(rng(&mut seed) * 640.0, rng(&mut seed) * 360.0, 8.0, 8.0);
         ents.spawn((Body(rect), Look::Color(5)));
     }
     time("ecs draw_list 2000 entities", 100, || {
@@ -169,7 +169,7 @@ fn bench() {
         arena.spawn(wall(0.0, 0.0, 10.0, 360.0));
         arena.spawn(wall(630.0, 0.0, 10.0, 360.0));
         for i in 0..n {
-            let rect = Rect { x: 20.0 + rng(&mut seed) * 590.0, y: -(i as f32) * 0.5, w: 8.0, h: 8.0 };
+            let rect = Rect::new(20.0 + rng(&mut seed) * 590.0, -(i as f32) * 0.5, 8.0, 8.0);
             let body = RigidBody::dynamic(1.0).with_bounce(0.2);
             let body = if i % 2 == 0 { body.circle() } else { body };
             arena.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, body, Transform::IDENTITY));
@@ -199,7 +199,7 @@ fn bench() {
     for n in [100, 300] {
         let (mut arena, mut physics) = (World::new(), Physics::default());
         for i in 0..n {
-            let rect = Rect { x: 20.0 + rng(&mut seed) * 590.0, y: -(i as f32) * 0.5, w: 8.0, h: 8.0 };
+            let rect = Rect::new(20.0 + rng(&mut seed) * 590.0, -(i as f32) * 0.5, 8.0, 8.0);
             let body = RigidBody::dynamic(1.0).with_bounce(0.2);
             let body = if i % 2 == 0 { body.circle() } else { body };
             arena.spawn((Body(rect), Vel { x: 0.0, y: 0.0 }, body, Transform::IDENTITY));
@@ -308,7 +308,7 @@ fn joints() {
         physics.gravity = Vec2::new(0.0, 0.0);
         let ents: Vec<_> = (0..bodies)
             .map(|i| {
-                let rect = Rect { x: (i % 100) as f32 * 12.0, y: (i / 100) as f32 * 12.0, w: 8.0, h: 8.0 };
+                let rect = Rect::new((i % 100) as f32 * 12.0, (i / 100) as f32 * 12.0, 8.0, 8.0);
                 let vel = Vel { x: rng(&mut seed) * 4.0 - 2.0, y: rng(&mut seed) * 4.0 - 2.0 };
                 world.spawn((Body(rect), vel, RigidBody::dynamic(1.0)))
             })

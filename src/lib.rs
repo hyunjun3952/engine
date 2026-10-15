@@ -14,7 +14,7 @@
 //!
 //!     fn draw(&self, g: &mut Gfx) {
 //!         g.clear(0x101018);
-//!         g.fill(&Rect { x: 20.0, y: 20.0, w: 40.0, h: 40.0 }, 0xffd040);
+//!         g.fill(Rect::new(20.0, 20.0, 40.0, 40.0), 0xffd040);
 //!         g.text("hello", 16, 80, 1, 0xffffff);
 //!     }
 //! }
@@ -43,8 +43,8 @@ pub use assets::{Assets, Atlas, Audio, Bus, Sound};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
     Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, Persist,
-    Physics, RayIndex, RigidBody, Spawner, Vel, World, WorldFile, animate, burst, collisions, draw_list, movement,
-    particles, query_rect, raycast, raycasts,
+    Physics, Ray, RayHit, RayIndex, RigidBody, Spawner, Vel, World, WorldFile, animate, burst, collisions, draw_list,
+    movement, particles, query_rect, raycast, raycasts,
 };
 pub use render::{
     Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Rect, Slope, Sprite, Style, Tile, TileHit, Tiled,

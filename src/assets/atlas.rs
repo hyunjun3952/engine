@@ -26,7 +26,7 @@ impl Atlas {
                 .map(|p| p.parse::<u32>().map_err(|e| bad(&format!("{p:?}: {e}"))))
                 .collect::<Result<Vec<_>, _>>()?;
             let [x, y, w, h] = nums[..] else { return Err(bad("expected `name x y w h`")) };
-            let r = Rect { x: x as f32, y: y as f32, w: w as f32, h: h as f32 };
+            let r = Rect::new(x as f32, y as f32, w as f32, h as f32);
             if !sheet.image().holds(&r) {
                 return Err(bad(&format!("{name} is empty or outside the {}x{} sheet", limit.0, limit.1)));
             }
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn regions_are_read_by_name_and_drawn_where_asked() {
         let atlas = Atlas::parse("# heroes\nidle 0 0 16 16\n\njump 16 0 16 8  # half height\n", sheet()).unwrap();
-        assert_eq!(atlas.get("jump"), Rect { x: 16.0, y: 0.0, w: 16.0, h: 8.0 });
+        assert_eq!(atlas.get("jump"), Rect::new(16.0, 0.0, 16.0, 8.0));
         let mut g = Gfx::new(64, 64);
         atlas.draw(&mut g, "idle", 5, 6);
         let c = &g.cmds()[0];

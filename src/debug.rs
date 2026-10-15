@@ -106,8 +106,8 @@ impl Inspector {
             None => vec!["F4: click an entity".to_string()],
         };
         let width = lines.iter().map(|l| l.len()).max().unwrap_or(0) as f32 * 8.0 + 8.0;
-        let panel = Rect { x: gfx.w as f32 - width, y: 0.0, w: width, h: lines.len() as f32 * 10.0 + 6.0 };
-        gfx.fill_alpha(&panel, 0x000000, 200);
+        let panel = Rect::new(gfx.w as f32 - width, 0.0, width, lines.len() as f32 * 10.0 + 6.0);
+        gfx.fill_alpha(panel, 0x000000, 200);
         for (i, line) in lines.iter().enumerate() {
             gfx.text(line, panel.x as i32 + 4, 4 + i as i32 * 10, 1, 0xdddddd);
         }
@@ -250,7 +250,7 @@ impl Console {
         }
         let (row, h) = (font.line_height() + 2, gfx.h as i32 / 2);
         let top = gfx.h as i32 - h;
-        gfx.fill_alpha(&Rect { x: 0.0, y: top as f32, w: gfx.w as f32, h: h as f32 }, 0x000000, 210);
+        gfx.fill_alpha(Rect::new(0.0, top as f32, gfx.w as f32, h as f32), 0x000000, 210);
         let room = (h / row - 1).max(0) as usize;
         let skip = self.lines.len().saturating_sub(room);
         for (i, line) in self.lines.iter().skip(skip).enumerate() {

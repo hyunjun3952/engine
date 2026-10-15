@@ -151,7 +151,7 @@ impl Anim {
 
     pub(super) fn src(&self) -> Rect {
         let (w, h) = self.size;
-        Rect { x: (self.frame() * w) as f32, y: (self.clip.row * h) as f32, w: w as f32, h: h as f32 }
+        Rect::new((self.frame() * w) as f32, (self.clip.row * h) as f32, w as f32, h as f32)
     }
 
     /// The column of the sheet being shown.
@@ -296,7 +296,7 @@ mod tests {
     fn an_even_clip_loops_through_its_frames_at_its_rate() {
         let mut a = anim();
         a.play(1, 4, 10.0);
-        assert_eq!(a.src(), Rect { x: 0.0, y: 10.0, w: 10.0, h: 10.0 });
+        assert_eq!(a.src(), Rect::new(0.0, 10.0, 10.0, 10.0));
         assert_eq!(frames(&mut a, 10, 0.1), [1, 2, 3, 0, 1, 2, 3, 0, 1, 2]);
         a.play(1, 4, 10.0);
         assert_eq!(a.frame(), 2, "the same row keeps going");

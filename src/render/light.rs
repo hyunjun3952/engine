@@ -209,7 +209,7 @@ mod tests {
         map.draw(&mut g);
         assert_eq!(g.cmds().len(), 1);
         let c = &g.cmds()[0];
-        assert_eq!((c.style.blend, c.rect), (Blend::Multiply, Rect { x: 0.0, y: 0.0, w: 40.0, h: 30.0 }));
+        assert_eq!((c.style.blend, c.rect), (Blend::Multiply, Rect::new(0.0, 0.0, 40.0, 30.0)));
         let version = map.sprite.version();
         map.clear(0x808080);
         map.draw(&mut g);

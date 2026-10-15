@@ -112,7 +112,7 @@ impl Soft {
             return true;
         }
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
-        let quad = Rect { x: r.x, y: r.y, w: src.w, h: src.h };
+        let quad = Rect::new(r.x, r.y, src.w, src.h);
         if t.angle == 0.0 && t.sx != 0.0 && t.sy != 0.0 {
             self.scaled_blit(&img, src, flip, quad, t, px);
             return true;
@@ -260,8 +260,7 @@ impl Soft {
                 while col < 8 && bits >> col & 1 == 1 {
                     col += 1;
                 }
-                let run =
-                    Rect { x: r.x + start as f32 * s, y: r.y + row as f32 * s, w: (col - start) as f32 * s, h: s };
+                let run = Rect::new(r.x + start as f32 * s, r.y + row as f32 * s, (col - start) as f32 * s, s);
                 self.fill_with(&run, |_| color);
             }
         }
@@ -455,7 +454,7 @@ mod tests {
         let sprite = Sprite::test_ball();
         let s = run(16, 16, |g| g.blit(&sprite, -8, -8));
         assert_eq!((s.buf[0], s.buf[8 * 16 + 8]), (sprite.image().px[8 * 16 + 8], 0));
-        let s = run(16, 16, |g| g.blit_region(&sprite, Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }, 0, 0, true));
+        let s = run(16, 16, |g| g.blit_region(&sprite, Rect::new(0.0, 0.0, 16.0, 16.0), 0, 0, true));
         assert_eq!(s.buf[8 * 16 + 3], sprite.image().px[8 * 16 + 12]);
         run(16, 16, |g| {
             for (x, y) in [(-100, 5), (100, 100), (5, -100), (15, 15), (-15, -15)] {
@@ -522,12 +521,8 @@ mod tests {
     fn a_source_rect_that_is_not_inside_its_sheet_draws_nothing_instead_of_panicking() {
         // What hot reload leaves behind when a sheet is replaced by a smaller picture.
         let sheet = std::sync::Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
-        let at = Rect { x: 2.0, y: 2.0, w: 8.0, h: 8.0 };
-        for src in [
-            Rect { x: 8.0, y: 0.0, w: 4.0, h: 4.0 },
-            Rect { x: 2.0, y: 2.0, w: 4.0, h: 4.0 },
-            Rect { x: -1.0, y: 0.0, w: 4.0, h: 4.0 },
-        ] {
+        let at = Rect::new(2.0, 2.0, 8.0, 8.0);
+        for src in [Rect::new(8.0, 0.0, 4.0, 4.0), Rect::new(2.0, 2.0, 4.0, 4.0), Rect::new(-1.0, 0.0, 4.0, 4.0)] {
             for xform in [
                 Transform::IDENTITY,
                 Transform { angle: 0.0, sx: 2.0, sy: 2.0 },
@@ -539,7 +534,7 @@ mod tests {
             let mask = Paint::Mask { sheet: sheet.clone(), src, color: 0xffffff };
             assert!(drawn(32, 32, at, mask, Transform::IDENTITY).buf.iter().all(|&p| p == 0), "mask {src:?}");
         }
-        let inside = Paint::Region { sheet, src: Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 }, flip: false };
+        let inside = Paint::Region { sheet, src: Rect::new(0.0, 0.0, 4.0, 4.0), flip: false };
         assert!(
             drawn(32, 32, at, inside, Transform::IDENTITY).buf.iter().any(|&p| p != 0),
             "a rect inside still draws"
@@ -554,9 +549,9 @@ mod tests {
         let mut rng = crate::Rng::new(9);
         let mut pick = move || odd[(rng.f32() * odd.len() as f32) as usize % odd.len()];
         for case in 0..8000 {
-            let rect = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
+            let rect = Rect::new(pick(), pick(), pick(), pick());
             let xform = Transform { angle: pick(), sx: pick(), sy: pick() };
-            let src = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
+            let src = Rect::new(pick(), pick(), pick(), pick());
             let paint = match case % 8 {
                 0 => Paint::Color(1),
                 1 => Paint::Alpha(0xff0000, 128),
@@ -583,8 +578,8 @@ mod tests {
         for case in 0..3000 {
             let mut g = crate::Gfx::new(32, 24);
             (g.zoom, g.cam) = (zooms[case % zooms.len()], Vec2::new(pick(), pick()));
-            let rect = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
-            let src = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
+            let rect = Rect::new(pick(), pick(), pick(), pick());
+            let src = Rect::new(pick(), pick(), pick(), pick());
             let xform = Transform { angle: pick(), sx: pick(), sy: pick() };
             let paint = match case % 7 {
                 0 => Paint::Color(1),
@@ -627,7 +622,7 @@ mod tests {
                 (rng.range(0.3, 5.0) * [1.0, -1.0][case % 2], rng.range(0.3, 5.0) * [1.0, -1.0][case / 2 % 2]);
             let rect = Rect { x: rng.range(-30.0, 50.0), y: rng.range(-30.0, 40.0), w: 7.0, h: 5.0 };
             let flip = case % 3 == 0;
-            let paint = Paint::Region { sheet: sheet.clone(), src: Rect { x: 1.0, y: 0.0, w: 5.0, h: 5.0 }, flip };
+            let paint = Paint::Region { sheet: sheet.clone(), src: Rect::new(1.0, 0.0, 5.0, 5.0), flip };
             let fast = drawn(48, 36, rect, paint.clone(), Transform { angle: 0.0, sx, sy });
             let slow = drawn(48, 36, rect, paint, Transform { angle: 1e-30, sx, sy });
             assert!(fast.buf == slow.buf, "case {case}: scale {sx} x {sy} at {rect:?}, flip {flip}");
@@ -637,7 +632,7 @@ mod tests {
     #[test]
     fn rotating_a_rect_a_quarter_turn_swaps_its_width_and_height_around_the_centre() {
         let quarter = Transform { angle: std::f32::consts::FRAC_PI_2, ..Transform::IDENTITY };
-        let s = drawn(8, 8, Rect { x: 2.0, y: 3.0, w: 4.0, h: 2.0 }, Paint::Color(7), quarter);
+        let s = drawn(8, 8, Rect::new(2.0, 3.0, 4.0, 2.0), Paint::Color(7), quarter);
         let want: Vec<(usize, usize)> = (2..6).flat_map(|y| (3..5).map(move |x| (x, y))).collect();
         assert_eq!(lit(&s, 8), want);
     }
@@ -645,19 +640,17 @@ mod tests {
     #[test]
     fn scaling_grows_around_the_centre_and_a_zero_scale_draws_nothing() {
         let double = Transform { sx: 2.0, sy: 2.0, ..Transform::IDENTITY };
-        let s = drawn(8, 8, Rect { x: 3.0, y: 3.0, w: 2.0, h: 2.0 }, Paint::Color(7), double);
+        let s = drawn(8, 8, Rect::new(3.0, 3.0, 2.0, 2.0), Paint::Color(7), double);
         let want: Vec<(usize, usize)> = (2..6).flat_map(|y| (2..6).map(move |x| (x, y))).collect();
         assert_eq!(lit(&s, 8), want);
         let none = Transform { sx: 0.0, ..Transform::IDENTITY };
-        assert!(
-            drawn(8, 8, Rect { x: 3.0, y: 3.0, w: 2.0, h: 2.0 }, Paint::Color(7), none).buf.iter().all(|&p| p == 0)
-        );
+        assert!(drawn(8, 8, Rect::new(3.0, 3.0, 2.0, 2.0), Paint::Color(7), none).buf.iter().all(|&p| p == 0));
     }
 
     #[test]
     fn a_square_turned_45_degrees_keeps_its_area() {
         let eighth = Transform { angle: std::f32::consts::FRAC_PI_4, ..Transform::IDENTITY };
-        let s = drawn(48, 48, Rect { x: 14.0, y: 14.0, w: 20.0, h: 20.0 }, Paint::Color(7), eighth);
+        let s = drawn(48, 48, Rect::new(14.0, 14.0, 20.0, 20.0), Paint::Color(7), eighth);
         let area = lit(&s, 48).len();
         assert!((380..=420).contains(&area), "{area}");
     }
@@ -666,7 +659,7 @@ mod tests {
     fn a_half_turn_flips_a_sprite_both_ways_and_a_negative_scale_mirrors_like_flip() {
         let sprite = Sprite::test_ball();
         let img = sprite.image();
-        let at = Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 };
+        let at = Rect::new(0.0, 0.0, 16.0, 16.0);
         let half = Transform { angle: std::f32::consts::PI, ..Transform::IDENTITY };
         let s = drawn(16, 16, at, Paint::Sprite(sprite.clone()), half);
         for y in 0..16 {
@@ -675,8 +668,7 @@ mod tests {
                 assert_eq!(s.buf[y * 16 + x], if p >> 24 == 255 { p } else { 0 }, "({x},{y})");
             }
         }
-        let region =
-            |flip| Paint::Region { sheet: sprite.clone(), src: Rect { x: 2.0, y: 0.0, w: 10.0, h: 16.0 }, flip };
+        let region = |flip| Paint::Region { sheet: sprite.clone(), src: Rect::new(2.0, 0.0, 10.0, 16.0), flip };
         let flipped = drawn(16, 16, at, region(true), Transform::IDENTITY);
         let mirrored = drawn(16, 16, at, region(false), Transform { sx: -1.0, ..Transform::IDENTITY });
         assert!(flipped.buf == mirrored.buf);
@@ -701,21 +693,21 @@ mod tests {
 
     #[test]
     fn fill_alpha_blends_with_what_is_beneath() {
-        let all = Rect { x: 0.0, y: 0.0, w: 2.0, h: 1.0 };
-        let s = run(2, 1, |g| g.fill_alpha(&all, 0xffffff, 128));
+        let all = Rect::new(0.0, 0.0, 2.0, 1.0);
+        let s = run(2, 1, |g| g.fill_alpha(all, 0xffffff, 128));
         assert_eq!(s.buf[0], 0x808080);
         let s = run(2, 1, |g| {
-            g.fill(&all, 0x808080);
-            g.fill_alpha(&all, 0x000000, 0);
+            g.fill(all, 0x808080);
+            g.fill_alpha(all, 0x000000, 0);
         });
         assert_eq!(s.buf[1], 0x808080);
-        let s = run(2, 1, |g| g.fill_alpha(&all, 0x102030, 255));
+        let s = run(2, 1, |g| g.fill_alpha(all, 0x102030, 255));
         assert_eq!(s.buf[0], 0x102030);
     }
 
     #[test]
     fn outline_leaves_interior_untouched_and_clear_fills_everything() {
-        let s = run(10, 10, |g| g.outline(&Rect { x: 2.0, y: 2.0, w: 5.0, h: 5.0 }, 1));
+        let s = run(10, 10, |g| g.outline(Rect::new(2.0, 2.0, 5.0, 5.0), 1));
         assert_eq!((s.buf[2 * 10 + 2], s.buf[6 * 10 + 6], s.buf[4 * 10 + 4]), (1, 1, 0));
         let s = run(4, 4, |g| g.clear(9));
         assert!(s.buf.iter().all(|&p| p == 9));
@@ -786,10 +778,10 @@ mod tests {
 
     #[test]
     fn a_style_flashes_fades_and_adds_flat_colours_and_a_plain_one_changes_nothing() {
-        let at = Rect { x: 1.0, y: 1.0, w: 2.0, h: 2.0 };
+        let at = Rect::new(1.0, 1.0, 2.0, 2.0);
         let draw = |cmds: &[DrawCmd]| {
             let mut s = Soft::new(4, 4, 1);
-            let back = DrawCmd::new(Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 }, Paint::Color(0x204060));
+            let back = DrawCmd::new(Rect::new(0.0, 0.0, 4.0, 4.0), Paint::Color(0x204060));
             s.render(&[&[back][..], cmds].concat());
             s.buf[5]
         };
@@ -823,10 +815,8 @@ mod tests {
         let sheet = std::sync::Arc::new(Sprite::from_pixels(2, 1, vec![0xFF80_4020, 0x00FF_FFFF]));
         let sprite = |style: Style, xform: Transform| {
             let mut s = Soft::new(8, 4, 1);
-            let cmd = DrawCmd {
-                xform,
-                ..styled_cmd(Rect { x: 2.0, y: 1.0, w: 2.0, h: 1.0 }, Paint::Sprite(sheet.clone()), style)
-            };
+            let cmd =
+                DrawCmd { xform, ..styled_cmd(Rect::new(2.0, 1.0, 2.0, 1.0), Paint::Sprite(sheet.clone()), style) };
             s.render(&[cmd]);
             s
         };

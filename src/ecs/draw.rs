@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn a_transform_component_reaches_the_command_and_others_get_the_identity() {
         let mut w = World::new();
-        let body = || Body(Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 });
+        let body = || Body(Rect::new(0.0, 0.0, 4.0, 4.0));
         let spun = Transform { angle: 1.0, sx: 2.0, sy: 3.0 };
         w.spawn((body(), Look::Color(1), spun));
         w.spawn((body(), Look::Color(2)));
@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn a_style_component_reaches_the_commands_of_its_entity_only() {
         let mut w = World::new();
-        let body = || Body(Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 });
+        let body = || Body(Rect::new(0.0, 0.0, 4.0, 4.0));
         let flash = Style::PLAIN.flashed(0xffffff, 200).additive();
         w.spawn((body(), Look::Color(1), flash));
         w.spawn((body(), Look::Color(2)));
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn higher_layers_come_later_regardless_of_spawn_order_and_colliders_add_debug_outlines() {
         let mut w = World::new();
-        let square = |c| (Body(Rect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 }), Look::Color(c));
+        let square = |c| (Body(Rect::new(0.0, 0.0, 4.0, 4.0)), Look::Color(c));
         let (top, bottom) = (square(0xff0000), square(0x0000ff));
         w.spawn((top.0, top.1, Layer(5), Collider));
         w.spawn((bottom.0, bottom.1));

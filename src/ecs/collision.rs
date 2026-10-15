@@ -5,7 +5,7 @@ pub(crate) fn turned_box(r: Rect, (s, c): (f32, f32), pad: f32) -> Rect {
     let (hw, hh) = (r.w / 2.0, r.h / 2.0);
     let (ex, ey) = (hw * c.abs() + hh * s.abs() + pad, hw * s.abs() + hh * c.abs() + pad);
     let Vec2 { x: cx, y: cy } = r.center();
-    Rect { x: cx - ex, y: cy - ey, w: ex * 2.0, h: ey * 2.0 }
+    Rect::new(cx - ex, cy - ey, ex * 2.0, ey * 2.0)
 }
 
 // The box a body covers once turned by its `Transform`, as physics and `raycast` see it.
@@ -89,7 +89,7 @@ impl Sweep {
                 if (a_inert && inert(b)) || rb.y + rb.h <= ra.y || ra.y + ra.h <= rb.y {
                     continue;
                 }
-                if let Some(Vec2 { x: ox, y: oy }) = ra.penetration(rb) {
+                if let Some(Vec2 { x: ox, y: oy }) = ra.penetration(*rb) {
                     self.found.push((a, b, ox, oy));
                 }
             }
@@ -107,7 +107,7 @@ pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)>
     if span(|r| r.y) <= span(|r| r.x) {
         return Sweep::default().pairs(rects, |_| false).to_vec();
     }
-    let flipped: Vec<Rect> = rects.iter().map(|r| Rect { x: r.y, y: r.x, w: r.h, h: r.w }).collect();
+    let flipped: Vec<Rect> = rects.iter().map(|r| Rect::new(r.y, r.x, r.h, r.w)).collect();
     Sweep::default().pairs(&flipped, |_| false).iter().map(|&(a, b, ox, oy)| (a, b, oy, ox)).collect()
 }
 
@@ -126,7 +126,7 @@ pub fn collisions(world: &World) -> Vec<Contact> {
         .collect()
 }
 
-pub fn query_rect(world: &World, area: &Rect) -> Vec<Entity> {
+pub fn query_rect(world: &World, area: Rect) -> Vec<Entity> {
     world
         .query::<(Entity, &Body, &Collider, Option<&Transform>)>()
         .iter()
@@ -152,7 +152,7 @@ mod tests {
         let mut out = Vec::new();
         for a in 0..rects.len() {
             for b in a + 1..rects.len() {
-                if let Some(Vec2 { x: ox, y: oy }) = rects[a].penetration(&rects[b]).filter(|_| !(inert(a) && inert(b)))
+                if let Some(Vec2 { x: ox, y: oy }) = rects[a].penetration(rects[b]).filter(|_| !(inert(a) && inert(b)))
                 {
                     out.push((a, b, ox, oy));
                 }
@@ -202,8 +202,7 @@ mod tests {
         }
         assert!(!sweep.pairs(&rects, |_| false).is_empty(), "the test world has overlaps to find");
         assert_eq!(normalized(&overlapping_pairs(&rects)), normalized(&brute(&rects, &|_| false)));
-        let tall: Vec<Rect> =
-            rects.iter().map(|r| Rect { x: r.y * 0.1, y: r.x * 10.0, w: r.h, h: r.w * 10.0 }).collect();
+        let tall: Vec<Rect> = rects.iter().map(|r| Rect::new(r.y * 0.1, r.x * 10.0, r.h, r.w * 10.0)).collect();
         assert_eq!(normalized(&overlapping_pairs(&tall)), normalized(&brute(&tall, &|_| false)));
     }
 
@@ -227,7 +226,7 @@ mod tests {
         let a = boxed(&mut w, 0.0, true);
         boxed(&mut w, 5.0, false);
         boxed(&mut w, 50.0, true);
-        assert_eq!(query_rect(&w, &Rect { x: -5.0, y: 0.0, w: 10.0, h: 10.0 }), vec![a]);
+        assert_eq!(query_rect(&w, Rect::new(-5.0, 0.0, 10.0, 10.0)), vec![a]);
     }
 
     #[test]
@@ -245,7 +244,7 @@ mod tests {
     #[test]
     fn a_collider_without_a_rigid_body_is_a_trigger_that_still_reports_overlaps() {
         let mut w = World::new();
-        let body = w.spawn((Body(Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }), Collider, crate::RigidBody::fixed()));
+        let body = w.spawn((Body(Rect::new(0.0, 0.0, 10.0, 10.0)), Collider, crate::RigidBody::fixed()));
         let zone = boxed(&mut w, 5.0, true);
         assert_eq!(collisions(&w)[0].other(body), Some(zone));
     }
@@ -254,11 +253,11 @@ mod tests {
     fn collisions_and_queries_see_a_body_as_turned() {
         let mut w = World::new();
         let plank = w.spawn((
-            Body(Rect { x: 0.0, y: 0.0, w: 100.0, h: 10.0 }),
+            Body(Rect::new(0.0, 0.0, 100.0, 10.0)),
             Collider,
             Transform { angle: std::f32::consts::FRAC_PI_2, ..Default::default() },
         ));
-        let probe = Rect { x: 45.0, y: 40.0, w: 10.0, h: 10.0 };
-        assert_eq!(query_rect(&w, &probe), vec![plank]);
+        let probe = Rect::new(45.0, 40.0, 10.0, 10.0);
+        assert_eq!(query_rect(&w, probe), vec![plank]);
     }
 }

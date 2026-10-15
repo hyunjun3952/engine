@@ -329,7 +329,7 @@ fn speed(n: &Node) -> f32 {
 }
 
 fn grow(r: Rect, by: f32) -> Rect {
-    Rect { x: r.x - by, y: r.y - by, w: r.w + by * 2.0, h: r.h + by * 2.0 }
+    Rect::new(r.x - by, r.y - by, r.w + by * 2.0, r.h + by * 2.0)
 }
 
 fn cross(a: V2, b: V2) -> f32 {
@@ -602,7 +602,7 @@ impl Physics {
         }
         self.walls = walls;
         for (e, n) in ents.iter().zip(nodes.iter_mut()) {
-            if self.asleep(*e) && movers.iter().any(|m| m.overlaps(&n.bounds())) {
+            if self.asleep(*e) && movers.iter().any(|m| m.overlaps(n.bounds())) {
                 self.rest.remove(e);
             }
             if self.asleep(*e) {
@@ -674,7 +674,7 @@ impl Physics {
                 let (dx, dy) = ((v.0 + gx) * dt, (v.1 + gy) * dt);
                 let (x0, x1) = (r.x.min(r.x + dx).max(-size), (r.x + r.w).max(r.x + r.w + dx).min(mw + size));
                 let (y0, y1) = (r.y.min(r.y + dy).max(-size), (r.y + r.h).max(r.y + r.h + dy).min(mh + size));
-                if x1 > x0 && y1 > y0 && !map.solid_in(Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }).is_empty() {
+                if x1 > x0 && y1 > y0 && !map.solid_in(Rect::new(x0, y0, x1 - x0, y1 - y0)).is_empty() {
                     worst = need[i];
                 }
             }
@@ -804,7 +804,7 @@ fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
             continue;
         }
         let r = nodes[i].bounds();
-        let near = Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 };
+        let near = Rect::new(r.x - 1.0, r.y - 1.0, r.w + 2.0, r.h + 2.0);
         for tile in map.solid_in(near) {
             if seen.insert((tile.x as i32, tile.y as i32)) {
                 let s = map.size as f32;

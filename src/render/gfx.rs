@@ -14,17 +14,21 @@ pub struct Rect {
 }
 
 impl Rect {
+    pub const fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+        Rect { x, y, w, h }
+    }
+
     pub fn center(&self) -> Vec2 {
         Vec2::new(self.x + self.w / 2.0, self.y + self.h / 2.0)
     }
 
-    pub fn penetration(&self, o: &Rect) -> Option<Vec2> {
+    pub fn penetration(&self, o: Rect) -> Option<Vec2> {
         let ox = (self.x + self.w).min(o.x + o.w) - self.x.max(o.x);
         let oy = (self.y + self.h).min(o.y + o.h) - self.y.max(o.y);
         (ox > 0.0 && oy > 0.0).then_some(Vec2::new(ox, oy))
     }
 
-    pub fn overlaps(&self, o: &Rect) -> bool {
+    pub fn overlaps(&self, o: Rect) -> bool {
         self.penetration(o).is_some()
     }
 
@@ -47,7 +51,7 @@ impl Rect {
 /// Where a `canvas`-sized picture lands in a `win`-sized window when it is scaled up as far as it fits and centred.
 pub(crate) fn letterbox((ww, wh): (f32, f32), (w, h): (f32, f32)) -> Rect {
     let k = (ww / w).min(wh / h);
-    Rect { x: (ww - w * k) / 2.0, y: (wh - h * k) / 2.0, w: w * k, h: h * k }
+    Rect::new((ww - w * k) / 2.0, (wh - h * k) / 2.0, w * k, h * k)
 }
 
 pub struct Gfx {
@@ -78,23 +82,23 @@ impl Gfx {
     }
 
     pub fn view(&self) -> Rect {
-        Rect { x: self.cam.x, y: self.cam.y, w: self.w as f32 / self.zoom, h: self.h as f32 / self.zoom }
+        Rect::new(self.cam.x, self.cam.y, self.w as f32 / self.zoom, self.h as f32 / self.zoom)
     }
 
     pub fn clear(&mut self, c: u32) {
-        self.push(Rect { x: 0.0, y: 0.0, w: self.w as f32, h: self.h as f32 }, Paint::Clear(c));
+        self.push(Rect::new(0.0, 0.0, self.w as f32, self.h as f32), Paint::Clear(c));
     }
 
-    pub fn fill(&mut self, r: &Rect, c: u32) {
-        self.push(*r, Paint::Color(c));
+    pub fn fill(&mut self, r: Rect, c: u32) {
+        self.push(r, Paint::Color(c));
     }
 
-    pub fn fill_alpha(&mut self, r: &Rect, c: u32, alpha: u8) {
-        self.push(*r, Paint::Alpha(c, alpha));
+    pub fn fill_alpha(&mut self, r: Rect, c: u32, alpha: u8) {
+        self.push(r, Paint::Alpha(c, alpha));
     }
 
-    pub fn outline(&mut self, r: &Rect, c: u32) {
-        self.push(*r, Paint::Outline(c));
+    pub fn outline(&mut self, r: Rect, c: u32) {
+        self.push(r, Paint::Outline(c));
     }
 
     pub fn blit(&mut self, s: &Arc<Sprite>, x: i32, y: i32) {
@@ -116,11 +120,11 @@ impl Gfx {
 
     pub fn blit_region(&mut self, s: &Arc<Sprite>, src: Rect, x: i32, y: i32, flip: bool) {
         let paint = Paint::Region { sheet: s.clone(), src, flip };
-        self.push(Rect { x: x as f32, y: y as f32, w: src.w, h: src.h }, paint);
+        self.push(Rect::new(x as f32, y as f32, src.w, src.h), paint);
     }
 
     /// Draws `src` as a panel filling `dest`: `margin` corners at natural size, edges and middle repeated, clipped to the screen.
-    pub fn blit_nine(&mut self, s: &Arc<Sprite>, src: Rect, margin: i32, dest: &Rect) {
+    pub fn blit_nine(&mut self, s: &Arc<Sprite>, src: Rect, margin: i32, dest: Rect) {
         let m = margin as f32;
         assert!(
             margin >= 0 && src.w >= 2.0 * m + 1.0 && src.h >= 2.0 * m + 1.0,
@@ -207,7 +211,7 @@ impl Gfx {
                 let (k, sheet_w) = (*size as f32, sheet.size().0);
                 for &(gx, gy, id) in tiles {
                     let src = Paint::tile_src(id, *size, sheet_w);
-                    let at = Rect { x: c.rect.x + gx as f32 * k, y: c.rect.y + gy as f32 * k, w: k, h: k };
+                    let at = Rect::new(c.rect.x + gx as f32 * k, c.rect.y + gy as f32 * k, k, k);
                     let paint = Paint::Region { sheet: sheet.clone(), src, flip: false };
                     self.push_zoomed(DrawCmd { layer: c.layer, ..DrawCmd::new(at, paint) });
                 }
@@ -240,7 +244,7 @@ impl Gfx {
                 let flat = matches!(c.paint, Paint::Color(_) | Paint::Alpha(..));
                 if t.angle != 0.0 {
                     let (nx, ny) = ((cx - cam.x) * z, (cy - cam.y) * z);
-                    let rect = Rect { x: nx - qw / 2.0, y: ny - qh / 2.0, w: qw, h: qh };
+                    let rect = Rect::new(nx - qw / 2.0, ny - qh / 2.0, qw, qh);
                     self.cmds.push(DrawCmd { rect, xform: Transform { sx: t.sx * z, sy: t.sy * z, ..t }, ..c });
                     return;
                 }
@@ -248,13 +252,13 @@ impl Gfx {
                 let (x0, y0) = (edge(cx - ex, cam.x), edge(cy - ey, cam.y));
                 let (x1, y1) = (edge(cx + ex, cam.x).max(x0 + 1.0), edge(cy + ey, cam.y).max(y0 + 1.0));
                 if flat {
-                    let rect = Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+                    let rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
                     return self.cmds.push(DrawCmd { rect, xform: Transform::IDENTITY, ..c });
                 }
                 let scale =
                     Transform { angle: 0.0, sx: t.sx.signum() * (x1 - x0) / qw, sy: t.sy.signum() * (y1 - y0) / qh };
                 let (nx, ny) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-                let rect = Rect { x: nx - qw / 2.0, y: ny - qh / 2.0, w: qw, h: qh };
+                let rect = Rect::new(nx - qw / 2.0, ny - qh / 2.0, qw, qh);
                 let xform = if scale.is_identity() { Transform::IDENTITY } else { scale };
                 self.cmds.push(DrawCmd { rect, xform, ..c });
             }
@@ -270,8 +274,7 @@ impl Gfx {
     pub fn text_font_scaled(&mut self, font: &Font, s: &str, x: i32, y: i32, scale: i32, color: u32) {
         let k = scale.max(1);
         for (src, dx, dy) in font.layout(s) {
-            let rect =
-                Rect { x: (x + dx * k) as f32, y: (y + dy * k) as f32, w: src.w * k as f32, h: src.h * k as f32 };
+            let rect = Rect::new((x + dx * k) as f32, (y + dy * k) as f32, src.w * k as f32, src.h * k as f32);
             self.push(rect, Paint::Mask { sheet: font.atlas.clone(), src, color });
         }
     }
@@ -283,7 +286,7 @@ impl Gfx {
             if code >= font::GLYPHS as u32 || font::bits(code as u8) == [0; 8] {
                 continue;
             }
-            let rect = Rect { x: x as f32 + i as f32 * size, y: y as f32, w: size, h: size };
+            let rect = Rect::new(x as f32 + i as f32 * size, y as f32, size, size);
             self.push(rect, Paint::Glyph { ch: code as u8, color: c, scale });
         }
     }
@@ -325,7 +328,7 @@ impl Sprite {
     /// The whole image as a rect at the origin.
     pub fn bounds(&self) -> Rect {
         let (w, h) = self.size();
-        Rect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 }
+        Rect::new(0.0, 0.0, w as f32, h as f32)
     }
 
     #[cfg(test)]
@@ -399,10 +402,7 @@ mod tests {
 
     #[test]
     fn draw_applies_the_camera_and_skips_debug_commands_unless_enabled() {
-        let cmd = |debug_only| DrawCmd {
-            debug_only,
-            ..DrawCmd::new(Rect { x: 5.0, y: 2.0, w: 1.0, h: 1.0 }, Paint::Color(7))
-        };
+        let cmd = |debug_only| DrawCmd { debug_only, ..DrawCmd::new(Rect::new(5.0, 2.0, 1.0, 1.0), Paint::Color(7)) };
         let mut g = Gfx::new(8, 8);
         g.cam = Vec2::new(3.0, 1.0);
         g.draw([cmd(false), cmd(true)]);
@@ -428,7 +428,7 @@ mod tests {
     fn the_view_shrinks_with_the_zoom_and_flat_rects_land_on_whole_pixels() {
         let mut g = zoomed(2.0, (8.0, 8.0));
         assert_eq!((g.view().w, g.view().h), (50.0, 30.0));
-        g.draw([DrawCmd::new(Rect { x: 10.0, y: 10.0, w: 4.0, h: 4.0 }, Paint::Color(7))]);
+        g.draw([DrawCmd::new(Rect::new(10.0, 10.0, 4.0, 4.0), Paint::Color(7))]);
         assert_eq!(at(&g, 0), (4.0, 4.0, 8.0, 8.0));
         assert!(g.cmds()[0].xform.is_identity(), "a flat rect is just a bigger rect, no per-pixel warp");
     }
@@ -436,13 +436,13 @@ mod tests {
     #[test]
     fn rects_that_shared_an_edge_still_share_it_at_a_fractional_zoom() {
         let mut g = zoomed(1.5, (0.0, 0.0));
-        let rects = (0..6).map(|i| DrawCmd::new(Rect { x: i as f32 * 3.0, y: 0.0, w: 3.0, h: 3.0 }, Paint::Color(i)));
+        let rects = (0..6).map(|i| DrawCmd::new(Rect::new(i as f32 * 3.0, 0.0, 3.0, 3.0), Paint::Color(i)));
         g.draw(rects);
         for i in 1..6 {
             let (prev, now) = (at(&g, i - 1), at(&g, i));
             assert_eq!(prev.0 + prev.2, now.0, "gap or overlap between rect {} and {i}", i - 1);
         }
-        let tiny = DrawCmd::new(Rect { x: 0.0, y: 0.0, w: 0.2, h: 0.2 }, Paint::Color(1));
+        let tiny = DrawCmd::new(Rect::new(0.0, 0.0, 0.2, 0.2), Paint::Color(1));
         let mut g = zoomed(0.5, (0.0, 0.0));
         g.draw([tiny]);
         assert_eq!((at(&g, 0).2, at(&g, 0).3), (1.0, 1.0), "a small thing stays at least a pixel");
@@ -461,7 +461,7 @@ mod tests {
         let (cx, cy) = (c.rect.x + 2.0, c.rect.y + 2.0);
         assert_eq!((cx, cy), (30.0, 30.0));
         let mut whole = zoomed(1.0, (0.0, 0.0));
-        whole.draw([DrawCmd::new(Rect { x: 3.0, y: 3.0, w: 4.0, h: 4.0 }, Paint::Sprite(sheet))]);
+        whole.draw([DrawCmd::new(Rect::new(3.0, 3.0, 4.0, 4.0), Paint::Sprite(sheet))]);
         assert!(whole.cmds()[0].xform.is_identity(), "no zoom leaves a sprite on the fast path");
     }
 
@@ -469,7 +469,7 @@ mod tests {
     fn a_turned_and_mirrored_command_keeps_its_turn_and_grows_about_its_centre() {
         let mut g = zoomed(2.0, (0.0, 0.0));
         let turn = Transform { angle: 0.5, sx: -1.0, sy: 1.0 };
-        g.draw([DrawCmd { xform: turn, ..DrawCmd::new(Rect { x: 10.0, y: 10.0, w: 6.0, h: 4.0 }, Paint::Color(1)) }]);
+        g.draw([DrawCmd { xform: turn, ..DrawCmd::new(Rect::new(10.0, 10.0, 6.0, 4.0), Paint::Color(1)) }]);
         let c = &g.cmds()[0];
         assert_eq!((c.xform.angle, c.xform.sx, c.xform.sy), (0.5, -2.0, 2.0));
         assert_eq!((c.rect.x + c.rect.w / 2.0, c.rect.y + c.rect.h / 2.0), (26.0, 24.0));
@@ -480,7 +480,7 @@ mod tests {
         let sheet = Arc::new(Sprite::from_pixels(8, 4, vec![0xFFFF_FFFF; 32]));
         let tiles = Paint::Tiles { sheet, size: 4, tiles: vec![(0, 0, 1), (1, 0, 2), (0, 1, 2)] };
         let mut g = zoomed(2.0, (0.0, 0.0));
-        g.draw([DrawCmd::new(Rect { x: 8.0, y: 8.0, w: 8.0, h: 8.0 }, tiles)]);
+        g.draw([DrawCmd::new(Rect::new(8.0, 8.0, 8.0, 8.0), tiles)]);
         assert_eq!(g.cmds().len(), 3);
         let places: Vec<(f32, f32)> = g.cmds().iter().map(|c| (c.rect.x + 2.0 - 4.0, c.rect.y + 2.0 - 4.0)).collect();
         // Each is a 4 px tile scaled to 8: the centres of the first row sit 8 apart.
@@ -499,7 +499,7 @@ mod tests {
         let mut plain = Gfx::new(100, 60);
         plain.text_font(&font, "가", 10, 10, 0xffffff);
         plain.text("A", 20, 20, 2, 0xffffff);
-        plain.outline(&Rect { x: 4.0, y: 4.0, w: 10.0, h: 6.0 }, 3);
+        plain.outline(Rect::new(4.0, 4.0, 10.0, 6.0), 3);
         let mut g = zoomed(1.6, (0.0, 0.0));
         g.draw(plain.cmds().to_vec());
         let sizes: Vec<f32> = g.cmds().iter().map(|c| c.rect.w).collect();
@@ -519,7 +519,7 @@ mod tests {
         for (w, h) in [(8.0, 8.0), (20.0, 14.0), (31.0, 9.0), (50.0, 50.0)] {
             let mut g = Gfx::new(64, 64);
             let dest = Rect { x: 5.0, y: 7.0, w, h };
-            g.blit_nine(&sheet, src, 4, &dest);
+            g.blit_nine(&sheet, src, 4, dest);
             let area: f32 = g.cmds().iter().map(|c| c.rect.w * c.rect.h).sum();
             assert_eq!(area, w * h, "{w}x{h}: every pixel once");
             for c in g.cmds() {
@@ -536,7 +536,7 @@ mod tests {
         let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0xFFFF_FFFF; 144]));
         let record = |x: f32, w: f32| {
             let mut g = Gfx::new(64, 48);
-            g.blit_nine(&sheet, sheet.bounds(), 4, &Rect { x, y: -10.0, w, h: 1e9 });
+            g.blit_nine(&sheet, sheet.bounds(), 4, Rect { x, y: -10.0, w, h: 1e9 });
             g
         };
         // Positions an f32 can still tell a pixel apart at: the part of the panel in view is covered exactly once.
@@ -564,7 +564,7 @@ mod tests {
     #[should_panic(expected = "hold both margins")]
     fn a_nine_slice_panel_smaller_than_its_margins_is_refused() {
         let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0; 144]));
-        Gfx::new(64, 64).blit_nine(&sheet, sheet.bounds(), 4, &Rect { x: 0.0, y: 0.0, w: 7.0, h: 20.0 });
+        Gfx::new(64, 64).blit_nine(&sheet, sheet.bounds(), 4, Rect::new(0.0, 0.0, 7.0, 20.0));
     }
 
     #[test]
@@ -580,17 +580,14 @@ mod tests {
     #[test]
     fn the_picture_is_scaled_up_as_far_as_it_fits_and_centred() {
         let canvas = (640.0, 360.0);
-        assert_eq!(letterbox(canvas, canvas), Rect { x: 0.0, y: 0.0, w: 640.0, h: 360.0 });
-        assert_eq!(letterbox((1280.0, 1000.0), canvas), Rect { x: 0.0, y: 140.0, w: 1280.0, h: 720.0 });
-        assert_eq!(letterbox((1600.0, 720.0), canvas), Rect { x: 160.0, y: 0.0, w: 1280.0, h: 720.0 });
+        assert_eq!(letterbox(canvas, canvas), Rect::new(0.0, 0.0, 640.0, 360.0));
+        assert_eq!(letterbox((1280.0, 1000.0), canvas), Rect::new(0.0, 140.0, 1280.0, 720.0));
+        assert_eq!(letterbox((1600.0, 720.0), canvas), Rect::new(160.0, 0.0, 1280.0, 720.0));
     }
 
     #[test]
     fn draw_puts_lower_layers_first_and_keeps_the_order_within_a_layer() {
-        let cmd = |layer, color| DrawCmd {
-            layer,
-            ..DrawCmd::new(Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }, Paint::Color(color))
-        };
+        let cmd = |layer, color| DrawCmd { layer, ..DrawCmd::new(Rect::new(0.0, 0.0, 1.0, 1.0), Paint::Color(color)) };
         let mut g = Gfx::new(8, 8);
         g.draw([cmd(5, 1), cmd(-3, 2), cmd(5, 3), cmd(0, 4)]);
         let colors: Vec<u32> =
@@ -602,7 +599,7 @@ mod tests {
     fn a_parallax_layer_follows_the_camera_by_its_factor_and_the_camera_is_left_alone() {
         let mut g = Gfx::new(100, 100);
         g.cam = Vec2::new(100.0, 40.0);
-        let mark = DrawCmd::new(Rect { x: 150.0, y: 50.0, w: 4.0, h: 4.0 }, Paint::Color(1));
+        let mark = DrawCmd::new(Rect::new(150.0, 50.0, 4.0, 4.0), Paint::Color(1));
         g.draw_parallax([mark.clone()], (0.5, 1.0));
         g.draw_parallax([mark.clone()], (0.0, 0.0));
         g.draw([mark]);

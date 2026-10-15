@@ -38,7 +38,7 @@ pub(super) fn touch(a: &Node, b: &Node, tile_axes_only: bool) -> Option<Touch> {
 }
 
 fn axis_aligned(a: &Node, b: &Node) -> Option<Touch> {
-    let Vec2 { x: ox, y: oy } = a.rect.penetration(&b.rect)?;
+    let Vec2 { x: ox, y: oy } = a.rect.penetration(b.rect)?;
     let along_x = hit_along_x(&a.before, &b.before, ox, oy);
     let (x0, x1) = (a.rect.x.max(b.rect.x), (a.rect.x + a.rect.w).min(b.rect.x + b.rect.w));
     let (y0, y1) = (a.rect.y.max(b.rect.y), (a.rect.y + a.rect.h).min(b.rect.y + b.rect.h));

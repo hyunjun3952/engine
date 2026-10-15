@@ -319,9 +319,9 @@ impl Tilemap {
     /// Moves `r` by `dx`, then `dy`, stopping at solid tiles: the moved box and whether x and y were blocked. Slope
     /// tiles are climbed (a step up as long as the step sideways) and followed down when the box stood on one; a
     /// box that stands on a slope or lands on one reports a blocked y.
-    pub fn slide(&self, r: &Rect, dx: f32, dy: f32) -> (Rect, bool, bool) {
-        let on_slope = dx != 0.0 && dy >= 0.0 && self.resting_on_slope(r);
-        let (mut r, hit_x, lifted) = self.step_x(*r, dx);
+    pub fn slide(&self, r: Rect, dx: f32, dy: f32) -> (Rect, bool, bool) {
+        let on_slope = dx != 0.0 && dy >= 0.0 && self.resting_on_slope(&r);
+        let (mut r, hit_x, lifted) = self.step_x(r, dx);
         let mut grounded = lifted && dy >= 0.0;
         if on_slope && !hit_x && !lifted {
             let (down, landed) = self.step_y(r, dx.abs() + 1.0);
@@ -398,7 +398,7 @@ impl Tilemap {
         for ty in y0..=y1 {
             for tx in x0..=x1 {
                 if let Some(slope) = self.slope(tx, ty) {
-                    out.push((slope, Rect { x: tx as f32 * s, y: ty as f32 * s, w: s, h: s }));
+                    out.push((slope, Rect::new(tx as f32 * s, ty as f32 * s, s, s)));
                 }
             }
         }
@@ -493,7 +493,7 @@ impl Tilemap {
         for ty in y0..y1 {
             for tx in x0..x1 {
                 if self.solid(tx, ty) {
-                    out.push(Rect { x: tx as f32 * s, y: ty as f32 * s, w: s, h: s });
+                    out.push(Rect::new(tx as f32 * s, ty as f32 * s, s, s));
                 }
             }
         }
@@ -530,7 +530,7 @@ impl Tilemap {
                 }
             }
         }
-        let rect = Rect { x: tx0 as f32 * s, y: ty0 as f32 * s, w: (tx1 - tx0) as f32 * s, h: (ty1 - ty0) as f32 * s };
+        let rect = Rect::new(tx0 as f32 * s, ty0 as f32 * s, (tx1 - tx0) as f32 * s, (ty1 - ty0) as f32 * s);
         [(back, i32::MIN), (front, FRONT_LAYER)]
             .into_iter()
             .filter(|(tiles, _)| !tiles.is_empty())
@@ -553,7 +553,7 @@ mod tests {
 
     fn shown(map: &Tilemap) -> Vec<Vec<u8>> {
         let mut grid = vec![vec![0; map.w]; map.h];
-        for c in map.draw_list(Rect { x: 0.0, y: 0.0, w: (map.w * map.size) as f32, h: (map.h * map.size) as f32 }) {
+        for c in map.draw_list(Rect::new(0.0, 0.0, (map.w * map.size) as f32, (map.h * map.size) as f32)) {
             if let Paint::Tiles { tiles, .. } = &c.paint {
                 tiles.iter().for_each(|&(x, y, id)| grid[y as usize][x as usize] = id);
             }
@@ -585,7 +585,7 @@ mod tests {
     fn an_autotile_in_front_draws_all_its_variants_in_front() {
         let front = Tile { ch: b'#', id: 3, solid: false, front: true, auto: true, one_way: false, slope: None };
         let map = Tilemap::try_from_ascii_with(&["#.#"], 2, wide_sheet(), &[front]).unwrap();
-        let cmds = map.draw_list(Rect { x: 0.0, y: 0.0, w: 6.0, h: 2.0 });
+        let cmds = map.draw_list(Rect::new(0.0, 0.0, 6.0, 2.0));
         assert_eq!((cmds.len(), cmds[0].layer), (1, i32::MAX - 1));
     }
 
@@ -640,19 +640,19 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        assert_eq!(at(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }), [(0.0, 0.0), (32.0, 0.0)]);
-        assert_eq!(at(Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 }), [(0.0, 0.0)]);
-        assert_eq!(at(Rect { x: 20.0, y: 0.0, w: 40.0, h: 16.0 }), [(32.0, 0.0)]);
-        assert!(map.draw_list(Rect { x: 0.0, y: 32.0, w: 48.0, h: 16.0 }).is_empty());
-        assert_eq!(map.draw_list(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }).len(), 1);
+        assert_eq!(at(Rect::new(0.0, 0.0, 48.0, 48.0)), [(0.0, 0.0), (32.0, 0.0)]);
+        assert_eq!(at(Rect::new(0.0, 0.0, 16.0, 16.0)), [(0.0, 0.0)]);
+        assert_eq!(at(Rect::new(20.0, 0.0, 40.0, 16.0)), [(32.0, 0.0)]);
+        assert!(map.draw_list(Rect::new(0.0, 32.0, 48.0, 16.0)).is_empty());
+        assert_eq!(map.draw_list(Rect::new(0.0, 0.0, 48.0, 48.0)).len(), 1);
     }
 
     #[test]
     fn falling_box_lands_on_floor_and_wall_stops_it() {
         let map = Tilemap::from_ascii(&["...", "...", "###"], 16, Sprite::test_tiles());
-        let (r, hx, hy) = map.slide(&Rect { x: 0.0, y: 20.0, w: 10.0, h: 10.0 }, 0.0, 5.0);
+        let (r, hx, hy) = map.slide(Rect::new(0.0, 20.0, 10.0, 10.0), 0.0, 5.0);
         assert_eq!((r.y, hx, hy), (22.0, false, true));
-        let (r, hx, _) = map.slide(&Rect { x: 1.0, y: 0.0, w: 10.0, h: 10.0 }, -3.0, 0.0);
+        let (r, hx, _) = map.slide(Rect::new(1.0, 0.0, 10.0, 10.0), -3.0, 0.0);
         assert_eq!((r.x, hx), (0.0, true));
     }
 
@@ -664,7 +664,7 @@ mod tests {
         map.set(1, 0, 2);
         assert_eq!((map.tile(1, 0), map.tile(1, 1), map.tile(0, 0)), (2, 1, 0));
         assert!(map.stamp() != before);
-        assert!(!map.solid_in(Rect { x: 16.0, y: 0.0, w: 16.0, h: 16.0 }).is_empty());
+        assert!(!map.solid_in(Rect::new(16.0, 0.0, 16.0, 16.0)).is_empty());
     }
 
     fn legend() -> [Tile; 3] {
@@ -680,10 +680,10 @@ mod tests {
         let sheet = Sprite::test_tiles();
         let map = Tilemap::try_from_ascii_with(&["P.v", ":::", "###"], 16, sheet, &legend()).unwrap();
         assert_eq!(map.marks(b'P').count(), 1, "characters outside the legend are still markers");
-        assert_eq!(map.solid_in(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 }).len(), 3, "only the ground blocks");
-        let (moved, hit_x, hit_y) = map.slide(&Rect { x: 4.0, y: 20.0, w: 8.0, h: 8.0 }, 10.0, 0.0);
+        assert_eq!(map.solid_in(Rect::new(0.0, 0.0, 48.0, 48.0)).len(), 3, "only the ground blocks");
+        let (moved, hit_x, hit_y) = map.slide(Rect::new(4.0, 20.0, 8.0, 8.0), 10.0, 0.0);
         assert!(!hit_x && !hit_y && moved.x == 14.0, "walks through the background wall");
-        let cmds = map.draw_list(Rect { x: 0.0, y: 0.0, w: 48.0, h: 48.0 });
+        let cmds = map.draw_list(Rect::new(0.0, 0.0, 48.0, 48.0));
         assert_eq!(cmds.iter().map(|c| c.layer).collect::<Vec<_>>(), [i32::MIN, FRONT_LAYER]);
         let count = |c: &DrawCmd| match &c.paint {
             Paint::Tiles { tiles, .. } => tiles.len(),
@@ -699,13 +699,13 @@ mod tests {
             Tilemap::try_from_ascii_with(&["...", "...", ".=.", "..."], 16, Sprite::test_tiles(), &[one_way]).unwrap();
         assert!(map.one_way(1, 2) && !map.one_way(0, 2) && !map.one_way(-1, 2) && !map.one_way(1, 9));
         let body = |x: f32, y: f32| Rect { x, y, w: 8.0, h: 8.0 };
-        let (landed, _, hit) = map.slide(&body(20.0, 20.0), 0.0, 10.0);
+        let (landed, _, hit) = map.slide(body(20.0, 20.0), 0.0, 10.0);
         assert!(hit && landed.y == 24.0, "lands on the top face: {landed:?}");
-        let (up, _, hit) = map.slide(&body(20.0, 40.0), 0.0, -12.0);
+        let (up, _, hit) = map.slide(body(20.0, 40.0), 0.0, -12.0);
         assert!(!hit && up.y == 28.0, "rises through it from below");
-        let (side, hit, _) = map.slide(&body(4.0, 34.0), 20.0, 0.0);
+        let (side, hit, _) = map.slide(body(4.0, 34.0), 20.0, 0.0);
         assert!(!hit && side.x == 24.0, "walks through it sideways");
-        let (inside, _, hit) = map.slide(&body(20.0, 28.0), 0.0, 6.0);
+        let (inside, _, hit) = map.slide(body(20.0, 28.0), 0.0, 6.0);
         assert!(!hit && inside.y == 34.0, "a body already sunk into it keeps falling");
     }
 
@@ -725,10 +725,10 @@ mod tests {
                 .unwrap();
         assert_eq!(map.slope(1, 1), Some(Slope::BottomRight));
         assert_eq!((map.slope(0, 1), map.slope(0, 2), map.slope(-1, 1), map.slope(1, 9)), (None, None, None, None));
-        assert_eq!(map.solid_in(Rect { x: 16.0, y: 16.0, w: 32.0, h: 16.0 }).len(), 2, "it still occupies its cell");
-        let triangle = Slope::BottomRight.triangle(&Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 });
+        assert_eq!(map.solid_in(Rect::new(16.0, 16.0, 32.0, 16.0)).len(), 2, "it still occupies its cell");
+        let triangle = Slope::BottomRight.triangle(&Rect::new(0.0, 0.0, 16.0, 16.0));
         assert_eq!(triangle, [(16.0, 16.0), (0.0, 16.0), (16.0, 0.0)]);
-        let top = Slope::TopLeft.triangle(&Rect { x: 0.0, y: 0.0, w: 16.0, h: 16.0 });
+        let top = Slope::TopLeft.triangle(&Rect::new(0.0, 0.0, 16.0, 16.0));
         assert_eq!(top, [(0.0, 0.0), (16.0, 0.0), (0.0, 16.0)]);
     }
 
@@ -751,10 +751,10 @@ mod tests {
     #[test]
     fn a_box_walks_up_a_ramp_onto_the_plateau_standing_on_the_diagonal_all_the_way() {
         let map = ramp();
-        let mut r = Rect { x: 4.0, y: 54.0, w: 10.0, h: 10.0 };
+        let mut r = Rect::new(4.0, 54.0, 10.0, 10.0);
         let mut worst = 0.0f32;
         for _ in 0..40 {
-            let (moved, hit_x, hit_y) = map.slide(&r, 2.0, 2.0);
+            let (moved, hit_x, hit_y) = map.slide(r, 2.0, 2.0);
             let line = (64.0 - (moved.x + moved.w - 32.0)).clamp(32.0, 64.0);
             if moved.x + moved.w > 34.0 && moved.x + moved.w < 64.0 {
                 worst = worst.max((moved.y + moved.h - line).abs());
@@ -769,9 +769,9 @@ mod tests {
     #[test]
     fn a_box_walks_down_a_ramp_without_leaving_the_diagonal() {
         let map = slope_map(&["........", "........", "####\\...", "#####\\..", "########"]);
-        let mut r = Rect { x: 40.0, y: 22.0, w: 10.0, h: 10.0 };
+        let mut r = Rect::new(40.0, 22.0, 10.0, 10.0);
         for _ in 0..40 {
-            let (moved, _, hit_y) = map.slide(&r, 2.0, 2.0);
+            let (moved, _, hit_y) = map.slide(r, 2.0, 2.0);
             assert!(hit_y, "it never floats above the slope on the way down: {moved:?}");
             r = moved;
         }
@@ -780,34 +780,34 @@ mod tests {
 
     #[test]
     fn a_slope_is_climbed_from_its_low_end_and_its_tall_side_is_a_wall() {
-        let (moved, hit_x, _) = ramp().slide(&Rect { x: 20.0, y: 54.0, w: 10.0, h: 10.0 }, 8.0, 0.0);
+        let (moved, hit_x, _) = ramp().slide(Rect::new(20.0, 54.0, 10.0, 10.0), 8.0, 0.0);
         assert!(!hit_x && (moved.y + moved.h - 58.0).abs() < 0.01, "from the low end it climbs: {moved:?}");
         let wall = slope_map(&["........", ".......\\", "########"]);
-        let (stopped, hit, _) = wall.slide(&Rect { x: 96.0, y: 22.0, w: 10.0, h: 10.0 }, 10.0, 0.0);
+        let (stopped, hit, _) = wall.slide(Rect::new(96.0, 22.0, 10.0, 10.0), 10.0, 0.0);
         assert!(hit && stopped.x == 102.0, "the left leg of a falling slope stops a box walking into it: {stopped:?}");
     }
 
     #[test]
     fn a_box_falls_onto_a_slope_and_rises_into_the_flat_underside() {
         let map = ramp();
-        let (landed, _, hit_y) = map.slide(&Rect { x: 44.0, y: 20.0, w: 10.0, h: 10.0 }, 0.0, 14.0);
+        let (landed, _, hit_y) = map.slide(Rect::new(44.0, 20.0, 10.0, 10.0), 0.0, 14.0);
         assert!(hit_y && (landed.y + landed.h - 42.0).abs() < 0.01, "lands on the line at its right edge: {landed:?}");
         let floating = slope_map(&["........", "........", "..///...", "........"]);
-        let (stopped, _, hit) = floating.slide(&Rect { x: 40.0, y: 60.0, w: 10.0, h: 10.0 }, 0.0, -20.0);
+        let (stopped, _, hit) = floating.slide(Rect::new(40.0, 60.0, 10.0, 10.0), 0.0, -20.0);
         assert!(hit && stopped.y == 48.0, "stops below the flat bottom of the tile: {stopped:?}");
     }
 
     #[test]
     fn a_ceiling_slope_pushes_a_box_down_along_its_diagonal() {
         let map = slope_map(&["^.......", "........", "........", "########"]);
-        let (moved, _, hit_y) = map.slide(&Rect { x: 2.0, y: 20.0, w: 8.0, h: 8.0 }, 0.0, -14.0);
+        let (moved, _, hit_y) = map.slide(Rect::new(2.0, 20.0, 8.0, 8.0), 0.0, -14.0);
         assert!(hit_y && (moved.y - 14.0).abs() < 0.01, "its top rests on the diagonal at its left edge: {moved:?}");
     }
 
     #[test]
     fn maps_without_slopes_slide_exactly_as_before() {
         let map = Tilemap::from_ascii(&["......", "......", "######"], 16, Sprite::test_tiles());
-        let (moved, hit_x, hit_y) = map.slide(&Rect { x: 4.0, y: 20.0, w: 8.0, h: 8.0 }, 3.0, 9.0);
+        let (moved, hit_x, hit_y) = map.slide(Rect::new(4.0, 20.0, 8.0, 8.0), 3.0, 9.0);
         assert_eq!((moved.x, moved.y, hit_x, hit_y), (7.0, 24.0, false, true));
     }
 
@@ -852,7 +852,7 @@ mod tests {
     #[test]
     fn a_view_past_the_map_a_cell_outside_it_and_bad_sizes_do_not_panic() {
         let map = Tilemap::from_ascii(&["#.", "#."], 2, wide_sheet());
-        assert!(map.draw_list(Rect { x: 1000.0, y: 1000.0, w: 64.0, h: 64.0 }).is_empty());
+        assert!(map.draw_list(Rect::new(1000.0, 1000.0, 64.0, 64.0)).is_empty());
         assert_eq!((map.tile(2, 0), map.tile(0, 5)), (0, 0));
         assert!(Tilemap::try_from_ascii(&["#"], 0, wide_sheet()).is_err());
         let wide = Arc::new(Sprite::from_pixels(600, 2, vec![0; 1200]));
@@ -959,7 +959,7 @@ mod tests {
             .collect();
         let map = Tilemap::try_from_ascii_with(&["abcd"], 2, sheet, &legend).unwrap();
         let mut soft = crate::render::Soft::new(8, 2, 1);
-        soft.render(&map.draw_list(Rect { x: 0.0, y: 0.0, w: 8.0, h: 2.0 }));
+        soft.render(&map.draw_list(Rect::new(0.0, 0.0, 8.0, 2.0)));
         let colors: Vec<u32> = [0, 2, 4, 6].iter().map(|&x| soft.buf[x] & 0xFF_FFFF).collect();
         assert_eq!(colors, [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00]);
     }

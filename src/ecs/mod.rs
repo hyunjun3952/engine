@@ -17,5 +17,5 @@ pub use hecs::{Entity, World};
 pub use particles::{Burst, burst, particles};
 pub use persist::{Persist, WorldFile};
 pub use physics::{ContactEvent, Physics, RigidBody};
-pub use ray::{RayIndex, raycast, raycasts};
+pub use ray::{Ray, RayHit, RayIndex, raycast, raycasts};
 pub use spawn::Spawner;

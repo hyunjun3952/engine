@@ -65,7 +65,7 @@ impl Camera {
         self.pos = (cx - vw / 2.0, cy - vh / 2.0);
     }
 
-    pub fn follow(&mut self, target: &Rect, world: impl Into<Vec2>, dt: f32) {
+    pub fn follow(&mut self, target: Rect, world: impl Into<Vec2>, dt: f32) {
         let (tx, ty, world) = (target.center().x, target.center().y, world.into());
         let (vw, vh) = self.visible();
         let goal =
@@ -137,12 +137,12 @@ mod tests {
     #[test]
     fn first_follow_snaps_then_eases_toward_the_target() {
         let mut c = Camera::new(100.0, 100.0);
-        c.follow(&at(500.0), (1000.0, 1000.0), 1.0 / 60.0);
+        c.follow(at(500.0), (1000.0, 1000.0), 1.0 / 60.0);
         assert_eq!(c.offset().0, 450.0);
-        c.follow(&at(600.0), (1000.0, 1000.0), 1.0 / 60.0);
+        c.follow(at(600.0), (1000.0, 1000.0), 1.0 / 60.0);
         assert!(c.offset().0 > 450.0 && c.offset().0 < 550.0);
         for _ in 0..600 {
-            c.follow(&at(600.0), (1000.0, 1000.0), 1.0 / 60.0);
+            c.follow(at(600.0), (1000.0, 1000.0), 1.0 / 60.0);
         }
         assert!((c.offset().0 - 550.0).abs() <= 1.0);
     }
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn screen_points_map_to_world_without_shake() {
         let mut c = Camera::new(100.0, 100.0);
-        c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        c.follow(at(500.0), (1000.0, 1000.0), 0.0);
         c.shake(5.0, 1.0);
         c.tick(0.1);
         assert_eq!(c.to_world((10.0, 4.0)), Vec2::new(460.0, 4.0));
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn zooming_keeps_the_middle_of_the_view_and_clamps_to_its_range() {
         let mut c = Camera::new(100.0, 80.0);
-        c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        c.follow(at(500.0), (1000.0, 1000.0), 0.0);
         let middle = (c.offset().0 + 50.0, c.offset().1 + 40.0);
         c.set_zoom(2.0);
         assert_eq!((c.offset().0 + 25.0, c.offset().1 + 20.0), middle);
@@ -179,12 +179,12 @@ mod tests {
     fn follow_uses_the_part_of_the_world_in_view_when_zoomed() {
         let mut c = Camera::new(100.0, 100.0);
         c.set_zoom(2.0);
-        c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        c.follow(at(500.0), (1000.0, 1000.0), 0.0);
         assert_eq!(c.offset().0, 475.0);
-        c.follow(&at(2000.0), (1000.0, 1000.0), 10.0);
+        c.follow(at(2000.0), (1000.0, 1000.0), 10.0);
         assert_eq!(c.offset().0, 950.0, "the world ends 50 px of view from its edge");
         c.set_zoom(0.5);
-        c.follow(&at(500.0), (100.0, 100.0), 10.0);
+        c.follow(at(500.0), (100.0, 100.0), 10.0);
         assert_eq!(c.offset(), (0.0, 0.0), "a view bigger than the world stays at its corner");
     }
 
@@ -219,34 +219,34 @@ mod tests {
     #[test]
     fn a_target_that_is_not_a_number_for_a_moment_does_not_ruin_the_camera() {
         let mut c = Camera::new(100.0, 100.0);
-        c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
-        c.follow(&Rect { x: f32::NAN, y: 0.0, w: 0.0, h: 0.0 }, (1000.0, 1000.0), 0.1);
+        c.follow(at(500.0), (1000.0, 1000.0), 0.0);
+        c.follow(Rect::new(f32::NAN, 0.0, 0.0, 0.0), (1000.0, 1000.0), 0.1);
         assert_eq!(c.offset(), (450.0, 0.0), "NaN is ignored");
         for far in [f32::INFINITY, f32::NEG_INFINITY] {
-            c.follow(&Rect { x: far, y: 0.0, w: 0.0, h: 0.0 }, (1000.0, 1000.0), 10.0);
+            c.follow(Rect::new(far, 0.0, 0.0, 0.0), (1000.0, 1000.0), 10.0);
             assert!((0.0..=900.0).contains(&c.offset().0), "{far} is clamped into the world like any far target");
         }
-        c.follow(&at(600.0), (1000.0, 1000.0), 10.0);
+        c.follow(at(600.0), (1000.0, 1000.0), 10.0);
         assert_eq!(c.offset().0, 550.0, "and the next real target is followed as usual");
         let mut fresh = Camera::new(100.0, 100.0);
-        fresh.follow(&Rect { x: f32::NAN, y: 0.0, w: 0.0, h: 0.0 }, (1000.0, 1000.0), 0.0);
-        fresh.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        fresh.follow(Rect::new(f32::NAN, 0.0, 0.0, 0.0), (1000.0, 1000.0), 0.0);
+        fresh.follow(at(500.0), (1000.0, 1000.0), 0.0);
         assert_eq!(fresh.offset().0, 450.0, "a first target that is not a number does not count as the first");
     }
 
     #[test]
     fn follow_stays_inside_the_world() {
         let mut c = Camera::new(100.0, 100.0);
-        c.follow(&at(5.0), (1000.0, 1000.0), 0.0);
+        c.follow(at(5.0), (1000.0, 1000.0), 0.0);
         assert_eq!(c.offset(), (0.0, 0.0));
-        c.follow(&at(2000.0), (1000.0, 1000.0), 10.0);
+        c.follow(at(2000.0), (1000.0, 1000.0), 10.0);
         assert_eq!(c.offset().0, 900.0);
     }
 
     #[test]
     fn shake_moves_the_view_then_settles() {
         let mut c = Camera::new(100.0, 100.0);
-        c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
+        c.follow(at(500.0), (1000.0, 1000.0), 0.0);
         c.shake(8.0, 0.2);
         c.tick(0.05);
         assert_ne!(c.offset(), (450.0, 0.0));

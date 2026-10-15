@@ -240,7 +240,7 @@ mod tests {
     fn a_world_survives_a_round_trip_with_awkward_text_and_values() {
         let mut w = World::new();
         let a = w.spawn((
-            Body(Rect { x: 1.5, y: -2.0, w: 3.25, h: 4.0 }),
+            Body(Rect::new(1.5, -2.0, 3.25, 4.0)),
             Vel { x: 0.1, y: -300.0 },
             Transform { angle: 0.7, sx: 1.0, sy: -1.0 },
             Filter { group: 2, mask: u32::MAX },
@@ -321,7 +321,7 @@ mod tests {
             RigidBody::kinematic(),
         ];
         for rb in shapes {
-            w.spawn((Body(Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }), rb));
+            w.spawn((Body(Rect::new(0.0, 0.0, 1.0, 1.0)), rb));
         }
         let text = f.to_text(&w);
         let mut back = World::new();

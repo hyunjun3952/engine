@@ -32,7 +32,7 @@ impl Scene for Fly {
         let dt = ctx.dt();
         let (dx, dy) = (ctx.input().axis("left", "right") * SPEED * dt, ctx.input().axis("up", "down") * SPEED * dt);
         let mut body = self.world.get::<&mut Body>(self.me).unwrap();
-        body.0 = self.map.slide(&body.0, dx, dy).0;
+        body.0 = self.map.slide(body.0, dx, dy).0;
         let rect = body.0;
         drop(body);
         let step = ctx.input().pressed("zoom_in") as i32 - ctx.input().pressed("zoom_out") as i32;
@@ -43,7 +43,7 @@ impl Scene for Fly {
         if ctx.input().pressed("shake") {
             ctx.cam().shake(4.0, 0.4);
         }
-        ctx.cam().follow(&rect, self.map.pixel_size(), dt);
+        ctx.cam().follow(rect, self.map.pixel_size(), dt);
         Trans::None
     }
 

@@ -428,7 +428,7 @@ impl Gpu {
             vcap,
             size,
             target: size,
-            viewport: crate::Rect { x: 0.0, y: 0.0, w: size.0 as f32, h: size.1 as f32 },
+            viewport: crate::Rect::new(0.0, 0.0, size.0 as f32, size.1 as f32),
             surface: None,
             adapter: format!("{} ({:?})", info.name, info.backend),
         })
@@ -515,7 +515,7 @@ impl Gpu {
         self.textures.retain(|_, t| Arc::strong_count(&t._keep) > 1);
         self.verts.clear();
         self.batches.clear();
-        let full = crate::Rect { x: 0.0, y: 0.0, w: self.size.0 as f32, h: self.size.1 as f32 };
+        let full = crate::Rect::new(0.0, 0.0, self.size.0 as f32, self.size.1 as f32);
         for c in cmds {
             let r = &c.rect;
             let t = &c.xform;
@@ -556,7 +556,7 @@ impl Gpu {
                         uv.2 + SAMPLE_BIAS / sw,
                         uv.3 + SAMPLE_BIAS / sh,
                     );
-                    self.warped(tex, crate::Rect { x: r.x, y: r.y, w: src.w, h: src.h }, t, nudged, color);
+                    self.warped(tex, crate::Rect::new(r.x, r.y, src.w, src.h), t, nudged, color);
                 }
                 continue;
             }
@@ -726,14 +726,14 @@ mod tests {
         let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png")).unwrap();
         g.draw(map.draw_list(g.view()));
         let player = sprite("assets/images/player.png");
-        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        let frame = Rect::new(12.0, 24.0, 12.0, 24.0);
         g.blit_region(&player, frame, 50, 40, false);
         g.blit_region(&player, frame, 80, 40, true);
         g.blit(&sprite("assets/images/ball.png"), -4, 100);
-        g.fill(&Rect { x: 300.0, y: 200.0, w: 50.0, h: 30.0 }, 0xff0000);
-        g.fill_alpha(&Rect { x: 320.0, y: 210.0, w: 50.0, h: 30.0 }, 0x0000ff, 128);
-        g.outline(&Rect { x: 400.0, y: 50.0, w: 40.0, h: 20.0 }, 0x00ff00);
-        g.fill(&Rect { x: -5.0, y: 350.0, w: 30.0, h: 30.0 }, 0xffff00);
+        g.fill(Rect::new(300.0, 200.0, 50.0, 30.0), 0xff0000);
+        g.fill_alpha(Rect::new(320.0, 210.0, 50.0, 30.0), 0x0000ff, 128);
+        g.outline(Rect::new(400.0, 50.0, 40.0, 20.0), 0x00ff00);
+        g.fill(Rect::new(-5.0, 350.0, 30.0, 30.0), 0xffff00);
         g.text("HELLO 123", 10, 10, 2, 0xffffff);
         g
     }
@@ -804,18 +804,18 @@ mod tests {
         let sprite = |p: &str| Arc::new(Sprite::load(p).unwrap());
         let mut world = Gfx::new(640, 360);
         let player = sprite("assets/images/player.png");
-        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        let frame = Rect::new(12.0, 24.0, 12.0, 24.0);
         world.blit_region(&player, frame, 150, 100, false);
         world.blit_region(&player, frame, 180, 100, true);
         world.blit(&sprite("assets/images/ball.png"), 130, 160);
-        world.fill(&Rect { x: 200.0, y: 150.0, w: 50.0, h: 30.0 }, 0xff0000);
-        world.fill(&Rect { x: 250.0, y: 150.0, w: 17.0, h: 30.0 }, 0x00ff00);
-        world.fill_alpha(&Rect { x: 220.0, y: 160.0, w: 50.0, h: 30.0 }, 0x0000ff, 128);
-        world.outline(&Rect { x: 300.0, y: 120.0, w: 40.0, h: 20.0 }, 0x00ff00);
+        world.fill(Rect::new(200.0, 150.0, 50.0, 30.0), 0xff0000);
+        world.fill(Rect::new(250.0, 150.0, 17.0, 30.0), 0x00ff00);
+        world.fill_alpha(Rect::new(220.0, 160.0, 50.0, 30.0), 0x0000ff, 128);
+        world.outline(Rect::new(300.0, 120.0, 40.0, 20.0), 0x00ff00);
         world.text("HELLO 123", 160, 80, 1, 0xffffff);
         let mut turned = Gfx::new(640, 360);
         turned.blit_region(&player, frame, 120, 130, false);
-        turned.fill(&Rect { x: 280.0, y: 170.0, w: 30.0, h: 14.0 }, 0xffaa00);
+        turned.fill(Rect::new(280.0, 170.0, 30.0, 14.0), 0xffaa00);
         let spin = Transform { angle: 0.7, sx: 1.0, sy: 1.0 };
         let spun: Vec<DrawCmd> = turned.cmds().iter().map(|c| DrawCmd { xform: spin, ..c.clone() }).collect();
         let mut g = Gfx::new(640, 360);
@@ -896,7 +896,7 @@ mod tests {
         let cmd =
             |rect, paint, angle, sx, sy| DrawCmd { xform: Transform { angle, sx, sy }, ..DrawCmd::new(rect, paint) };
         let at = |x, y, w, h| Rect { x, y, w, h };
-        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        let frame = Rect::new(12.0, 24.0, 12.0, 24.0);
         g.draw([
             cmd(at(10.0, 10.0, 16.0, 16.0), Paint::Sprite(ball.clone()), 0.5, 1.0, 1.0),
             cmd(at(40.0, 10.0, 16.0, 16.0), Paint::Sprite(ball.clone()), 0.0, 3.0, 2.0),
@@ -995,10 +995,10 @@ mod tests {
         };
         let sprite = |p: &str| Arc::new(Sprite::load(p).unwrap());
         let (ball, player) = (sprite("assets/images/ball.png"), sprite("assets/images/player.png"));
-        let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
+        let frame = Rect::new(12.0, 24.0, 12.0, 24.0);
         let mut g = Gfx::new(640, 360);
         g.clear(0x203050);
-        g.fill(&Rect { x: 0.0, y: 60.0, w: 640.0, h: 40.0 }, 0x806040);
+        g.fill(Rect::new(0.0, 60.0, 640.0, 40.0), 0x806040);
         let styles = [
             Style::PLAIN,
             Style::PLAIN.flashed(0xffffff, 128),
@@ -1025,7 +1025,7 @@ mod tests {
                 let region = Paint::Region { sheet: player.clone(), src: frame, flip: i % 2 == 1 };
                 cmds.push(sheet_cmd(Rect { x: x + 20.0, y, w: 12.0, h: 24.0 }, region));
                 cmds.push(sheet_cmd(Rect { x, y: y + 40.0, w: 20.0, h: 14.0 }, Paint::Color(0xc08040)));
-                cmds.push(sheet_cmd(Rect { x: x + 24.0, y: y + 40.0, w: 20.0, h: 14.0 }, Paint::Alpha(0x4080c0, 150)));
+                cmds.push(sheet_cmd(Rect::new(x + 24.0, y + 40.0, 20.0, 14.0), Paint::Alpha(0x4080c0, 150)));
             }
         }
         g.draw(cmds);
