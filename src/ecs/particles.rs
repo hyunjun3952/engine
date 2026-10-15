@@ -1,5 +1,6 @@
 use crate::{Body, Entity, Layer, Look, Rect, Rng, Timer, Vec2, World};
 
+/// Marks an entity made by `burst`; query for it to find or clear the particles.
 pub struct Particle {
     vx: f32,
     vy: f32,

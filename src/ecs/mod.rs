@@ -14,7 +14,7 @@ pub use collision::{Contact, collisions, query_rect};
 pub use components::{Body, Collider, Filter, Layer, Look, Vel, movement};
 pub use draw::draw_list;
 pub use hecs::{Entity, World};
-pub use particles::{Burst, burst, particles};
+pub use particles::{Burst, Particle, burst, particles};
 pub use persist::{Persist, WorldFile};
 pub use physics::{ContactEvent, Physics, RigidBody};
 pub use ray::{Ray, RayHit, RayIndex, raycast, raycasts};

@@ -280,7 +280,7 @@ mod tests {
     use super::*;
 
     fn anim() -> Anim {
-        Anim::new(Arc::new(Sprite::from_pixels(40, 20, vec![0; 800])), 10, 10)
+        Anim::new(Arc::new(Sprite::new(40, 20, vec![0; 800])), 10, 10)
     }
 
     fn frames(a: &mut Anim, steps: usize, dt: f32) -> Vec<usize> {

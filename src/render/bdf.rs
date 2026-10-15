@@ -136,7 +136,7 @@ impl Font {
         glyphs.reverse();
         glyphs.sort_by_key(|g| g.0);
         glyphs.dedup_by_key(|g| g.0);
-        Ok(Font { atlas: Arc::new(Sprite::from_pixels(ATLAS_W, height, px)), glyphs, line: ascent + descent })
+        Ok(Font { atlas: Arc::new(Sprite::new(ATLAS_W, height, px)), glyphs, line: ascent + descent })
     }
 
     pub fn line_height(&self) -> i32 {

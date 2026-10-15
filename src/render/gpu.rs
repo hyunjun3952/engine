@@ -782,7 +782,7 @@ mod tests {
             let shade = (x as u32 / 16 + 1) * 60;
             if y < 16 { 0xFF00_0000 | (shade << 16) | ((shade / 2) << 8) } else { 0xFF00_FF00 }
         });
-        let sheet = Arc::new(Sprite::from_pixels(64, 32, px.collect()));
+        let sheet = Arc::new(Sprite::new(64, 32, px.collect()));
         let map = Tilemap::from_ascii(&["#+#+", "+#+#"], 16, sheet);
         let mut g = Gfx::new(640, 360);
         g.draw(map.draw_list(g.view()));
@@ -1064,7 +1064,7 @@ mod tests {
             let id = (y / 16) * 4 + x / 16;
             0xFF00_0000 | ((id as u32 * 31) << 16) | ((255 - id as u32 * 30) << 8) | ((x as u32 % 7) * 20)
         });
-        let sheet = Arc::new(Sprite::from_pixels(64, 32, px.collect()));
+        let sheet = Arc::new(Sprite::new(64, 32, px.collect()));
         let legend: Vec<Tile> = b"12345678"
             .iter()
             .enumerate()

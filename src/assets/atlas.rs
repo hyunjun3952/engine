@@ -60,7 +60,7 @@ mod tests {
     use super::*;
 
     fn sheet() -> Arc<Sprite> {
-        Arc::new(Sprite::from_pixels(32, 16, vec![0; 512]))
+        Arc::new(Sprite::new(32, 16, vec![0; 512]))
     }
 
     #[test]

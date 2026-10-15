@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn a_source_rect_that_is_not_inside_its_sheet_draws_nothing_instead_of_panicking() {
         // What hot reload leaves behind when a sheet is replaced by a smaller picture.
-        let sheet = std::sync::Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
+        let sheet = std::sync::Arc::new(Sprite::new(4, 4, vec![0xFFFF_FFFF; 16]));
         let at = Rect::new(2.0, 2.0, 8.0, 8.0);
         for src in [Rect::new(8.0, 0.0, 4.0, 4.0), Rect::new(2.0, 2.0, 4.0, 4.0), Rect::new(-1.0, 0.0, 4.0, 4.0)] {
             for xform in [
@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn rectangles_and_numbers_of_any_kind_never_panic_the_renderer() {
         // What a physics blow-up or a divide by zero hands the renderer: not a number, infinite, huge, backwards.
-        let sheet = std::sync::Arc::new(Sprite::from_pixels(6, 4, (0..24).map(|i| 0xFF00_0000 | (i * 977)).collect()));
+        let sheet = std::sync::Arc::new(Sprite::new(6, 4, (0..24).map(|i| 0xFF00_0000 | (i * 977)).collect()));
         let odd = [0.0, -1.0, 1e-9, 0.5, 1.0, 7.5, 31.9, 1e9, -1e9, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
         let mut rng = crate::Rng::new(9);
         let mut pick = move || odd[(rng.f32() * odd.len() as f32) as usize % odd.len()];
@@ -570,7 +570,7 @@ mod tests {
 
     #[test]
     fn a_zoom_and_a_camera_of_any_kind_never_panic_the_path_from_draw_to_pixels() {
-        let sheet = std::sync::Arc::new(Sprite::from_pixels(8, 4, (0..32).map(|i| 0xFF00_0000 | (i * 977)).collect()));
+        let sheet = std::sync::Arc::new(Sprite::new(8, 4, (0..32).map(|i| 0xFF00_0000 | (i * 977)).collect()));
         let odd = [0.0, -1.0, 1e-9, 0.5, 1.0, 7.5, 31.9, 1e9, -1e9, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
         let zooms = [0.25, 0.5, 1.0, 1.5, 2.0, 3.3, 8.0, f32::NAN, f32::INFINITY, 0.0, -1.0, 1e-30, 1e30];
         let mut rng = crate::Rng::new(4);
@@ -601,7 +601,7 @@ mod tests {
 
     #[test]
     fn a_turned_or_scaled_sprite_beyond_the_right_or_bottom_edge_draws_nothing_and_does_not_panic() {
-        let sheet = std::sync::Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
+        let sheet = std::sync::Arc::new(Sprite::new(4, 4, vec![0xFFFF_FFFF; 16]));
         for (x, y) in [(60.0, 30.0), (47.5, 40.0), (54.0, 40.0), (100.0, 100.0)] {
             for angle in [0.0, 0.7] {
                 let at = Rect { x, y, w: 4.0, h: 4.0 };
@@ -616,7 +616,7 @@ mod tests {
         // An angle of 1e-30 is zero as far as the maths goes but sends the sprite down the general path.
         let mut rng = crate::Rng::new(5);
         let texels: Vec<u32> = (0..7 * 5).map(|i| 0xFF00_0000 | (i as u32 * 0x0003_1713 + 1)).collect();
-        let sheet = std::sync::Arc::new(Sprite::from_pixels(7, 5, texels));
+        let sheet = std::sync::Arc::new(Sprite::new(7, 5, texels));
         for case in 0..300 {
             let (sx, sy) =
                 (rng.range(0.3, 5.0) * [1.0, -1.0][case % 2], rng.range(0.3, 5.0) * [1.0, -1.0][case / 2 % 2]);
@@ -812,7 +812,7 @@ mod tests {
 
     #[test]
     fn a_style_reaches_sprites_on_every_path_and_keeps_their_alpha() {
-        let sheet = std::sync::Arc::new(Sprite::from_pixels(2, 1, vec![0xFF80_4020, 0x00FF_FFFF]));
+        let sheet = std::sync::Arc::new(Sprite::new(2, 1, vec![0xFF80_4020, 0x00FF_FFFF]));
         let sprite = |style: Style, xform: Transform| {
             let mut s = Soft::new(8, 4, 1);
             let cmd =

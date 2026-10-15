@@ -563,7 +563,7 @@ mod tests {
 
     // A sheet of 20 tiles of 2x2 pixels, enough for ids 1..=20.
     fn wide_sheet() -> Arc<Sprite> {
-        Arc::new(Sprite::from_pixels(40, 2, vec![0xFFFF_FFFF; 80]))
+        Arc::new(Sprite::new(40, 2, vec![0xFFFF_FFFF; 80]))
     }
 
     fn shown(map: &Tilemap) -> Vec<Vec<u8>> {
@@ -880,7 +880,7 @@ mod tests {
         assert!(map.draw_list(Rect::new(1000.0, 1000.0, 64.0, 64.0)).is_empty());
         assert_eq!((map.tile((2, 0)), map.tile((0, 5))), (0, 0));
         assert!(Tilemap::try_from_ascii(&["#"], 0, wide_sheet()).is_err());
-        let wide = Arc::new(Sprite::from_pixels(600, 2, vec![0; 1200]));
+        let wide = Arc::new(Sprite::new(600, 2, vec![0; 1200]));
         let auto = Tile { ch: b'#', id: 250, solid: true, front: false, auto: true, one_way: false, slope: None };
         assert!(Tilemap::try_from_ascii_with(&["#"], 2, wide, &[auto]).is_err());
     }
@@ -968,7 +968,7 @@ mod tests {
                 px[(y + dy) * 4 + x + dx] = 0xFF00_0000 | color;
             }
         }
-        let sheet = Arc::new(Sprite::from_pixels(4, 4, px));
+        let sheet = Arc::new(Sprite::new(4, 4, px));
         let legend: Vec<Tile> = b"abcd"
             .iter()
             .enumerate()

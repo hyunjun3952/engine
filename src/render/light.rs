@@ -47,12 +47,7 @@ impl LightMap {
     /// A map of the size of the canvas (`Config::w` by `h`), all dark.
     pub fn new(w: usize, h: usize) -> Self {
         let (w, h) = (w.max(1), h.max(1));
-        LightMap {
-            w,
-            h,
-            sprite: Arc::new(Sprite::from_pixels(w, h, vec![0xFF00_0000; w * h])),
-            px: vec![0xFF00_0000; w * h],
-        }
+        LightMap { w, h, sprite: Arc::new(Sprite::new(w, h, vec![0xFF00_0000; w * h])), px: vec![0xFF00_0000; w * h] }
     }
 
     /// Starts a frame: everything at the ambient colour (0xRRGGBB; black is full darkness, white no darkness).
@@ -119,7 +114,7 @@ pub fn vignette(w: usize, h: usize, strength: f32) -> Arc<Sprite> {
         let v = (gain * 255.0).round() as u32;
         0xFF00_0000 | v << 16 | v << 8 | v
     });
-    Arc::new(Sprite::from_pixels(w, h, px.collect()))
+    Arc::new(Sprite::new(w, h, px.collect()))
 }
 
 /// A picture to multiply over the whole screen that darkens every second row by `dark` out of 255.
@@ -127,7 +122,7 @@ pub fn scanlines(w: usize, h: usize, dark: u8) -> Arc<Sprite> {
     let (w, h) = (w.max(1), h.max(1));
     let line = 0xFF00_0000 | ((255 - dark as u32) * 0x01_0101);
     let px = (0..w * h).map(|i| if (i / w) % 2 == 1 { line } else { 0xFFFF_FFFF });
-    Arc::new(Sprite::from_pixels(w, h, px.collect()))
+    Arc::new(Sprite::new(w, h, px.collect()))
 }
 
 #[cfg(test)]

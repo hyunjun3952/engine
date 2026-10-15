@@ -316,7 +316,9 @@ impl Sprite {
         Ok(Sprite { image: RwLock::new(decode(path)?), version: AtomicU64::new(0) })
     }
 
-    pub(crate) fn from_pixels(w: usize, h: usize, px: Vec<u32>) -> Self {
+    /// A sprite made in code from `w * h` pixels, row by row, as 0xAARRGGBB.
+    pub fn new(w: usize, h: usize, px: Vec<u32>) -> Self {
+        assert_eq!(px.len(), w * h, "a {w}x{h} sprite needs {} pixels", w * h);
         Sprite { image: RwLock::new(Image { w, h, px }), version: AtomicU64::new(0) }
     }
 
@@ -450,7 +452,7 @@ mod tests {
 
     #[test]
     fn a_sprite_is_scaled_about_its_centre_onto_exactly_the_rounded_pixels() {
-        let sheet = Arc::new(Sprite::from_pixels(4, 4, vec![0xFFFF_FFFF; 16]));
+        let sheet = Arc::new(Sprite::new(4, 4, vec![0xFFFF_FFFF; 16]));
         let mut g = zoomed(2.5, (0.0, 0.0));
         g.blit(&sheet, 10, 10);
         let mut z = zoomed(2.5, (0.0, 0.0));
@@ -477,7 +479,7 @@ mod tests {
 
     #[test]
     fn a_tile_batch_becomes_one_region_per_tile_at_the_zoomed_grid() {
-        let sheet = Arc::new(Sprite::from_pixels(8, 4, vec![0xFFFF_FFFF; 32]));
+        let sheet = Arc::new(Sprite::new(8, 4, vec![0xFFFF_FFFF; 32]));
         let tiles = Paint::Tiles { sheet, size: 4, tiles: vec![(0, 0, 1), (1, 0, 2), (0, 1, 2)] };
         let mut g = zoomed(2.0, (0.0, 0.0));
         g.draw([DrawCmd::new(Rect::new(8.0, 8.0, 8.0, 8.0), tiles)]);
@@ -514,7 +516,7 @@ mod tests {
 
     #[test]
     fn a_nine_slice_covers_the_panel_exactly_once_with_corners_at_natural_size() {
-        let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0xFFFF_FFFF; 144]));
+        let sheet = Arc::new(Sprite::new(12, 12, vec![0xFFFF_FFFF; 144]));
         let src = sheet.bounds();
         for (w, h) in [(8.0, 8.0), (20.0, 14.0), (31.0, 9.0), (50.0, 50.0)] {
             let mut g = Gfx::new(64, 64);
@@ -533,7 +535,7 @@ mod tests {
 
     #[test]
     fn a_huge_nine_slice_records_only_the_pieces_on_screen_and_still_covers_it_once() {
-        let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0xFFFF_FFFF; 144]));
+        let sheet = Arc::new(Sprite::new(12, 12, vec![0xFFFF_FFFF; 144]));
         let record = |x: f32, w: f32| {
             let mut g = Gfx::new(64, 48);
             g.blit_nine(&sheet, sheet.bounds(), 4, Rect { x, y: -10.0, w, h: 1e9 });
@@ -563,7 +565,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "hold both margins")]
     fn a_nine_slice_panel_smaller_than_its_margins_is_refused() {
-        let sheet = Arc::new(Sprite::from_pixels(12, 12, vec![0; 144]));
+        let sheet = Arc::new(Sprite::new(12, 12, vec![0; 144]));
         Gfx::new(64, 64).blit_nine(&sheet, sheet.bounds(), 4, Rect::new(0.0, 0.0, 7.0, 20.0));
     }
 
@@ -610,7 +612,7 @@ mod tests {
 
     #[test]
     fn a_background_scrolls_by_its_factor_and_repeats_to_cover_the_screen() {
-        let sky = Arc::new(Sprite::from_pixels(8, 4, vec![0xFFFF_FFFF; 32]));
+        let sky = Arc::new(Sprite::new(8, 4, vec![0xFFFF_FFFF; 32]));
         let xs = |cam: f32, factor: f32, repeat: bool| {
             let mut g = Gfx::new(20, 4);
             g.cam = Vec2::new(cam, 0.0);
