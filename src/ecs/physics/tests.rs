@@ -1090,12 +1090,28 @@ fn a_joint_to_a_despawned_body_is_dropped() {
     let (mut p, mut w) = (Physics::default(), World::new());
     let a = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
     let b = boxed(&mut w, square(30.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
-    p.rod(a, b, 30.0);
+    let rod = p.rod(a, b, 30.0);
     p.step(&mut w, None, DT);
-    assert_eq!(p.joints.len(), 1);
+    assert!(p.has_joint(rod));
     w.despawn(b).unwrap();
     p.step(&mut w, None, DT);
-    assert!(p.joints.is_empty());
+    assert!(p.joints.is_empty() && !p.has_joint(rod));
+}
+
+#[test]
+fn a_joint_can_be_removed_by_its_id_and_one_that_added_nothing_is_not_there() {
+    let (mut p, mut w) = (Physics::default(), World::new());
+    let a = boxed(&mut w, square(0.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    let b = boxed(&mut w, square(30.0, 0.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
+    let (rod, rope) = (p.rod(a, b, 30.0), p.rope(a, b, 40.0));
+    assert_ne!(rod, rope);
+    p.remove_joint(rod);
+    assert!(!p.has_joint(rod) && p.has_joint(rope));
+    let limp = p.spring(a, b, 30.0, 0.0, 1.0);
+    assert!(!p.has_joint(limp), "hz 0 adds nothing");
+    let ghost = w.spawn(());
+    let pin = p.hinge(&w, a, ghost, (5.0, 5.0));
+    assert!(!p.has_joint(pin), "no Body, no hinge");
 }
 
 fn platform_map() -> Tilemap {

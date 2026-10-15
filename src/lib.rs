@@ -80,9 +80,9 @@ pub use app::{
 pub use assets::{Assets, Atlas, Audio, Bus, Sound, Voice};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
-    Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, Layer, Look, OverlapChanges,
-    Overlaps, Particle, Persist, Physics, Ray, RayHit, RayIndex, RigidBody, Spawner, Vel, World, WorldFile, animate,
-    burst, collisions, draw_list, movement, particles, query_rect, raycast, raycasts,
+    Anim, AnimStates, Body, Burst, Clip, Collider, Contact, ContactEvent, Entity, Filter, JointId, Layer, Look,
+    OverlapChanges, Overlaps, Particle, Persist, Physics, Ray, RayHit, RayIndex, RigidBody, Spawner, Vel, World,
+    WorldFile, animate, burst, collisions, draw_list, movement, particles, query_rect, raycast, raycasts,
 };
 pub use render::{
     Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Rect, Slide, Slope, Sprite, Style, Tile, TileHit, Tiled,

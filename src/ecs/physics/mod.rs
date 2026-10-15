@@ -186,7 +186,12 @@ impl ContactEvent {
     }
 }
 
+/// One joint, as `rod`, `rope`, `spring` and `hinge` return it, to `remove_joint` it later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct JointId(u64);
+
 struct Joint {
+    id: JointId,
     a: Entity,
     b: Entity,
     kind: Kind,
@@ -210,13 +215,15 @@ struct Rest {
 /// A body slower than 5 px/s for half a second sleeps (acts as a wall) until something fast touches it or the game
 /// changes its `Body`, `Vel`, angle or `Filter`. Contacts of the last step are in [`Physics::events`]. Joints
 /// ([`rod`](Physics::rod), [`rope`](Physics::rope), [`spring`](Physics::spring), [`hinge`](Physics::hinge)) last until
-/// [`clear_joints`](Physics::clear_joints) and switch off when an end is despawned.
+/// [`remove_joint`](Physics::remove_joint) or [`clear_joints`](Physics::clear_joints), and are dropped when an end is
+/// despawned.
 pub struct Physics {
     pub gravity: Vec2,
     pub iterations: usize,
     // Last step's contact impulses per body pair, replayed first so resting piles start the solve near its answer.
     cache: FxMap<(u64, u64), Memory>,
     joints: Vec<Joint>,
+    joint_ids: u64,
     rest: FxMap<Entity, Rest>,
     // What the last step saw, to notice a body that vanished or a gravity change: sleepers must then be woken.
     known: Vec<Entity>,
@@ -239,6 +246,7 @@ impl Default for Physics {
             iterations: 10,
             cache: FxMap::default(),
             joints: Vec::new(),
+            joint_ids: 0,
             rest: FxMap::default(),
             known: Vec::new(),
             last_gravity: Vec2::new(0.0, 900.0),
@@ -447,31 +455,44 @@ fn node_id(ents: &[Entity], nodes: &[Node], i: usize) -> u64 {
 
 impl Physics {
     /// A rigid rod between the centres of `a` and `b`. Torque is ignored: the ends are the centres.
-    pub fn rod(&mut self, a: Entity, b: Entity, length: f32) {
-        self.joints.push(Joint { a, b, kind: Kind::Rod(length) });
+    pub fn rod(&mut self, a: Entity, b: Entity, length: f32) -> JointId {
+        self.join(a, b, Kind::Rod(length))
+    }
+
+    // Every call hands out a fresh id, also one that adds nothing (`has_joint` then says so).
+    fn join(&mut self, a: Entity, b: Entity, kind: Kind) -> JointId {
+        self.joint_ids += 1;
+        let id = JointId(self.joint_ids);
+        self.joints.push(Joint { id, a, b, kind });
+        id
+    }
+
+    fn no_joint(&mut self) -> JointId {
+        self.joint_ids += 1;
+        JointId(self.joint_ids)
     }
 
     /// Like `rod`, but the bodies may come closer than `length`.
-    pub fn rope(&mut self, a: Entity, b: Entity, length: f32) {
-        self.joints.push(Joint { a, b, kind: Kind::Rope(length) });
+    pub fn rope(&mut self, a: Entity, b: Entity, length: f32) -> JointId {
+        self.join(a, b, Kind::Rope(length))
     }
 
     /// A spring pulling the centres of `a` and `b` towards `length` apart, softly: `hz` is how often a mass on it
     /// would swing per second and `damping` how fast the swing dies (0 never, 1 not at all). Torque is ignored.
     /// A `hz` of 0 is no spring at all.
-    pub fn spring(&mut self, a: Entity, b: Entity, length: f32, hz: f32, damping: f32) {
+    pub fn spring(&mut self, a: Entity, b: Entity, length: f32, hz: f32, damping: f32) -> JointId {
         let (hz, damping) = (hz.max(0.0), damping.max(0.0));
         // The soft constraint with no stiffness works out to a rigid rod.
         if hz == 0.0 {
-            return;
+            return self.no_joint();
         }
-        self.joints.push(Joint { a, b, kind: Kind::Spring { length, hz, damping } });
+        self.join(a, b, Kind::Spring { length, hz, damping })
     }
 
     /// A pin through `anchor` (a world position) holding `a` and `b` together there while they turn about it, as
     /// they are placed now. Bodies turn only when they have a `Transform`; a fixed body makes a pin in the world.
     /// Does nothing if either entity has no `Body`.
-    pub fn hinge(&mut self, world: &World, a: Entity, b: Entity, anchor: impl Into<Vec2>) {
+    pub fn hinge(&mut self, world: &World, a: Entity, b: Entity, anchor: impl Into<Vec2>) -> JointId {
         let anchor: Vec2 = anchor.into();
         let local = |e: Entity| {
             let body = world.get::<&Body>(e).ok()?.0;
@@ -479,9 +500,19 @@ impl Physics {
             let v = (anchor - body.center()).rotated(-angle);
             Some((v.x, v.y))
         };
-        if let (Some(la), Some(lb)) = (local(a), local(b)) {
-            self.joints.push(Joint { a, b, kind: Kind::Hinge { la, lb } });
+        match (local(a), local(b)) {
+            (Some(la), Some(lb)) => self.join(a, b, Kind::Hinge { la, lb }),
+            _ => self.no_joint(),
         }
+    }
+
+    pub fn remove_joint(&mut self, id: JointId) {
+        self.joints.retain(|j| j.id != id);
+    }
+
+    /// Whether a joint is still there: not removed, not dropped with a despawned end, and not one that added nothing.
+    pub fn has_joint(&self, id: JointId) -> bool {
+        self.joints.iter().any(|j| j.id == id)
     }
 
     pub fn clear_joints(&mut self) {
