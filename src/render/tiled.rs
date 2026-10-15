@@ -1,4 +1,4 @@
-use super::tilemap::{Slope, Tilemap};
+use super::tilemap::{Slope, Tilemap, tile_count};
 use crate::{Rect, Sprite};
 use std::sync::Arc;
 
@@ -247,10 +247,7 @@ impl Tiled {
                 return Err(format!("tileset {gap} is not supported; export the tileset without it"));
             }
         }
-        let count = {
-            let (sw, sh) = sheet.size();
-            ((sw / tw) * (sh / th).max(1)).min(255)
-        };
+        let count = tile_count(&sheet, tw).min(255);
         let mut solid = [false; 256];
         let mut front = [false; 256];
         let mut one_way = [false; 256];

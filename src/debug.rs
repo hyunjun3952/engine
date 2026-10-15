@@ -75,10 +75,11 @@ impl Inspector {
         if ctx.input().key_pressed(Key::F4) {
             self.open = !self.open;
         }
-        if self.open && ctx.input().mouse_pressed(crate::MouseButton::Left) {
-            if let Some(Vec2 { x, y }) = ctx.mouse_world() {
-                self.picked = pick(world, x, y);
-            }
+        if self.open
+            && ctx.input().mouse_pressed(crate::MouseButton::Left)
+            && let Some(Vec2 { x, y }) = ctx.mouse_world()
+        {
+            self.picked = pick(world, x, y);
         }
     }
 

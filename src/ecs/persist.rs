@@ -196,9 +196,12 @@ impl WorldFile {
         Ok(builders.iter_mut().map(|b| world.spawn(b.build())).collect())
     }
 
-    /// Writes beside the target and renames, so a crash mid-write cannot destroy the previous file.
+    /// Writes beside the target and renames, so a crash mid-write cannot destroy the previous file. Text that would
+    /// not load back (a NaN position, say) is an error and the previous file stays.
     pub fn save(&self, world: &World, path: &str) -> Result<(), String> {
-        crate::assets::write_atomic(path, &self.to_text(world))
+        let text = self.to_text(world);
+        self.spawn_from(&mut World::new(), &text).map_err(|e| format!("{path}: not saved, it would not load: {e}"))?;
+        crate::assets::write_atomic(path, &text)
     }
 
     /// `spawn_from` the text of a file; a missing file is an error here, unlike `Save`.
@@ -304,6 +307,21 @@ mod tests {
         assert_eq!(back.get::<&Layer>(e).unwrap().0, -3);
         assert_eq!(*back.get::<&Transform>(e).unwrap(), *w.get::<&Transform>(a).unwrap());
         assert_eq!(file().to_text(&back), text, "saving what was loaded gives the same text");
+    }
+
+    #[test]
+    fn a_world_that_would_not_load_back_is_not_saved_and_the_old_file_stays() {
+        let path = std::env::temp_dir().join(format!("engine-persist-nan-{}.txt", std::process::id()));
+        let path = path.to_str().unwrap();
+        let mut w = World::new();
+        let e = w.spawn((Body(Rect::new(1.0, 2.0, 3.0, 4.0)),));
+        file().save(&w, path).unwrap();
+        let good = std::fs::read_to_string(path).unwrap();
+        w.get::<&mut Body>(e).unwrap().0.x = f32::NAN;
+        let err = file().save(&w, path).unwrap_err();
+        assert!(err.contains("not saved") && err.contains("body"), "{err}");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), good);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

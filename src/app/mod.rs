@@ -351,6 +351,11 @@ fn pick_backend(mode: RenderMode, win: &Window, (w, h): (usize, usize), scale: u
     gpu.unwrap_or_else(|| Backend::Soft(Soft::new(w, h, scale)))
 }
 
+// A switch like `ENGINE_MUTE=1`: unset, empty and `0` are off.
+pub(crate) fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| !v.is_empty() && v != "0")
+}
+
 pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     if let Ok(v) = std::env::var("ENGINE_TICK_HZ") {
         match v.parse::<f32>() {
@@ -374,7 +379,7 @@ pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut win = Window::new(cfg.title, cfg.w * scale, cfg.h * scale, options)
         .unwrap_or_else(|e| panic!("cannot open a window ({e}); it needs an X display (DISPLAY, or WSLg under WSL)"));
     let mut gfx = Gfx::new(cfg.w, cfg.h);
-    let log_stats = std::env::var_os("ENGINE_STATS").is_some();
+    let log_stats = env_flag("ENGINE_STATS");
     let mut backend = pick_backend(cfg.renderer, &win, (cfg.w, cfg.h), scale);
     let dt = 1.0 / cfg.tick_hz;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos());
@@ -663,6 +668,52 @@ mod tests {
         assert!(!step(&mut stack, &mut ctx, &mut tape, DT), "no recorded steps left");
         assert!(stack.is_empty());
         assert_eq!(log.borrow().last().map(String::as_str), Some("A-"), "scenes are told they are leaving");
+    }
+
+    #[test]
+    fn a_recorded_run_with_physics_and_random_spawns_replays_to_the_same_world() {
+        use crate::{Body, Physics, Rect, RigidBody, Vel, World, WorldFile};
+
+        let file = WorldFile::new().component::<Body>("body").component::<Vel>("vel");
+        let play = |mut tape: Tape| {
+            let bodies = Rc::new(RefCell::new(World::new()));
+            let log: Log = Rc::default();
+            let shared = bodies.clone();
+            let mut physics = Physics::default();
+            let first = script("A", &log, move |ctx| {
+                let mut w = shared.borrow_mut();
+                if w.is_empty() {
+                    w.spawn((Body(Rect::new(0.0, 60.0, 200.0, 10.0)), RigidBody::fixed()));
+                }
+                if ctx.input().pressed("jump") {
+                    let x = ctx.rng().range(0.0, 180.0);
+                    w.spawn((Body(Rect::new(x, 0.0, 8.0, 8.0)), Vel { x: 0.0, y: 0.0 }, RigidBody::dynamic(1.0)));
+                }
+                physics.step(&mut w, None, DT);
+                Trans::None
+            });
+            let (mut stack, mut ctx) = world(first);
+            ctx.rng = Rng::new(7);
+            for i in 0..120 {
+                let keys: &[Key] = if i % 7 < 2 { &[Key::Space] } else { &[] };
+                ctx.input.hold(keys);
+                assert!(step(&mut stack, &mut ctx, &mut tape, DT));
+            }
+            let sum = file.checksum(&bodies.borrow());
+            (sum, tape)
+        };
+        let sink = std::env::temp_dir().join(format!("engine-replay-run-{}.rec", std::process::id()));
+        let record =
+            Tape::Record(sink.to_string_lossy().into_owned(), replay::Recording { seed: 7, hz: None, frames: vec![] });
+        let (first, mut tape) = play(record);
+        let Tape::Record(_, rec) = &mut tape else { panic!() };
+        let frames = std::mem::take(&mut rec.frames);
+        drop(tape);
+        std::fs::remove_file(&sink).ok();
+        assert_eq!(frames.len(), 120);
+        let (second, _) = play(recorded(frames));
+        assert_eq!(first, second);
+        assert_ne!(first, file.checksum(&World::new()), "something fell");
     }
 
     #[test]

@@ -72,6 +72,9 @@ impl Camera {
     }
 
     pub fn follow(&mut self, target: Rect, world: impl Into<Vec2>, dt: f32) {
+        if !dt.is_finite() {
+            return;
+        }
         let (tx, ty, world) = (target.center().x, target.center().y, world.into());
         let (vw, vh) = self.visible();
         let goal =

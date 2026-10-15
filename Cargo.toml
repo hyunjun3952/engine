@@ -2,7 +2,7 @@
 name = "engine"
 version = "0.2.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.90"
 description = "A small 2D game engine: software and wgpu renderers, ECS, physics, audio"
 license = "Apache-2.0"
 

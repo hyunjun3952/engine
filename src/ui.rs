@@ -512,10 +512,10 @@ impl Focus {
                 self.index = Self::nearest(rects, self.index, dir).unwrap_or(self.index);
             }
         }
-        if input.mouse_moved() {
-            if let Some(over) = rects.iter().position(|r| hovered(input, *r)) {
-                self.index = over;
-            }
+        if input.mouse_moved()
+            && let Some(over) = rects.iter().position(|r| hovered(input, *r))
+        {
+            self.index = over;
         }
         // The rect under the click, not the focused one: keys may have moved the focus while the cursor sat still.
         let click = input.mouse().and_then(|_| rects.iter().position(|r| clicked(input, *r)));

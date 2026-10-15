@@ -206,7 +206,7 @@ pub struct Audio {
 #[cfg(feature = "audio")]
 struct Dev {
     out: Option<MixerDeviceSink>,
-    files: FxMap<String, Arc<[u8]>>,
+    files: FxMap<String, Option<Arc<[u8]>>>,
     music: Option<Player>,
     sounds: Vec<Playing>,
 }
@@ -223,7 +223,7 @@ struct Playing {
 impl Audio {
     pub(crate) fn new() -> Self {
         #[cfg(feature = "audio")]
-        if std::env::var_os("ENGINE_MUTE").is_none() {
+        if !crate::app::env_flag("ENGINE_MUTE") {
             match DeviceSinkBuilder::open_default_sink() {
                 Ok(mut out) => {
                     out.log_on_drop(false);
@@ -302,12 +302,16 @@ impl Audio {
     }
 
     #[cfg(feature = "audio")]
+    fn read(path: &str) -> Option<Cursor<Arc<[u8]>>> {
+        let bytes: Arc<[u8]> = std::fs::read(path).inspect_err(|e| eprintln!("{path}: {e}")).ok()?.into();
+        Some(Cursor::new(bytes))
+    }
+
+    #[cfg(feature = "audio")]
+    // Effects are kept, a missing one too so it is reported once; music is read when it starts and not kept.
     fn open(&mut self, path: &str) -> Option<Cursor<Arc<[u8]>>> {
-        if !self.dev.files.contains_key(path) {
-            let bytes: Arc<[u8]> = std::fs::read(path).inspect_err(|e| eprintln!("{path}: {e}")).ok()?.into();
-            self.dev.files.insert(path.to_string(), bytes);
-        }
-        self.dev.files.get(path).cloned().map(Cursor::new)
+        let entry = self.dev.files.entry(path.to_string()).or_insert_with(|| Audio::read(path).map(Cursor::into_inner));
+        entry.clone().map(Cursor::new)
     }
 
     pub fn play(&mut self, path: &str) -> Voice {
@@ -375,7 +379,7 @@ impl Audio {
         if self.dev.out.is_none() {
             return false;
         }
-        let Some(data) = self.open(path) else { return false };
+        let Some(data) = Audio::read(path) else { return false };
         let Some(out) = &self.dev.out else { return false };
         match Decoder::new_looped(data) {
             Ok(src) => {
