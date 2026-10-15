@@ -230,6 +230,12 @@ impl Tiled {
             }
             None => set,
         };
+        // Ids are counted straight along the sheet, which a gap between or around tiles would shift.
+        for gap in ["spacing", "margin"] {
+            if tileset.attr(gap).is_some_and(|v| v != "0") {
+                return Err(format!("tileset {gap} is not supported; export the tileset without it"));
+            }
+        }
         let count = {
             let (sw, sh) = sheet.size();
             ((sw / tw) * (sh / th).max(1)).min(255)
@@ -442,6 +448,8 @@ mod tests {
                 .contains("2 tilesets")
         );
         assert!(with("</layer>\n <layer", "</layr>\n <layer").contains("closes"));
+        assert!(with("columns=\"4\"", "columns=\"4\" spacing=\"1\"").contains("spacing"));
+        assert!(with("columns=\"4\"", "columns=\"4\" margin=\"0\"").is_empty(), "a zero margin is no margin");
         assert!(with("<layer id=\"1\"", "<group id=\"9\" name=\"g\"/><layer id=\"1\"").contains("groups"));
         assert!(parse("not xml").err().unwrap().contains("not XML"));
         assert!(
