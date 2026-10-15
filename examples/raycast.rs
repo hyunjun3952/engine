@@ -43,8 +43,8 @@ impl Scene for Rays {
                 _ => u32::MAX,
             };
         }
-        if let Some((x, y)) = ctx.input().mouse() {
-            self.dir = (x - FROM.0, y - FROM.1);
+        if let Some(p) = ctx.input().mouse() {
+            self.dir = (p.x - FROM.0, p.y - FROM.1);
         }
         self.hit = raycast(&self.world, FROM, self.dir, 1000.0, self.mask).map(|(_, t)| t);
         Trans::None

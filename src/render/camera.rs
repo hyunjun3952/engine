@@ -1,4 +1,4 @@
-use crate::{Ease, Rect, Rng, Timer, Tween};
+use crate::{Ease, Rect, Rng, Timer, Tween, Vec2};
 
 const FOLLOW_SPEED: f32 = 10.0;
 const MIN_ZOOM: f32 = 0.25;
@@ -65,11 +65,11 @@ impl Camera {
         self.pos = (cx - vw / 2.0, cy - vh / 2.0);
     }
 
-    pub fn follow(&mut self, target: &Rect, world: (f32, f32), dt: f32) {
-        let (tx, ty) = target.center();
+    pub fn follow(&mut self, target: &Rect, world: impl Into<Vec2>, dt: f32) {
+        let (tx, ty, world) = (target.center().x, target.center().y, world.into());
         let (vw, vh) = self.visible();
         let goal =
-            ((tx - vw / 2.0).clamp(0.0, (world.0 - vw).max(0.0)), (ty - vh / 2.0).clamp(0.0, (world.1 - vh).max(0.0)));
+            ((tx - vw / 2.0).clamp(0.0, (world.x - vw).max(0.0)), (ty - vh / 2.0).clamp(0.0, (world.y - vh).max(0.0)));
         // One frame of a position that is not a number would otherwise leave the camera that way for good.
         if !(goal.0.is_finite() && goal.1.is_finite()) {
             return;
@@ -116,8 +116,9 @@ impl Camera {
     }
 
     /// A screen position as a world position, ignoring shake so a pointer does not jitter with it.
-    pub fn to_world(&self, (x, y): (f32, f32)) -> (f32, f32) {
-        (self.pos.0.floor() + x / self.zoom, self.pos.1.floor() + y / self.zoom)
+    pub fn to_world(&self, p: impl Into<Vec2>) -> Vec2 {
+        let p = p.into();
+        Vec2::new(self.pos.0.floor() + p.x / self.zoom, self.pos.1.floor() + p.y / self.zoom)
     }
 
     pub(crate) fn offset(&self) -> (f32, f32) {
@@ -152,7 +153,7 @@ mod tests {
         c.follow(&at(500.0), (1000.0, 1000.0), 0.0);
         c.shake(5.0, 1.0);
         c.tick(0.1);
-        assert_eq!(c.to_world((10.0, 4.0)), (460.0, 4.0));
+        assert_eq!(c.to_world((10.0, 4.0)), Vec2::new(460.0, 4.0));
     }
 
     #[test]
@@ -162,8 +163,8 @@ mod tests {
         let middle = (c.offset().0 + 50.0, c.offset().1 + 40.0);
         c.set_zoom(2.0);
         assert_eq!((c.offset().0 + 25.0, c.offset().1 + 20.0), middle);
-        assert_eq!(c.to_world((50.0, 40.0)), middle);
-        assert_eq!(c.to_world((0.0, 0.0)), (middle.0 - 25.0, middle.1 - 20.0));
+        assert_eq!(c.to_world((50.0, 40.0)), middle.into());
+        assert_eq!(c.to_world((0.0, 0.0)), Vec2::new(middle.0 - 25.0, middle.1 - 20.0));
         c.set_zoom(100.0);
         assert_eq!(c.zoom(), 8.0);
         c.set_zoom(0.0);

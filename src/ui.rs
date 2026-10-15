@@ -1,5 +1,5 @@
 use crate::hangul::{Hangul, latin_to_jamo};
-use crate::{Ctx, Font, Gfx, Input, Key, MouseButton, Rect};
+use crate::{Ctx, Font, Gfx, Input, Key, MouseButton, Rect, Vec2};
 
 pub fn draw_panel(gfx: &mut Gfx, r: &Rect, fill: u32, border: u32) {
     gfx.fill(r, fill);
@@ -13,7 +13,7 @@ pub fn draw_bar(gfx: &mut Gfx, r: &Rect, frac: f32, color: u32, back: u32) {
 }
 
 pub fn hovered(input: &Input, r: &Rect) -> bool {
-    input.mouse().is_some_and(|(x, y)| r.contains(x, y))
+    input.mouse().is_some_and(|p| r.contains(p.x, p.y))
 }
 
 /// True on the step the left button goes down over `r`.
@@ -25,7 +25,7 @@ pub fn clicked(input: &Input, r: &Rect) -> bool {
 /// Dragging off the rectangle stops it following, so make the rectangle taller than the drawn track.
 pub fn slider(input: &Input, r: &Rect, value: f32) -> f32 {
     match input.mouse() {
-        Some((x, _)) if input.mouse_down(MouseButton::Left) && hovered(input, r) => {
+        Some(Vec2 { x, .. }) if input.mouse_down(MouseButton::Left) && hovered(input, r) => {
             ((x.floor() - r.x) / (r.w - 1.0).max(1.0)).clamp(0.0, 1.0)
         }
         _ => value,
@@ -412,7 +412,7 @@ impl ScrollList {
         }
         self.sel = self.sel.min(self.items.len().saturating_sub(1));
         self.top = self.top.min(self.items.len().saturating_sub(rows));
-        if let Some((_, y)) = input.mouse().filter(|_| clicked(input, r)) {
+        if let Some(Vec2 { y, .. }) = input.mouse().filter(|_| clicked(input, r)) {
             let row = self.top + ((y - r.y) as i32 / step) as usize;
             if row < self.items.len() {
                 self.sel = row;
@@ -482,13 +482,13 @@ impl Focus {
 
     // The rectangle ahead in `dir` whose centre is closest, counting sideways drift double so a neighbour in line wins.
     fn nearest(rects: &[Rect], from: usize, dir: (f32, f32)) -> Option<usize> {
-        let (cx, cy) = rects[from].center();
+        let Vec2 { x: cx, y: cy } = rects[from].center();
         rects
             .iter()
             .enumerate()
             .filter(|&(i, _)| i != from)
             .filter_map(|(i, r)| {
-                let (x, y) = r.center();
+                let Vec2 { x, y } = r.center();
                 let (ahead, aside) = ((x - cx) * dir.0 + (y - cy) * dir.1, (x - cx) * dir.1 + (y - cy) * dir.0);
                 (ahead > 0.5).then_some((i, ahead + 2.0 * aside.abs()))
             })

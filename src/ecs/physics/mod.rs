@@ -286,11 +286,11 @@ impl Node {
     }
 
     fn center(&self) -> V2 {
-        self.rect.center()
+        self.rect.center().into()
     }
 
     fn before_center(&self) -> V2 {
-        self.before.center()
+        self.before.center().into()
     }
 
     fn radius(&self) -> f32 {
@@ -456,8 +456,7 @@ impl Physics {
         let local = |e: Entity| {
             let body = world.get::<&Body>(e).ok()?.0;
             let angle = world.get::<&Transform>(e).map_or(0.0, |t| t.angle);
-            let c = body.center();
-            let v = (anchor - Vec2::new(c.0, c.1)).rotated(-angle);
+            let v = (anchor - body.center()).rotated(-angle);
             Some((v.x, v.y))
         };
         if let (Some(la), Some(lb)) = (local(a), local(b)) {
@@ -663,7 +662,7 @@ impl Physics {
         }
         if let Some(map) = tiles {
             let (gx, gy, size) = (self.gravity.0 * dt, self.gravity.1 * dt, map.size as f32);
-            let (mw, mh) = map.pixel_size();
+            let Vec2 { x: mw, y: mh } = map.pixel_size();
             let meets = Filter::TERRAIN | if map.has_one_way() { Filter::PLATFORM } else { 0 };
             for i in (0..nodes.len()).filter(|&i| fast(i) && nodes[i].filter.mask & meets != 0) {
                 if need[i] <= worst {
@@ -837,7 +836,7 @@ fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>, sweep: &mut
                 let tile = &nodes[b].rect;
                 if touch.whole_face {
                     let (nx, ny) = touch.normal;
-                    let (tx, ty) = tile.center();
+                    let Vec2 { x: tx, y: ty } = tile.center();
                     let behind = Rect { x: tx - nx * tile.w, y: ty - ny * tile.h, ..*tile };
                     if is_solid(map, behind.x, behind.y) {
                         return None;
@@ -875,7 +874,7 @@ fn is_solid(map: &Tilemap, x: f32, y: f32) -> bool {
 
 // A tile face or corner hidden by a solid neighbour is dropped, or a body walking the floor catches on seams.
 fn is_hidden(map: &Tilemap, tile: &Rect, (px, py): V2, normal: V2) -> bool {
-    let (mx, my) = tile.center();
+    let Vec2 { x: mx, y: my } = tile.center();
     let (dx, dy) = (px - mx, py - my);
     let toward = (-normal.0, -normal.1);
     let blocked = |d: f32, t: f32, half: f32| d.abs() >= half - 0.05 && d.signum() * t > 1e-6;

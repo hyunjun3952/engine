@@ -12,7 +12,7 @@ struct Fly {
 impl Fly {
     fn new(ctx: &mut Ctx) -> Self {
         let map = Tilemap::load("assets/levels/level1.txt", 16, ctx.assets().sprite("assets/images/tiles.png"));
-        let (x, y) = map.marks(b'P').next().expect("level1 has a P");
+        let engine::Vec2 { x, y } = map.marks(b'P').next().expect("level1 has a P");
         let mut world = World::new();
         let me = world.spawn((Body(Rect { x, y, w: 12.0, h: 12.0 }), Look::Color(0xffd040)));
         ctx.cam().reset();

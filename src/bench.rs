@@ -1,7 +1,7 @@
 use crate::render::Soft;
 use crate::{
     Body, Burst, Collider, DrawCmd, Font, Gfx, Look, Paint, Physics, RayIndex, Rect, RigidBody, Rng, Sprite, Tilemap,
-    Transform, Vel, World, burst, collisions, draw_list, particles, raycast, raycasts,
+    Transform, Vec2, Vel, World, burst, collisions, draw_list, particles, raycast, raycasts,
 };
 use std::hint::black_box;
 use std::time::Instant;
@@ -248,7 +248,7 @@ fn shake() {
                 let turn = Transform { angle: rng.range(0.0, 3.0), ..Transform::IDENTITY };
                 ents.push(w.spawn((Body(Rect { x, y, w: size, h: size }), Vel::default(), body, turn)));
             }
-            let mut last: Vec<(f32, f32)> = ents.iter().map(|&e| w.get::<&Body>(e).unwrap().0.center()).collect();
+            let mut last: Vec<Vec2> = ents.iter().map(|&e| w.get::<&Body>(e).unwrap().0.center()).collect();
             let mut last_awake = None;
             for step in 0..1200 {
                 let t = Instant::now();
@@ -263,9 +263,9 @@ fn shake() {
                 let mut awake = 0;
                 for (i, &e) in ents.iter().enumerate() {
                     let c = w.get::<&Body>(e).unwrap().0.center();
-                    let moved = (c.0 - last[i].0).hypot(c.1 - last[i].1);
+                    let moved = c.distance(last[i]);
                     last[i] = c;
-                    if p.asleep(e) || c.1 > 360.0 {
+                    if p.asleep(e) || c.y > 360.0 {
                         continue;
                     }
                     awake += 1;
@@ -282,7 +282,7 @@ fn shake() {
             if let Some(at) = last_awake.map_or(Some(0), |s| (s + 1 < 1200).then_some(s + 1)) {
                 (calm, settled) = (calm + at as f32 / 60.0, settled + 1);
             }
-            below += ents.iter().filter(|&&e| w.get::<&Body>(e).unwrap().0.center().1 > 360.0).count();
+            below += ents.iter().filter(|&&e| w.get::<&Body>(e).unwrap().0.center().y > 360.0).count();
         }
         println!(
             "  n={n}: jumps > 1.5 px {small}, > 6 px {big}; asleep for good after {:.1} s on average ({settled} of {seeds} seeds got there); under the floor {below}; step {:.3} ms on average, {worst_ms:.1} ms at worst",

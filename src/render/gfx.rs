@@ -1,4 +1,5 @@
 use super::{DrawCmd, Font, Paint, Style, Transform, font};
+use crate::Vec2;
 use std::sync::{
     Arc, RwLock, RwLockReadGuard,
     atomic::{AtomicU64, Ordering},
@@ -13,14 +14,14 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub fn center(&self) -> (f32, f32) {
-        (self.x + self.w / 2.0, self.y + self.h / 2.0)
+    pub fn center(&self) -> Vec2 {
+        Vec2::new(self.x + self.w / 2.0, self.y + self.h / 2.0)
     }
 
-    pub fn penetration(&self, o: &Rect) -> Option<(f32, f32)> {
+    pub fn penetration(&self, o: &Rect) -> Option<Vec2> {
         let ox = (self.x + self.w).min(o.x + o.w) - self.x.max(o.x);
         let oy = (self.y + self.h).min(o.y + o.h) - self.y.max(o.y);
-        (ox > 0.0 && oy > 0.0).then_some((ox, oy))
+        (ox > 0.0 && oy > 0.0).then_some(Vec2::new(ox, oy))
     }
 
     pub fn overlaps(&self, o: &Rect) -> bool {
@@ -140,16 +141,18 @@ impl Gfx {
 
     /// `draw` for a far or near layer: the camera counts for `factor` of its movement on each axis, whole pixels (0
     /// keeps the commands still on the screen like a sky, 0.5 scrolls them at half speed, 1 is `draw`).
-    pub fn draw_parallax(&mut self, cmds: impl IntoIterator<Item = DrawCmd>, factor: (f32, f32)) {
+    pub fn draw_parallax(&mut self, cmds: impl IntoIterator<Item = DrawCmd>, factor: impl Into<Vec2>) {
+        let factor = factor.into();
         let cam = self.cam;
-        self.cam = ((cam.0 * factor.0).floor(), (cam.1 * factor.1).floor());
+        self.cam = ((cam.0 * factor.x).floor(), (cam.1 * factor.y).floor());
         self.draw(cmds);
         self.cam = cam;
     }
 
     /// Fills the screen with a picture that scrolls at `factor` of the camera's movement, repeating along each axis
     /// where `repeat` is true (a sky, hills). It goes straight to the screen, so call it before the world is drawn.
-    pub fn background(&mut self, s: &Arc<Sprite>, factor: (f32, f32), repeat: (bool, bool)) {
+    pub fn background(&mut self, s: &Arc<Sprite>, factor: impl Into<Vec2>, repeat: (bool, bool)) {
+        let factor = factor.into();
         let (sw, sh) = s.size();
         if sw == 0 || sh == 0 {
             return;
@@ -167,7 +170,7 @@ impl Gfx {
                 .collect()
         };
         let (xs, ys) =
-            (axis(self.cam.0, factor.0, sw, self.w, repeat.0), axis(self.cam.1, factor.1, sh, self.h, repeat.1));
+            (axis(self.cam.0, factor.x, sw, self.w, repeat.0), axis(self.cam.1, factor.y, sh, self.h, repeat.1));
         for &y in &ys {
             for &x in &xs {
                 self.blit(s, x, y);

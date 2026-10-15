@@ -1,5 +1,5 @@
 use crate::{
-    Anim, AnimStates, Body, Ctx, DrawCmd, Entity, Gfx, Input, Key, Layer, Look, Paint, Rect, TextField, World,
+    Anim, AnimStates, Body, Ctx, DrawCmd, Entity, Gfx, Input, Key, Layer, Look, Paint, Rect, TextField, Vec2, World,
 };
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -76,7 +76,7 @@ impl Inspector {
             self.open = !self.open;
         }
         if self.open && ctx.input().mouse_pressed(crate::MouseButton::Left) {
-            if let Some((x, y)) = ctx.mouse_world() {
+            if let Some(Vec2 { x, y }) = ctx.mouse_world() {
                 self.picked = pick(world, x, y);
             }
         }

@@ -1,6 +1,6 @@
 use super::cmd::SAMPLE_BIAS;
 use super::{Blend, DrawCmd, Paint, Style, Transform, font};
-use crate::{Rect, Sprite};
+use crate::{Rect, Sprite, Vec2};
 use std::ops::Range;
 
 pub(crate) struct Soft {
@@ -137,7 +137,7 @@ impl Soft {
         px: impl Fn(&mut u32, u32),
     ) {
         const NONE: u32 = u32::MAX;
-        let (cx, cy) = quad.center();
+        let Vec2 { x: cx, y: cy } = quad.center();
         let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
         let (x0, x1) = ((cx - hw).floor().max(0.0) as usize, ((cx + hw).ceil().max(0.0) as usize).min(self.w));
         let (y0, y1) = ((cy - hh).floor().max(0.0) as usize, ((cy + hh).ceil().max(0.0) as usize).min(self.h));
@@ -180,7 +180,7 @@ impl Soft {
         if t.sx == 0.0 || t.sy == 0.0 {
             return;
         }
-        let (cx, cy) = quad.center();
+        let Vec2 { x: cx, y: cy } = quad.center();
         let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
         let (s, c) = t.angle.sin_cos();
         let (ex, ey) = (hw * c.abs() + hh * s.abs(), hw * s.abs() + hh * c.abs());
@@ -726,7 +726,7 @@ mod tests {
         if t.sx == 0.0 || t.sy == 0.0 {
             return;
         }
-        let (cx, cy) = quad.center();
+        let Vec2 { x: cx, y: cy } = quad.center();
         let (hw, hh) = (quad.w / 2.0 * t.sx.abs(), quad.h / 2.0 * t.sy.abs());
         let (s, c) = t.angle.sin_cos();
         let (ex, ey) = (hw * c.abs() + hh * s.abs(), hw * s.abs() + hh * c.abs());

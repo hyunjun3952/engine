@@ -23,6 +23,7 @@ impl Item {
     fn hit(&self, from: V2, dir: V2, max: f32) -> Option<f32> {
         let r = &self.rect;
         let (c, (s, k)) = (r.center(), self.turn);
+        let c = (c.x, c.y);
         let turn = |x: f32, y: f32| (x * k + y * s, y * k - x * s);
         let (o, d) = (turn(from.0 - c.0, from.1 - c.1), turn(dir.0, dir.1));
         slab((o.0, d.0, -r.w / 2.0, r.w / 2.0), (o.1, d.1, -r.h / 2.0, r.h / 2.0), max)

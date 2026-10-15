@@ -1,4 +1,4 @@
-use crate::{Body, Entity, Layer, Look, Rect, Rng, Timer, World};
+use crate::{Body, Entity, Layer, Look, Rect, Rng, Timer, Vec2, World};
 
 pub struct Particle {
     vx: f32,
@@ -16,12 +16,13 @@ pub struct Burst {
     pub gravity: f32,
 }
 
-pub fn burst(world: &mut World, rng: &mut Rng, at: (f32, f32), b: &Burst) {
+pub fn burst(world: &mut World, rng: &mut Rng, at: impl Into<Vec2>, b: &Burst) {
+    let at = at.into();
     for _ in 0..b.count {
         let angle = rng.range(0.0, std::f32::consts::TAU);
         let speed = rng.range(0.3, 1.0) * b.speed;
         world.spawn((
-            Body(Rect { x: at.0 - b.size / 2.0, y: at.1 - b.size / 2.0, w: b.size, h: b.size }),
+            Body(Rect { x: at.x - b.size / 2.0, y: at.y - b.size / 2.0, w: b.size, h: b.size }),
             Look::Alpha(b.color, 255),
             Layer(10),
             Particle {

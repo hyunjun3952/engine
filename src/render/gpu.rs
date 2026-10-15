@@ -1,7 +1,7 @@
 use super::cmd::SAMPLE_BIAS;
 use super::{Blend, DrawCmd, Paint, Style, Transform, font};
-use crate::Sprite;
 use crate::ecs::fx::FxMap;
+use crate::{Sprite, Vec2};
 use std::sync::Arc;
 
 const SHADER: &str = "
@@ -470,7 +470,7 @@ impl Gpu {
     }
 
     fn warped(&mut self, tex: Tex, quad: crate::Rect, t: &Transform, uv: (f32, f32, f32, f32), color: [f32; 4]) {
-        let (cx, cy) = quad.center();
+        let Vec2 { x: cx, y: cy } = quad.center();
         let (s, c) = t.angle.sin_cos();
         let corner = |ux: f32, uy: f32| {
             let (lx, ly) = (ux * quad.w / 2.0 * t.sx, uy * quad.h / 2.0 * t.sy);

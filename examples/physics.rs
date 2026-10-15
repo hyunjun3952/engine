@@ -62,7 +62,9 @@ impl Scene for Sandbox {
             let x = ctx.rng().range(20.0, W - 36.0);
             self.drop_ball(ctx, x, 0.0);
         }
-        if let Some((x, y)) = ctx.input().mouse().filter(|_| ctx.input().mouse_pressed(MouseButton::Left)) {
+        if let Some(engine::Vec2 { x, y }) =
+            ctx.input().mouse().filter(|_| ctx.input().mouse_pressed(MouseButton::Left))
+        {
             self.drop_ball(ctx, x - 8.0, y - 8.0);
         }
         self.physics.step(&mut self.world, None, ctx.dt());

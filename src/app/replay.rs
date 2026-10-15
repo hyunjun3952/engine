@@ -148,6 +148,7 @@ impl Drop for Tape {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Vec2;
 
     fn frame(keys: &[Key], mouse: Option<(f32, f32)>) -> Frame {
         Frame { keys: keys.to_vec(), pads: vec![Pad::A], mouse, buttons: [true, false, false, false, true] }
@@ -205,7 +206,7 @@ mod tests {
         assert!(play.step(&mut fresh));
         assert!(
             fresh.key_down(Key::Space)
-                && fresh.mouse() == Some((3.0, 4.0))
+                && fresh.mouse() == Some(Vec2::new(3.0, 4.0))
                 && fresh.mouse_down(super::super::input::MouseButton::Left)
         );
         assert!(play.step(&mut fresh));

@@ -248,8 +248,11 @@ impl Tilemap {
         Tilemap::try_from_ascii_with(&rows, size, sheet, legend).map_err(|e| format!("{path}: {e}"))
     }
 
-    pub fn marks(&self, c: u8) -> impl Iterator<Item = (f32, f32)> + '_ {
-        self.marks.iter().filter(move |m| m.0 == c).map(|&(_, x, y)| ((x * self.size) as f32, (y * self.size) as f32))
+    pub fn marks(&self, c: u8) -> impl Iterator<Item = Vec2> + '_ {
+        self.marks
+            .iter()
+            .filter(move |m| m.0 == c)
+            .map(|&(_, x, y)| Vec2::new((x * self.size) as f32, (y * self.size) as f32))
     }
 
     pub(crate) fn stamp(&self) -> u64 {
@@ -271,8 +274,8 @@ impl Tilemap {
         self.stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn pixel_size(&self) -> (f32, f32) {
-        ((self.w * self.size) as f32, (self.h * self.size) as f32)
+    pub fn pixel_size(&self) -> Vec2 {
+        Vec2::new((self.w * self.size) as f32, (self.h * self.size) as f32)
     }
 
     fn solid(&self, tx: i32, ty: i32) -> bool {
@@ -605,7 +608,7 @@ mod tests {
     #[test]
     fn letters_become_markers_with_pixel_positions() {
         let map = Tilemap::from_ascii(&["...", ".P.", "###"], 16, Sprite::test_tiles());
-        assert_eq!(map.marks(b'P').collect::<Vec<_>>(), vec![(16.0, 16.0)]);
+        assert_eq!(map.marks(b'P').collect::<Vec<_>>(), vec![Vec2::new(16.0, 16.0)]);
         assert_eq!(map.marks(b'E').count(), 0);
     }
 

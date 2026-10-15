@@ -16,7 +16,7 @@ pub use time::{Ease, Timer, Tween};
 #[cfg(feature = "gpu")]
 use crate::render::Gpu;
 use crate::render::Soft;
-use crate::{Assets, Audio, Camera, Gfx, Rect};
+use crate::{Assets, Audio, Camera, Gfx, Rect, Vec2};
 use fade::Fade;
 use minifb::{ScaleMode, Window, WindowOptions};
 use replay::Tape;
@@ -184,7 +184,7 @@ impl Ctx {
     }
 
     /// The mouse in world coordinates under the current camera (`input().mouse()` is in screen pixels).
-    pub fn mouse_world(&self) -> Option<(f32, f32)> {
+    pub fn mouse_world(&self) -> Option<Vec2> {
         self.input.mouse().map(|p| self.cam.to_world(p))
     }
 

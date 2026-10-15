@@ -1,4 +1,5 @@
 use super::pad::{PADS, Pad, PadAxis, PadState};
+use crate::Vec2;
 use crate::ecs::fx::{FxMap, FxSet};
 use crate::render::letterbox;
 pub use minifb::{Key, MouseButton};
@@ -187,8 +188,8 @@ impl Input {
         self.down(pos) as i32 as f32 - self.down(neg) as i32 as f32
     }
     /// Cursor in screen pixels of the logical canvas; `None` while it is outside the window.
-    pub fn mouse(&self) -> Option<(f32, f32)> {
-        self.mouse
+    pub fn mouse(&self) -> Option<Vec2> {
+        self.mouse.map(Vec2::from)
     }
     /// True when the cursor is somewhere else than it was at the previous step.
     pub fn mouse_moved(&self) -> bool {

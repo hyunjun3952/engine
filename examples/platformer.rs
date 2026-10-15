@@ -191,7 +191,7 @@ impl Scene for Platformer {
             let player = self.world.get::<&Body>(self.player).unwrap().0.center();
             let mut lights = self.lights.borrow_mut();
             lights.clear(0x141c38);
-            lights.add_world(g, Light::new(player.0, player.1, 110.0).colored(0xffc070));
+            lights.add_world(g, Light::new(player.x, player.y, 110.0).colored(0xffc070));
             lights.draw(g);
             g.multiply(&self.vignette);
         }

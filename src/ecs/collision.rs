@@ -1,10 +1,10 @@
-use crate::{Body, Collider, Entity, Filter, Rect, Transform, World};
+use crate::{Body, Collider, Entity, Filter, Rect, Transform, Vec2, World};
 
 /// The box that holds `r` turned about its centre by an angle given as `(sin, cos)`, grown by `pad` on every side.
 pub(crate) fn turned_box(r: Rect, (s, c): (f32, f32), pad: f32) -> Rect {
     let (hw, hh) = (r.w / 2.0, r.h / 2.0);
     let (ex, ey) = (hw * c.abs() + hh * s.abs() + pad, hw * s.abs() + hh * c.abs() + pad);
-    let (cx, cy) = r.center();
+    let Vec2 { x: cx, y: cy } = r.center();
     Rect { x: cx - ex, y: cy - ey, w: ex * 2.0, h: ey * 2.0 }
 }
 
@@ -89,7 +89,7 @@ impl Sweep {
                 if (a_inert && inert(b)) || rb.y + rb.h <= ra.y || ra.y + ra.h <= rb.y {
                     continue;
                 }
-                if let Some((ox, oy)) = ra.penetration(rb) {
+                if let Some(Vec2 { x: ox, y: oy }) = ra.penetration(rb) {
                     self.found.push((a, b, ox, oy));
                 }
             }
@@ -152,7 +152,8 @@ mod tests {
         let mut out = Vec::new();
         for a in 0..rects.len() {
             for b in a + 1..rects.len() {
-                if let Some((ox, oy)) = rects[a].penetration(&rects[b]).filter(|_| !(inert(a) && inert(b))) {
+                if let Some(Vec2 { x: ox, y: oy }) = rects[a].penetration(&rects[b]).filter(|_| !(inert(a) && inert(b)))
+                {
                     out.push((a, b, ox, oy));
                 }
             }

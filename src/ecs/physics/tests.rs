@@ -1,5 +1,5 @@
 use super::*;
-use crate::Sprite;
+use crate::{Sprite, Vec2};
 
 const DT: f32 = 1.0 / 60.0;
 
@@ -562,7 +562,7 @@ fn a_tilted_box_dropped_on_the_floor_ends_up_flat_and_still() {
         let off = off.min(std::f32::consts::FRAC_PI_2 - off);
         assert!(off < 0.03, "tilt {tilt}: rests at {} rad", angle_of(&w, e));
         assert!(v.0.abs() < 1.0 && v.1.abs() < 2.0, "tilt {tilt}: still moving {v:?}");
-        let centre = r.center().1;
+        let centre = r.center().y;
         assert!((centre - 90.0).abs() < 0.6 || (centre - 85.0).abs() < 0.6, "tilt {tilt}: centre at {centre}");
     }
 }
@@ -615,7 +615,7 @@ fn an_off_centre_hit_spins_the_box_and_conserves_both_momenta() {
         let (mut lin, mut ang) = ((0.0, 0.0), 0.0);
         for (e, m, i) in [(ball, 1.0, 0.5 * 25.0), (boxed_, 4.0, 4.0 * 1800.0 / 12.0)] {
             let (r, v) = state(w, e);
-            let (cx, cy) = r.center();
+            let Vec2 { x: cx, y: cy } = r.center();
             lin = (lin.0 + m * v.0, lin.1 + m * v.1);
             ang += m * (cx * v.1 - cy * v.0) + i * w.get::<&RigidBody>(e).unwrap().spin;
         }
@@ -637,7 +637,7 @@ fn tilted_boxes_land_flat_on_a_tile_floor_across_its_seams() {
         let e = turning(&mut w, Rect { x, y: 0.0, w: 24.0, h: 14.0 }, RigidBody::dynamic(1.0), 0.5);
         run(&mut p, &mut w, Some(&map), 300);
         let r = state(&w, e).0;
-        let centre = r.center().1;
+        let centre = r.center().y;
         assert!(
             (centre - 25.0).abs() < 0.6 || (centre - 20.0).abs() < 0.6,
             "x {x}: centre at {centre} on a floor at 32"
@@ -671,7 +671,7 @@ fn spinning_boxes_and_balls_piled_into_an_arena_stay_inside_it() {
     for e in bodies {
         let (r, v) = state(&w, e);
         // The rect is the unturned box, so judge the centre against the smallest half-size.
-        let ((cx, cy), near) = (r.center(), r.w.min(r.h) / 2.0);
+        let (Vec2 { x: cx, y: cy }, near) = (r.center(), r.w.min(r.h) / 2.0);
         assert!(cx >= 9.0 + near && cx <= 631.0 - near && cy <= 341.0 - near, "escaped or sank: {r:?}");
         assert!(v.0.hypot(v.1) < 60.0, "still flying after 15 s: {v:?}");
     }
@@ -985,9 +985,9 @@ fn a_hinge_lets_a_body_swing_about_its_pin_without_coming_off() {
         p.step(&mut w, None, DT);
         let (r, angle) = (w.get::<&Body>(bob).unwrap().0, w.get::<&Transform>(bob).unwrap().angle);
         let (c, arm) = (r.center(), Vec2::new(-60.0, 0.0).rotated(angle));
-        let at_pin = Vec2::new(c.0, c.1) + arm;
+        let at_pin = c + arm;
         worst_gap = worst_gap.max(at_pin.distance(Vec2::new(pin.0, pin.1)));
-        lowest = lowest.max(c.1);
+        lowest = lowest.max(c.y);
     }
     assert!(worst_gap < 1.5, "the pin stayed together to within {worst_gap}");
     assert!(lowest > 150.0, "it swung down about the pin: lowest centre {lowest}");
@@ -1204,7 +1204,7 @@ fn a_ball_rolls_down_a_ramp_and_off_onto_the_floor() {
     let mut on_the_diagonal = 0;
     for _ in 0..400 {
         run(&mut p, &mut w, Some(&map), 1);
-        let (cx, cy) = state(&w, b).0.center();
+        let Vec2 { x: cx, y: cy } = state(&w, b).0.center();
         // The line runs from (64, 32) down to (96, 64); a ball of radius 5 touching it has its centre 5 * sqrt 2 above.
         let line = (32.0 + (cx - 64.0)).clamp(32.0, 64.0);
         on_the_diagonal += (cx > 70.0 && cx < 90.0 && (cy - (line - 5.0 * 2f32.sqrt())).abs() < 1.5) as u32;
@@ -1222,7 +1222,7 @@ fn a_tilted_box_comes_to_rest_on_a_ramp_without_sinking() {
     w.insert_one(b, Transform { angle: 0.7, ..Transform::IDENTITY }).unwrap();
     run(&mut p, &mut w, Some(&map), 400);
     let r = state(&w, b).0;
-    let (cx, cy) = r.center();
+    let Vec2 { x: cx, y: cy } = r.center();
     assert!(p.asleep(b), "it settled: {r:?}");
     assert!(cy < ramp_height(cx), "its centre is above the line: {r:?}");
 }
