@@ -28,8 +28,9 @@ impl Rect {
         self.penetration(o).is_some()
     }
 
-    pub fn contains(&self, x: f32, y: f32) -> bool {
-        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    pub fn contains(&self, p: impl Into<Vec2>) -> bool {
+        let p = p.into();
+        p.x >= self.x && p.x < self.x + self.w && p.y >= self.y && p.y < self.y + self.h
     }
 
     /// The one-pixel top, bottom, left and right borders, as an outline is drawn.
@@ -53,7 +54,7 @@ pub struct Gfx {
     pub w: usize,
     pub h: usize,
     pub debug: bool,
-    pub cam: (f32, f32),
+    pub cam: Vec2,
     /// Magnification of what `draw` is given (the camera's zoom); 1 leaves it as it is.
     pub zoom: f32,
     cmds: Vec<DrawCmd>,
@@ -61,7 +62,7 @@ pub struct Gfx {
 
 impl Gfx {
     pub(crate) fn new(w: usize, h: usize) -> Self {
-        Gfx { w, h, debug: false, cam: (0.0, 0.0), zoom: 1.0, cmds: Vec::new() }
+        Gfx { w, h, debug: false, cam: Vec2::ZERO, zoom: 1.0, cmds: Vec::new() }
     }
 
     pub(crate) fn cmds(&self) -> &[DrawCmd] {
@@ -77,7 +78,7 @@ impl Gfx {
     }
 
     pub fn view(&self) -> Rect {
-        Rect { x: self.cam.0, y: self.cam.1, w: self.w as f32 / self.zoom, h: self.h as f32 / self.zoom }
+        Rect { x: self.cam.x, y: self.cam.y, w: self.w as f32 / self.zoom, h: self.h as f32 / self.zoom }
     }
 
     pub fn clear(&mut self, c: u32) {
@@ -144,7 +145,7 @@ impl Gfx {
     pub fn draw_parallax(&mut self, cmds: impl IntoIterator<Item = DrawCmd>, factor: impl Into<Vec2>) {
         let factor = factor.into();
         let cam = self.cam;
-        self.cam = ((cam.0 * factor.x).floor(), (cam.1 * factor.y).floor());
+        self.cam = Vec2::new((cam.x * factor.x).floor(), (cam.y * factor.y).floor());
         self.draw(cmds);
         self.cam = cam;
     }
@@ -170,7 +171,7 @@ impl Gfx {
                 .collect()
         };
         let (xs, ys) =
-            (axis(self.cam.0, factor.x, sw, self.w, repeat.0), axis(self.cam.1, factor.y, sh, self.h, repeat.1));
+            (axis(self.cam.x, factor.x, sw, self.w, repeat.0), axis(self.cam.y, factor.y, sh, self.h, repeat.1));
         for &y in &ys {
             for &x in &xs {
                 self.blit(s, x, y);
@@ -187,8 +188,8 @@ impl Gfx {
                 continue;
             }
             if self.zoom == 1.0 {
-                c.rect.x -= self.cam.0;
-                c.rect.y -= self.cam.1;
+                c.rect.x -= self.cam.x;
+                c.rect.y -= self.cam.y;
                 self.cmds.push(c);
             } else {
                 self.push_zoomed(c);
@@ -213,21 +214,21 @@ impl Gfx {
             }
             Paint::Mask { src, .. } => {
                 let k = ((c.rect.w / src.w).round().max(1.0) * z).round().max(1.0);
-                let rect = Rect { x: edge(c.rect.x, cam.0), y: edge(c.rect.y, cam.1), w: src.w * k, h: src.h * k };
+                let rect = Rect { x: edge(c.rect.x, cam.x), y: edge(c.rect.y, cam.y), w: src.w * k, h: src.h * k };
                 self.cmds.push(DrawCmd { rect, ..c });
             }
             Paint::Glyph { ch, color, scale } => {
                 let k = (*scale as f32 * z).round().max(1.0);
-                let rect = Rect { x: edge(c.rect.x, cam.0), y: edge(c.rect.y, cam.1), w: 8.0 * k, h: 8.0 * k };
+                let rect = Rect { x: edge(c.rect.x, cam.x), y: edge(c.rect.y, cam.y), w: 8.0 * k, h: 8.0 * k };
                 self.cmds.push(DrawCmd { rect, paint: Paint::Glyph { ch: *ch, color: *color, scale: k as u32 }, ..c });
             }
             Paint::Outline(_) => {
-                let (x0, y0) = (edge(c.rect.x, cam.0), edge(c.rect.y, cam.1));
+                let (x0, y0) = (edge(c.rect.x, cam.x), edge(c.rect.y, cam.y));
                 let rect = Rect {
                     x: x0,
                     y: y0,
-                    w: edge(c.rect.x + c.rect.w, cam.0) - x0,
-                    h: edge(c.rect.y + c.rect.h, cam.1) - y0,
+                    w: edge(c.rect.x + c.rect.w, cam.x) - x0,
+                    h: edge(c.rect.y + c.rect.h, cam.y) - y0,
                 };
                 self.cmds.push(DrawCmd { rect, ..c });
             }
@@ -238,14 +239,14 @@ impl Gfx {
                 let t = c.xform;
                 let flat = matches!(c.paint, Paint::Color(_) | Paint::Alpha(..));
                 if t.angle != 0.0 {
-                    let (nx, ny) = ((cx - cam.0) * z, (cy - cam.1) * z);
+                    let (nx, ny) = ((cx - cam.x) * z, (cy - cam.y) * z);
                     let rect = Rect { x: nx - qw / 2.0, y: ny - qh / 2.0, w: qw, h: qh };
                     self.cmds.push(DrawCmd { rect, xform: Transform { sx: t.sx * z, sy: t.sy * z, ..t }, ..c });
                     return;
                 }
                 let (ex, ey) = (qw * t.sx.abs() / 2.0, qh * t.sy.abs() / 2.0);
-                let (x0, y0) = (edge(cx - ex, cam.0), edge(cy - ey, cam.1));
-                let (x1, y1) = (edge(cx + ex, cam.0).max(x0 + 1.0), edge(cy + ey, cam.1).max(y0 + 1.0));
+                let (x0, y0) = (edge(cx - ex, cam.x), edge(cy - ey, cam.y));
+                let (x1, y1) = (edge(cx + ex, cam.x).max(x0 + 1.0), edge(cy + ey, cam.y).max(y0 + 1.0));
                 if flat {
                     let rect = Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
                     return self.cmds.push(DrawCmd { rect, xform: Transform::IDENTITY, ..c });
@@ -308,11 +309,7 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    pub fn load(path: &str) -> Self {
-        Sprite::try_load(path).unwrap_or_else(|e| panic!("{e}"))
-    }
-
-    pub fn try_load(path: &str) -> Result<Self, String> {
+    pub fn load(path: &str) -> Result<Self, String> {
         Ok(Sprite { image: RwLock::new(decode(path)?), version: AtomicU64::new(0) })
     }
 
@@ -333,12 +330,12 @@ impl Sprite {
 
     #[cfg(test)]
     pub(crate) fn test_tiles() -> Arc<Sprite> {
-        Arc::new(Sprite::load("assets/images/tiles.png"))
+        Arc::new(Sprite::load("assets/images/tiles.png").unwrap())
     }
 
     #[cfg(test)]
     pub(crate) fn test_ball() -> Arc<Sprite> {
-        Arc::new(Sprite::load("assets/images/ball.png"))
+        Arc::new(Sprite::load("assets/images/ball.png").unwrap())
     }
 
     pub(crate) fn image(&self) -> RwLockReadGuard<'_, Image> {
@@ -407,7 +404,7 @@ mod tests {
             ..DrawCmd::new(Rect { x: 5.0, y: 2.0, w: 1.0, h: 1.0 }, Paint::Color(7))
         };
         let mut g = Gfx::new(8, 8);
-        g.cam = (3.0, 1.0);
+        g.cam = Vec2::new(3.0, 1.0);
         g.draw([cmd(false), cmd(true)]);
         assert_eq!(g.cmds().len(), 1);
         assert_eq!((g.cmds()[0].rect.x, g.cmds()[0].rect.y), (2.0, 1.0));
@@ -418,7 +415,7 @@ mod tests {
 
     fn zoomed(zoom: f32, cam: (f32, f32)) -> Gfx {
         let mut g = Gfx::new(100, 60);
-        (g.zoom, g.cam) = (zoom, cam);
+        (g.zoom, g.cam) = (zoom, cam.into());
         g
     }
 
@@ -604,14 +601,14 @@ mod tests {
     #[test]
     fn a_parallax_layer_follows_the_camera_by_its_factor_and_the_camera_is_left_alone() {
         let mut g = Gfx::new(100, 100);
-        g.cam = (100.0, 40.0);
+        g.cam = Vec2::new(100.0, 40.0);
         let mark = DrawCmd::new(Rect { x: 150.0, y: 50.0, w: 4.0, h: 4.0 }, Paint::Color(1));
         g.draw_parallax([mark.clone()], (0.5, 1.0));
         g.draw_parallax([mark.clone()], (0.0, 0.0));
         g.draw([mark]);
         let at: Vec<_> = g.cmds().iter().map(|c| (c.rect.x, c.rect.y)).collect();
         assert_eq!(at, [(100.0, 10.0), (150.0, 50.0), (50.0, 10.0)]);
-        assert_eq!(g.cam, (100.0, 40.0));
+        assert_eq!(g.cam, Vec2::new(100.0, 40.0));
     }
 
     #[test]
@@ -619,7 +616,7 @@ mod tests {
         let sky = Arc::new(Sprite::from_pixels(8, 4, vec![0xFFFF_FFFF; 32]));
         let xs = |cam: f32, factor: f32, repeat: bool| {
             let mut g = Gfx::new(20, 4);
-            g.cam = (cam, 0.0);
+            g.cam = Vec2::new(cam, 0.0);
             g.background(&sky, (factor, 0.0), (repeat, false));
             g.cmds().iter().map(|c| c.rect.x as i32).collect::<Vec<_>>()
         };

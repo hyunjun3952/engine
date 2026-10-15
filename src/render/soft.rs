@@ -582,7 +582,7 @@ mod tests {
         let mut pick = move || odd[(rng.f32() * odd.len() as f32) as usize % odd.len()];
         for case in 0..3000 {
             let mut g = crate::Gfx::new(32, 24);
-            (g.zoom, g.cam) = (zooms[case % zooms.len()], (pick(), pick()));
+            (g.zoom, g.cam) = (zooms[case % zooms.len()], Vec2::new(pick(), pick()));
             let rect = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
             let src = Rect { x: pick(), y: pick(), w: pick(), h: pick() };
             let xform = Transform { angle: pick(), sx: pick(), sy: pick() };

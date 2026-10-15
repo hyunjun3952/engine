@@ -1,4 +1,5 @@
 use super::{Gfx, Sprite, Style};
+use crate::Vec2;
 use std::sync::Arc;
 
 /// A point of light on a `LightMap`: where it is, how far it reaches (pixels), its colour (0xRRGGBB) and how strongly
@@ -14,8 +15,9 @@ pub struct Light {
 
 impl Light {
     /// A white light of full strength.
-    pub fn new(x: f32, y: f32, radius: f32) -> Self {
-        Light { x, y, radius, color: 0xFF_FFFF, intensity: 1.0 }
+    pub fn new(at: impl Into<Vec2>, radius: f32) -> Self {
+        let at = at.into();
+        Light { x: at.x, y: at.y, radius, color: 0xFF_FFFF, intensity: 1.0 }
     }
 
     pub fn colored(self, color: u32) -> Self {
@@ -89,7 +91,7 @@ impl LightMap {
     /// Adds a light at a place in the world, as `gfx` sees the world through its camera and zoom.
     pub fn add_world(&mut self, gfx: &Gfx, light: Light) {
         let (z, cam) = (gfx.zoom, gfx.cam);
-        self.add(Light { x: (light.x - cam.0) * z, y: (light.y - cam.1) * z, radius: light.radius * z, ..light });
+        self.add(Light { x: (light.x - cam.x) * z, y: (light.y - cam.y) * z, radius: light.radius * z, ..light });
     }
 
     /// Multiplies the picture by the map. Call once per `clear`.
@@ -138,7 +140,7 @@ mod tests {
     fn a_light_brings_the_ambient_up_to_full_at_its_centre_and_fades_to_nothing_at_its_edge() {
         let mut map = LightMap::new(100, 100);
         map.clear(0x202020);
-        map.add(Light::new(50.0, 50.0, 40.0));
+        map.add(Light::new((50.0, 50.0), 40.0));
         map.draw(&mut Gfx::new(100, 100));
         assert_eq!(map.at(49, 49) & 255, 255, "full at the centre");
         assert_eq!(map.at(10, 50) & 255, 0x20, "ambient at the edge");
@@ -152,13 +154,13 @@ mod tests {
     fn a_coloured_light_adds_only_its_channels_and_lights_stack_up_to_white() {
         let mut map = LightMap::new(64, 64);
         map.clear(0);
-        map.add(Light::new(32.0, 32.0, 30.0).colored(0xff4000));
+        map.add(Light::new((32.0, 32.0), 30.0).colored(0xff4000));
         map.draw(&mut Gfx::new(64, 64));
         let c = map.at(31, 31);
         assert!(c >> 16 == 255 && (c >> 8 & 255) > 50 && (c & 255) == 0, "{c:06x}");
         map.clear(0x808080);
         for _ in 0..4 {
-            map.add(Light::new(32.0, 32.0, 30.0));
+            map.add(Light::new((32.0, 32.0), 30.0));
         }
         map.draw(&mut Gfx::new(64, 64));
         assert_eq!(map.at(31, 31), 0xffffff, "saturates instead of wrapping");
@@ -169,18 +171,18 @@ mod tests {
         let mut map = LightMap::new(32, 32);
         map.clear(0x101010);
         for l in [
-            Light::new(-500.0, 10.0, 20.0),
-            Light::new(16.0, 16.0, 0.0),
-            Light::new(16.0, 16.0, -5.0),
-            Light::new(16.0, 16.0, f32::NAN),
-            Light::new(f32::NAN, 16.0, 10.0),
-            Light::new(16.0, f32::INFINITY, 10.0),
-            Light::new(16.0, 16.0, 10.0).intensity(0.0),
-            Light::new(16.0, 16.0, f32::INFINITY),
+            Light::new((-500.0, 10.0), 20.0),
+            Light::new((16.0, 16.0), 0.0),
+            Light::new((16.0, 16.0), -5.0),
+            Light::new((16.0, 16.0), f32::NAN),
+            Light::new((f32::NAN, 16.0), 10.0),
+            Light::new((16.0, f32::INFINITY), 10.0),
+            Light::new((16.0, 16.0), 10.0).intensity(0.0),
+            Light::new((16.0, 16.0), f32::INFINITY),
         ] {
             map.add(l);
         }
-        map.add(Light::new(0.0, 0.0, 20.0));
+        map.add(Light::new((0.0, 0.0), 20.0));
         map.draw(&mut Gfx::new(32, 32));
         assert_eq!(map.at(16, 16), 0x101010, "only the corner light did anything");
         assert!(map.at(0, 0) > 0x101010);
@@ -189,10 +191,10 @@ mod tests {
     #[test]
     fn a_world_light_follows_the_camera_and_the_zoom() {
         let mut g = Gfx::new(200, 100);
-        (g.cam, g.zoom) = ((100.0, 20.0), 2.0);
+        (g.cam, g.zoom) = (Vec2::new(100.0, 20.0), 2.0);
         let mut map = LightMap::new(200, 100);
         map.clear(0);
-        map.add_world(&g, Light::new(130.0, 50.0, 20.0));
+        map.add_world(&g, Light::new((130.0, 50.0), 20.0));
         map.draw(&mut Gfx::new(200, 100));
         assert!(map.at(59, 59) & 255 > 200, "at ((130 - 100) * 2, (50 - 20) * 2): {:06x}", map.at(59, 59));
         assert_eq!(map.at(59 + 45, 59), 0, "the radius doubled to 40, so 45 away is dark");
@@ -221,7 +223,7 @@ mod tests {
         g.clear(0xffffff);
         let mut map = LightMap::new(100, 100);
         map.clear(0x404040);
-        map.add(Light::new(50.0, 50.0, 30.0));
+        map.add(Light::new((50.0, 50.0), 30.0));
         map.draw(&mut g);
         let mut soft = Soft::new(100, 100, 1);
         soft.render(g.cmds());

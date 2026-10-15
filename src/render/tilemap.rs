@@ -233,15 +233,11 @@ impl Tilemap {
         Tilemap { w, h, size, bounce: 0.0, tiles, marks: Vec::new(), sheet, flags: table, stamp }
     }
 
-    pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Self {
-        Tilemap::try_load(path, size, sheet).unwrap_or_else(|e| panic!("{e}"))
+    pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
+        Tilemap::load_with(path, size, sheet, &Tile::DEFAULT)
     }
 
-    pub fn try_load(path: &str, size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
-        Tilemap::try_load_with(path, size, sheet, &Tile::DEFAULT)
-    }
-
-    pub fn try_load_with(path: &str, size: usize, sheet: Arc<Sprite>, legend: &[Tile]) -> Result<Self, String> {
+    pub fn load_with(path: &str, size: usize, sheet: Arc<Sprite>, legend: &[Tile]) -> Result<Self, String> {
         let text = crate::assets::read_text(path)?;
         // Only newlines are trimmed: a space is an empty tile, so a last row may end in them.
         let rows: Vec<&str> = text.trim_end_matches(['\n', '\r']).lines().collect();
@@ -598,7 +594,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("engine-level-{}.txt", std::process::id()));
         let path = path.to_str().unwrap();
         std::fs::write(path, "....\r\n#.  \r\n    \n\n").unwrap();
-        let map = Tilemap::try_load(path, 16, Sprite::test_tiles()).unwrap();
+        let map = Tilemap::load(path, 16, Sprite::test_tiles()).unwrap();
         assert_eq!((map.w, map.h), (4, 3));
         std::fs::remove_file(path).unwrap();
         let err = Tilemap::try_from_ascii(&["é.#"], 16, Sprite::test_tiles()).err().unwrap();
@@ -618,13 +614,13 @@ mod tests {
         let err = Tilemap::try_from_ascii(&["###", "##"], 16, sheet.clone()).err().unwrap();
         assert!(err.contains("row 2"), "{err}");
         assert!(Tilemap::try_from_ascii(&[], 16, sheet.clone()).is_err());
-        let err = Tilemap::try_load("assets/nope.txt", 16, sheet).err().unwrap();
+        let err = Tilemap::load("assets/nope.txt", 16, sheet).err().unwrap();
         assert!(err.starts_with("assets/nope.txt"), "{err}");
     }
 
     #[test]
     fn level_file_loads_with_a_start_marker() {
-        let map = Tilemap::load("assets/levels/level1.txt", 16, Sprite::test_tiles());
+        let map = Tilemap::load("assets/levels/level1.txt", 16, Sprite::test_tiles()).unwrap();
         assert_eq!((map.w, map.h), (60, 23));
         assert_eq!(map.marks(b'P').count(), 1);
     }

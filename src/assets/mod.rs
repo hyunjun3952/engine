@@ -52,7 +52,10 @@ impl Assets {
             return s.clone();
         }
         self.watcher.watch(path);
-        self.sprites.entry(path.to_string()).or_insert_with(|| Arc::new(Sprite::load(path))).clone()
+        self.sprites
+            .entry(path.to_string())
+            .or_insert_with(|| Arc::new(Sprite::load(path).unwrap_or_else(|e| panic!("{e}"))))
+            .clone()
     }
 
     pub fn font(&mut self, path: &str) -> Arc<Font> {

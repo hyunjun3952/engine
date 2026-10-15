@@ -112,7 +112,7 @@ fn bench() {
     time("soft: clear", 200, || soft.render(black_box(&[DrawCmd::new(full, Paint::Clear(0x101018))])));
     time("soft: full-screen alpha", 200, || soft.render(black_box(&[DrawCmd::new(full, Paint::Alpha(0, 150))])));
 
-    let map = Tilemap::load("assets/levels/level1.txt", 16, Sprite::test_tiles());
+    let map = Tilemap::load("assets/levels/level1.txt", 16, Sprite::test_tiles()).unwrap();
     let mut tiles = 0;
     time("tilemap draw_list (visible)", 200, || tiles = map.draw_list(full).len());
     println!("  tile cmds: {tiles}");
@@ -305,7 +305,7 @@ fn joints() {
     for (bodies, joints) in [(1000, 0), (1000, 200), (3000, 1000)] {
         let mut seed = 7;
         let (mut world, mut physics) = (World::new(), Physics::default());
-        physics.gravity = (0.0, 0.0);
+        physics.gravity = Vec2::new(0.0, 0.0);
         let ents: Vec<_> = (0..bodies)
             .map(|i| {
                 let rect = Rect { x: (i % 100) as f32 * 12.0, y: (i / 100) as f32 * 12.0, w: 8.0, h: 8.0 };

@@ -197,7 +197,7 @@ struct Rest {
 }
 
 pub struct Physics {
-    pub gravity: (f32, f32),
+    pub gravity: Vec2,
     pub iterations: usize,
     // Last step's contact impulses per body pair, replayed first so resting piles start the solve near its answer.
     cache: FxMap<(u64, u64), Memory>,
@@ -205,7 +205,7 @@ pub struct Physics {
     rest: FxMap<Entity, Rest>,
     // What the last step saw, to notice a body that vanished or a gravity change: sleepers must then be woken.
     known: Vec<Entity>,
-    last_gravity: V2,
+    last_gravity: Vec2,
     last_tiles: Option<u64>,
     // Where the immovable bodies were last step: one the game moved must wake what sleeps near it.
     walls: FxMap<Entity, Rect>,
@@ -220,13 +220,13 @@ pub struct Physics {
 impl Default for Physics {
     fn default() -> Self {
         Physics {
-            gravity: (0.0, 900.0),
+            gravity: Vec2::new(0.0, 900.0),
             iterations: 10,
             cache: FxMap::default(),
             joints: Vec::new(),
             rest: FxMap::default(),
             known: Vec::new(),
-            last_gravity: (0.0, 900.0),
+            last_gravity: Vec2::new(0.0, 900.0),
             last_tiles: None,
             walls: FxMap::default(),
             sweep: Sweep::default(),
@@ -490,7 +490,7 @@ impl Physics {
     /// What `e` touched on the side gravity pulls it towards during the last `step` (what it stands on), if anything;
     /// `other(e)` of it is the body underneath, or `None` for a tile.
     pub fn ground(&self, e: Entity) -> Option<&ContactEvent> {
-        let down = Vec2::new(self.gravity.0, self.gravity.1).normalized();
+        let down = self.gravity.normalized();
         (down != Vec2::ZERO).then(|| self.events_of(e).find(|c| c.normal_for(e).dot(down) > 0.7)).flatten()
     }
 
@@ -644,7 +644,7 @@ impl Physics {
     // out of the world or flies through empty space would otherwise slow every step for good); the cap keeps a stray
     // huge velocity from freezing the game.
     fn substeps(&mut self, nodes: &[Node], tiles: Option<&Tilemap>, dt: f32) -> usize {
-        let gravity = self.gravity.0.hypot(self.gravity.1) * dt;
+        let gravity = self.gravity.length() * dt;
         let reach = |n: &Node| (speed(n) + gravity) * dt;
         let need = |n: &Node| if n.mobile() { reach(n) / (n.rect.w.min(n.rect.h) * TRAVEL) } else { 0.0 };
         if nodes.iter().all(|n| need(n) <= 1.0) {
@@ -661,7 +661,7 @@ impl Physics {
             }
         }
         if let Some(map) = tiles {
-            let (gx, gy, size) = (self.gravity.0 * dt, self.gravity.1 * dt, map.size as f32);
+            let (gx, gy, size) = (self.gravity.x * dt, self.gravity.y * dt, map.size as f32);
             let Vec2 { x: mw, y: mh } = map.pixel_size();
             let meets = Filter::TERRAIN | if map.has_one_way() { Filter::PLATFORM } else { 0 };
             for i in (0..nodes.len()).filter(|&i| fast(i) && nodes[i].filter.mask & meets != 0) {
@@ -755,8 +755,8 @@ impl Physics {
         for n in nodes.iter_mut().filter(|n| n.mobile()) {
             n.before = n.rect;
             if n.inv_mass > 0.0 {
-                n.vel.0 += self.gravity.0 * dt;
-                n.vel.1 += self.gravity.1 * dt;
+                n.vel.0 += self.gravity.x * dt;
+                n.vel.1 += self.gravity.y * dt;
             }
             n.rect.x += n.vel.0 * dt;
             n.rect.y += n.vel.1 * dt;

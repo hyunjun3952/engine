@@ -719,11 +719,11 @@ mod tests {
     use crate::{Gfx, Rect, Style, Tile, Tilemap};
 
     fn scene() -> Gfx {
-        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let sprite = |p: &str| Arc::new(Sprite::load(p).unwrap());
         let mut g = Gfx::new(640, 360);
-        g.cam = (120.0, 0.0);
+        g.cam = Vec2::new(120.0, 0.0);
         g.clear(0x6fa8e0);
-        let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png"));
+        let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png")).unwrap();
         g.draw(map.draw_list(g.view()));
         let player = sprite("assets/images/player.png");
         let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
@@ -801,7 +801,7 @@ mod tests {
     // Everything the camera zooms: tiles, sprites (some mirrored, some turned), flat and blended rects, an outline and
     // world text, drawn through `Gfx::draw` the way a game does, plus one screen-space line that must not zoom.
     fn zoomed_scene(zoom: f32) -> Gfx {
-        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let sprite = |p: &str| Arc::new(Sprite::load(p).unwrap());
         let mut world = Gfx::new(640, 360);
         let player = sprite("assets/images/player.png");
         let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
@@ -819,9 +819,9 @@ mod tests {
         let spin = Transform { angle: 0.7, sx: 1.0, sy: 1.0 };
         let spun: Vec<DrawCmd> = turned.cmds().iter().map(|c| DrawCmd { xform: spin, ..c.clone() }).collect();
         let mut g = Gfx::new(640, 360);
-        (g.zoom, g.cam) = (zoom, (60.0, 40.0));
+        (g.zoom, g.cam) = (zoom, Vec2::new(60.0, 40.0));
         g.clear(0x6fa8e0);
-        let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png"));
+        let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png")).unwrap();
         g.draw(map.draw_list(g.view()));
         g.draw(world.cmds().to_vec());
         g.draw(spun);
@@ -851,7 +851,7 @@ mod tests {
         let path = dir.join("s.png");
         let path = path.to_str().unwrap();
         std::fs::copy("assets/images/ball.png", path).unwrap();
-        let sprite = Arc::new(Sprite::load(path));
+        let sprite = Arc::new(Sprite::load(path).unwrap());
         let draw = |gpu: &mut Gpu| {
             let mut g = Gfx::new(64, 64);
             g.blit(&sprite, 4, 4);
@@ -878,7 +878,7 @@ mod tests {
         };
         let kept = Sprite::test_ball();
         for _ in 0..20 {
-            let temp = Arc::new(Sprite::load("assets/images/player.png"));
+            let temp = Arc::new(Sprite::load("assets/images/player.png").unwrap());
             let mut g = Gfx::new(64, 64);
             g.blit(&kept, 0, 0);
             g.blit(&temp, 20, 0);
@@ -889,7 +889,7 @@ mod tests {
     }
 
     fn transformed_scene() -> Gfx {
-        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let sprite = |p: &str| Arc::new(Sprite::load(p).unwrap());
         let (ball, player) = (sprite("assets/images/ball.png"), sprite("assets/images/player.png"));
         let mut g = Gfx::new(160, 120);
         g.clear(0x203050);
@@ -993,7 +993,7 @@ mod tests {
             eprintln!("no GPU adapter, skipping");
             return;
         };
-        let sprite = |p: &str| Arc::new(Sprite::load(p));
+        let sprite = |p: &str| Arc::new(Sprite::load(p).unwrap());
         let (ball, player) = (sprite("assets/images/ball.png"), sprite("assets/images/player.png"));
         let frame = Rect { x: 12.0, y: 24.0, w: 12.0, h: 24.0 };
         let mut g = Gfx::new(640, 360);
@@ -1043,8 +1043,8 @@ mod tests {
         for (frame, x) in [200.0, 420.0].into_iter().enumerate() {
             let mut g = zoomed_scene(1.0);
             map.clear(0x303850);
-            map.add(crate::Light::new(x, 150.0, 90.0).colored(0xffd080));
-            map.add(crate::Light::new(300.0, 250.0, 60.0).colored(0x4080ff).intensity(0.7));
+            map.add(crate::Light::new((x, 150.0), 90.0).colored(0xffd080));
+            map.add(crate::Light::new((300.0, 250.0), 60.0).colored(0x4080ff).intensity(0.7));
             map.draw(&mut g);
             g.multiply(&vignette);
             g.multiply(&lines);
@@ -1082,7 +1082,7 @@ mod tests {
         let mut g = Gfx::new(640, 360);
         g.draw(map.draw_list(g.view()));
         assert_same(&mut gpu, &g, "_rows");
-        (g.zoom, g.cam) = (1.5, (4.0, 3.0));
+        (g.zoom, g.cam) = (1.5, Vec2::new(4.0, 3.0));
         g.reset();
         g.draw(map.draw_list(g.view()));
         assert_same(&mut gpu, &g, "_rows_zoom");

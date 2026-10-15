@@ -232,7 +232,7 @@ fn a_stack_of_boxes_settles_without_sinking_or_jittering() {
 
 #[test]
 fn an_elastic_collision_conserves_momentum_and_energy_for_unequal_masses() {
-    let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+    let mut p = Physics { gravity: Vec2::ZERO, ..Physics::default() };
     let mut w = World::new();
     let rb = |m| RigidBody::dynamic(m).with_bounce(1.0).with_friction(0.0);
     let heavy = boxed(&mut w, square(0.0, 0.0, 20.0), rb(3.0), (100.0, 0.0));
@@ -247,7 +247,7 @@ fn an_elastic_collision_conserves_momentum_and_energy_for_unequal_masses() {
 
 #[test]
 fn a_heavy_box_drags_a_light_one_along_in_an_inelastic_hit() {
-    let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+    let mut p = Physics { gravity: Vec2::ZERO, ..Physics::default() };
     let mut w = World::new();
     let heavy = boxed(&mut w, square(0.0, 0.0, 20.0), RigidBody::dynamic(10.0), (100.0, 0.0));
     let light = boxed(&mut w, square(30.0, 0.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
@@ -261,7 +261,7 @@ fn a_heavy_box_drags_a_light_one_along_in_an_inelastic_hit() {
 
 #[test]
 fn a_fixed_box_never_moves_however_hard_it_is_hit() {
-    let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+    let mut p = Physics { gravity: Vec2::ZERO, ..Physics::default() };
     let mut w = World::new();
     let wall = w.spawn((Body(square(100.0, 0.0, 20.0)), RigidBody::fixed()));
     let ram = boxed(&mut w, square(0.0, 0.0, 20.0), RigidBody::dynamic(1000.0), (500.0, 0.0));
@@ -282,7 +282,7 @@ fn tiles_act_as_floor_and_walls_for_dynamic_bodies() {
     assert!((r.y + r.h - 32.0).abs() < 0.2 && v.1.abs() < 1.0, "{r:?} {v:?}");
 
     let mut side = World::new();
-    let mut q = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+    let mut q = Physics { gravity: Vec2::ZERO, ..Physics::default() };
     let b = boxed(&mut side, square(20.0, 5.0, 10.0), RigidBody::dynamic(1.0), (-100.0, 0.0));
     run(&mut q, &mut side, Some(&map), 60);
     assert!(state(&side, b).0.x >= -0.2, "left the map: {}", state(&side, b).0.x);
@@ -362,7 +362,7 @@ fn a_ball_dropped_on_the_floor_rests_on_top_and_bounces_by_its_restitution() {
 
 #[test]
 fn equal_balls_meeting_head_on_swap_velocities_and_off_centre_ones_deflect() {
-    let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+    let mut p = Physics { gravity: Vec2::ZERO, ..Physics::default() };
     let rb = || RigidBody::dynamic(1.0).with_bounce(1.0).with_friction(0.0).circle();
     let mut w = World::new();
     let a = boxed(&mut w, square(0.0, 0.0, 20.0), rb(), (100.0, 0.0));
@@ -605,7 +605,7 @@ fn a_ball_rolls_down_a_slope_at_two_thirds_of_the_slide_acceleration() {
 
 #[test]
 fn an_off_centre_hit_spins_the_box_and_conserves_both_momenta() {
-    let mut p = Physics { gravity: (0.0, 0.0), ..Physics::default() };
+    let mut p = Physics { gravity: Vec2::ZERO, ..Physics::default() };
     let mut w = World::new();
     let rb = |m: f32| RigidBody::dynamic(m).with_friction(0.0).with_bounce(0.5);
     let ball = turning(&mut w, Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }, rb(1.0).circle(), 0.0);
@@ -703,7 +703,7 @@ fn a_sleeper_moves_when_gravity_changes_and_wake_wakes_one() {
     p.wake(low);
     p.step(&mut w, None, DT);
     assert!(!p.asleep(low) && p.asleep(top));
-    p.gravity = (0.0, -900.0);
+    p.gravity = Vec2::new(0.0, -900.0);
     run(&mut p, &mut w, None, 30);
     assert!(!p.asleep(top) && state(&w, top).1.1 < 0.0, "flipped gravity lifts it");
 }
@@ -905,7 +905,7 @@ fn a_one_way_platform_holds_what_lands_on_it_and_lets_the_rest_through() {
 
     // Walking into its edge from the side is not blocked either.
     let (mut p, mut w) = (Physics::default(), World::new());
-    p.gravity = (0.0, 0.0);
+    p.gravity = Vec2::new(0.0, 0.0);
     one_way(&mut w);
     let walker = boxed(&mut w, square(-300.0, 95.0, 20.0), RigidBody::dynamic(1.0), (200.0, 0.0));
     run(&mut p, &mut w, None, 60);
@@ -926,7 +926,7 @@ fn a_one_way_platform_moving_up_lifts_what_is_above_it_and_passes_through_what_i
     assert!(state(&w, above).0.y < 120.0, "an elevator: the box above it is taken up");
 
     let (mut p, mut w) = (Physics::default(), World::new());
-    p.gravity = (0.0, 0.0);
+    p.gravity = Vec2::new(0.0, 0.0);
     rising(&mut w);
     let inside = boxed(&mut w, square(0.0, 195.0, 20.0), RigidBody::dynamic(1.0), (0.0, 0.0));
     run(&mut p, &mut w, None, 20);
@@ -937,7 +937,7 @@ fn a_one_way_platform_moving_up_lifts_what_is_above_it_and_passes_through_what_i
 fn a_spring_swings_at_the_frequency_it_was_given_whatever_the_mass() {
     for mass in [0.5, 4.0] {
         let (mut p, mut w) = (Physics::default(), World::new());
-        p.gravity = (0.0, 0.0);
+        p.gravity = Vec2::new(0.0, 0.0);
         let anchor = w.spawn((Body(square(300.0, 100.0, 10.0)), RigidBody::fixed()));
         let bob = boxed(&mut w, square(440.0, 100.0, 10.0), RigidBody::dynamic(mass), (0.0, 0.0));
         p.spring(anchor, bob, 100.0, 2.0, 0.0);
@@ -960,7 +960,7 @@ fn a_spring_swings_at_the_frequency_it_was_given_whatever_the_mass() {
 #[test]
 fn damping_makes_a_spring_settle_at_its_length() {
     let (mut p, mut w) = (Physics::default(), World::new());
-    p.gravity = (0.0, 0.0);
+    p.gravity = Vec2::new(0.0, 0.0);
     let anchor = w.spawn((Body(square(300.0, 100.0, 10.0)), RigidBody::fixed()));
     let bob = boxed(&mut w, square(440.0, 100.0, 10.0), RigidBody::dynamic(1.0), (0.0, 0.0));
     p.spring(anchor, bob, 100.0, 2.0, 0.7);
@@ -1105,7 +1105,7 @@ fn a_body_rises_through_a_one_way_tile_and_lands_on_top() {
 #[test]
 fn a_body_walks_into_a_one_way_tile_from_the_side() {
     let (mut w, mut p, map) = (World::new(), Physics::default(), platform_map());
-    p.gravity = (0.0, 0.0);
+    p.gravity = Vec2::new(0.0, 0.0);
     let b = boxed(&mut w, square(0.0, 40.0, 12.0), RigidBody::dynamic(1.0), (200.0, 0.0));
     run(&mut p, &mut w, Some(&map), 30);
     assert!(state(&w, b).0.x > 60.0, "it passed through the platform's row: {:?}", state(&w, b).0);
@@ -1231,7 +1231,7 @@ fn a_tilted_box_comes_to_rest_on_a_ramp_without_sinking() {
 fn a_ceiling_slope_deflects_a_body_rising_into_it_along_the_diagonal() {
     let map = slope_map(&["^.......", "........", "........", "########"]);
     let (mut w, mut p) = (World::new(), Physics::default());
-    p.gravity = (0.0, 0.0);
+    p.gravity = Vec2::new(0.0, 0.0);
     let b = boxed(&mut w, square(2.0, 30.0, 8.0), RigidBody::dynamic(1.0).with_friction(0.0), (0.0, -200.0));
     run(&mut p, &mut w, Some(&map), 30);
     let r = state(&w, b).0;
@@ -1248,8 +1248,8 @@ fn platformer_level() -> Tilemap {
         tile(b'\\', 4, false, Some(crate::Slope::BottomLeft)),
         crate::Tile { ch: b'%', id: 5, ..crate::Tile::DEFAULT[0] },
     ];
-    let sheet = std::sync::Arc::new(Sprite::load("assets/images/platformer_tiles.png"));
-    Tilemap::try_load_with("assets/levels/platformer.txt", 16, sheet, &legend).unwrap()
+    let sheet = std::sync::Arc::new(Sprite::load("assets/images/platformer_tiles.png").unwrap());
+    Tilemap::load_with("assets/levels/platformer.txt", 16, sheet, &legend).unwrap()
 }
 
 fn player(w: &mut World, x: f32, y: f32) -> Entity {

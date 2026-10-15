@@ -31,7 +31,7 @@ pub struct Input {
 fn canvas_pos((x, y): (f32, f32), win: (f32, f32), canvas: (f32, f32)) -> Option<(f32, f32)> {
     let view = letterbox(win, canvas);
     let k = view.w / canvas.0;
-    view.contains(x, y).then(|| ((x - view.x) / k, (y - view.y) / k))
+    view.contains((x, y)).then(|| ((x - view.x) / k, (y - view.y) / k))
 }
 
 struct Typing(Arc<Mutex<Vec<char>>>);

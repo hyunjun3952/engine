@@ -12,7 +12,7 @@ pub struct Atlas {
 }
 
 impl Atlas {
-    pub fn parse(sheet: Arc<Sprite>, text: &str) -> Result<Atlas, String> {
+    pub fn parse(text: &str, sheet: Arc<Sprite>) -> Result<Atlas, String> {
         let (limit, mut regions) = (sheet.size(), FxMap::default());
         for (n, line) in text.lines().enumerate() {
             let line = line.split('#').next().unwrap_or("").trim();
@@ -37,8 +37,8 @@ impl Atlas {
         Ok(Atlas { sheet, regions })
     }
 
-    pub fn load(sheet: Arc<Sprite>, path: &str) -> Result<Atlas, String> {
-        Atlas::parse(sheet, &super::read_text(path)?).map_err(|e| format!("{path}: {e}"))
+    pub fn load(path: &str, sheet: Arc<Sprite>) -> Result<Atlas, String> {
+        Atlas::parse(&super::read_text(path)?, sheet).map_err(|e| format!("{path}: {e}"))
     }
 
     pub fn sheet(&self) -> &Arc<Sprite> {
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn regions_are_read_by_name_and_drawn_where_asked() {
-        let atlas = Atlas::parse(sheet(), "# heroes\nidle 0 0 16 16\n\njump 16 0 16 8  # half height\n").unwrap();
+        let atlas = Atlas::parse("# heroes\nidle 0 0 16 16\n\njump 16 0 16 8  # half height\n", sheet()).unwrap();
         assert_eq!(atlas.get("jump"), Rect { x: 16.0, y: 0.0, w: 16.0, h: 8.0 });
         let mut g = Gfx::new(64, 64);
         atlas.draw(&mut g, "idle", 5, 6);
@@ -82,7 +82,7 @@ mod tests {
             ("a 0 0 0 4", "line 1", "empty"),
             ("a 0 0 4 4\na 4 0 4 4", "line 2", "twice"),
         ] {
-            let e = Atlas::parse(sheet(), text).err().unwrap_or_else(|| panic!("{text:?} was accepted"));
+            let e = Atlas::parse(text, sheet()).err().unwrap_or_else(|| panic!("{text:?} was accepted"));
             assert!(e.contains(line) && e.contains(why), "{text:?}: {e}");
         }
     }
@@ -90,6 +90,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "no region called")]
     fn an_unknown_name_panics_like_a_missing_asset() {
-        Atlas::parse(sheet(), "a 0 0 4 4").unwrap().get("b");
+        Atlas::parse("a 0 0 4 4", sheet()).unwrap().get("b");
     }
 }

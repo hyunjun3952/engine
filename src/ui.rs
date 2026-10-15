@@ -13,7 +13,7 @@ pub fn draw_bar(gfx: &mut Gfx, r: &Rect, frac: f32, color: u32, back: u32) {
 }
 
 pub fn hovered(input: &Input, r: &Rect) -> bool {
-    input.mouse().is_some_and(|p| r.contains(p.x, p.y))
+    input.mouse().is_some_and(|p| r.contains(p))
 }
 
 /// True on the step the left button goes down over `r`.

@@ -124,7 +124,7 @@ fn pick(world: &World, x: f32, y: f32) -> Option<Entity> {
     let mut best: Option<(i32, Entity)> = None;
     for (e, body, layer) in world.query::<(Entity, &Body, Option<&Layer>)>().iter() {
         let layer = layer.map_or(0, |l| l.0);
-        if body.0.contains(x, y) && best.is_none_or(|b| layer >= b.0) {
+        if body.0.contains((x, y)) && best.is_none_or(|b| layer >= b.0) {
             best = Some((layer, e));
         }
     }

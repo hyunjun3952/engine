@@ -34,7 +34,7 @@ impl Platformer {
             tile(b'\\', 4, false, Some(Slope::BottomLeft)),
             Tile { ch: b'%', id: 5, ..Tile::DEFAULT[0] },
         ];
-        let map = Tilemap::try_load_with("assets/levels/platformer.txt", 16, sheet, &legend).expect("platformer level");
+        let map = Tilemap::load_with("assets/levels/platformer.txt", 16, sheet, &legend).expect("platformer level");
         let mut world = World::new();
         let slab = |x, y, w, color| (Body(Rect { x, y, w, h: 8.0 }), Look::Color(color));
         let (body, look) = slab(200.0, 300.0, 56.0, 0x7a9a4a);
@@ -85,8 +85,8 @@ impl Platformer {
             },
             "flash" => self.flash = Some(Timer::once(0.3)),
             "gravity" => {
-                self.physics.gravity.1 = cmd.arg(0).unwrap_or(900.0);
-                self.console.print(format!("gravity is {}", self.physics.gravity.1));
+                self.physics.gravity.y = cmd.arg(0).unwrap_or(900.0);
+                self.console.print(format!("gravity is {}", self.physics.gravity.y));
             }
             "help" => self.console.print("tp x y | flash | gravity g"),
             other => self.console.print(format!("unknown command {other:?}, try help")),
@@ -191,7 +191,7 @@ impl Scene for Platformer {
             let player = self.world.get::<&Body>(self.player).unwrap().0.center();
             let mut lights = self.lights.borrow_mut();
             lights.clear(0x141c38);
-            lights.add_world(g, Light::new(player.x, player.y, 110.0).colored(0xffc070));
+            lights.add_world(g, Light::new((player.x, player.y), 110.0).colored(0xffc070));
             lights.draw(g);
             g.multiply(&self.vignette);
         }
