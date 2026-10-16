@@ -24,5 +24,8 @@ wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "gl
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11-dl = "2.21.0"
 
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
 [profile.dev]
 debug = "line-tables-only"

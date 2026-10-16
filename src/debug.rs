@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn the_inspector_picks_the_top_entity_and_lists_its_components() {
         #[derive(Debug)]
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         struct Health(u32);
         let mut world = World::new();
         let rect = |x| Rect { x, y: 0.0, w: 10.0, h: 10.0 };

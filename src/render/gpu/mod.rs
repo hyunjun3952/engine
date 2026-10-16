@@ -54,7 +54,9 @@ impl Gpu {
         let raw = win.display_handle().map_err(|e| e.to_string())?.as_raw();
         let desc = wgpu::InstanceDescriptor::new_with_display_handle(Box::new(Display(raw)));
         let instance = wgpu::Instance::new(desc);
+        // SAFETY: `run` declares the window before the backend that holds this surface, so the surface drops first.
         let target = unsafe { wgpu::SurfaceTargetUnsafe::from_window(win) }.map_err(|e| e.to_string())?;
+        // SAFETY: `target` comes from that same window.
         let surface = unsafe { instance.create_surface_unsafe(target) }.map_err(|e| e.to_string())?;
         let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
         let usable = adapters.into_iter().filter(|a| a.is_surface_supported(&surface));
