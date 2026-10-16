@@ -438,6 +438,11 @@ pub(crate) fn env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|v| !v.is_empty() && v != "0")
 }
 
+// The most time a frame may owe the fixed steps; a step longer than 0.25 s must still fit.
+fn lag_cap(dt: f32) -> f32 {
+    0.25f32.max(2.0 * dt)
+}
+
 /// ```no_run
 /// use engine::{Config, Ctx, Gfx, Key, Scene, Trans};
 ///
@@ -501,7 +506,7 @@ pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     let mut presented = 0u32;
     while win.is_open() && !stack.is_empty() {
         let now = Instant::now();
-        acc = (acc + (now - last).as_secs_f32()).min(0.25);
+        acc = (acc + (now - last).as_secs_f32()).min(lag_cap(dt));
         last = now;
         // A file changed mid-replay would make the run differ from the recording.
         if cfg.hot_reload && !matches!(tape, Tape::Play(..)) && last_poll.elapsed().as_secs_f32() >= 0.5 {
@@ -631,6 +636,12 @@ mod tests {
             assert!(message.contains(field), "{message}");
         }
     }
+    #[test]
+    fn a_step_longer_than_the_lag_cap_still_fits_in_it() {
+        assert_eq!(lag_cap(1.0 / 60.0), 0.25);
+        assert!(lag_cap(0.5) >= 0.5);
+    }
+
     #[test]
     fn fullscreen_is_asked_for_only_when_it_changes() {
         let mut ctx = Ctx::new(10, 10, 0.016, Audio::disabled());

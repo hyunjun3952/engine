@@ -189,7 +189,12 @@ impl Input {
     }
 
     pub(crate) fn to_text(&self) -> String {
-        self.actions().iter().map(|a| format!("{a} = {}\n", self.describe(a))).collect()
+        // An action with nothing bound has no line: `parse` refuses one, and a missing line keeps the default.
+        self.actions()
+            .iter()
+            .filter(|a| !self.describe(a).is_empty())
+            .map(|a| format!("{a} = {}\n", self.describe(a)))
+            .collect()
     }
 
     /// Every bound action, sorted by name.
@@ -577,6 +582,16 @@ mod tests {
         let mut j = Input::default();
         j.load_text(&saved).unwrap();
         assert_eq!(j.to_text(), saved);
+    }
+
+    #[test]
+    fn an_action_with_nothing_bound_is_left_out_of_the_text_so_the_file_still_loads() {
+        let mut i = Input::default();
+        i.bind("debug", &[]);
+        i.bind("jump", &[Key::Space]);
+        let saved = i.to_text();
+        assert_eq!(saved, "jump = Space\n");
+        i.load_text(&saved).unwrap();
     }
 
     #[test]

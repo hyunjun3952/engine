@@ -71,7 +71,7 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 
 **Input, replay and save data.**
 - Games read input by action name, never by key; querying an unbound action panics. Input is latched between steps, so a tap that ends before the step still counts. `repeated` is counted in steps so replay keeps it. A malformed bindings file, or one naming an action the game never bound, returns `Err` and applies nothing; a reload starts from the defaults the game had before the first file.
-- `ENGINE_RECORD` writes the seed, tick rate and per-step keys, pad buttons and mouse when the run ends normally; `ENGINE_REPLAY` refuses a file recorded at another `tick_hz` and polls no files for hot reload. Not recorded: analog axes, the wheel, typed characters and the bindings. A run reproduces only if the game takes all randomness from `ctx.rng()` and reads no wall clock.
+- `ENGINE_RECORD` writes the seed, tick rate and per-step keys, pad buttons and mouse when the run ends, also after a panic; `ENGINE_REPLAY` refuses a file recorded at another `tick_hz` and polls no files for hot reload. Not recorded: analog axes, the wheel, typed characters and the bindings. A run reproduces only if the game takes all randomness from `ctx.rng()` and reads no wall clock.
 - `Save` keys may not contain `=` or `#` (`set` panics); unparsable values read as missing. `data_dir_in` holds the path logic and is tested with a fake environment.
 - `Timer::once` panics on a negative or NaN duration, so anything that takes a time from a game clamps it to 0 first.
 
