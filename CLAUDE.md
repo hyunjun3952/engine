@@ -6,27 +6,64 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
     cargo test                          # unit tests; run from the repo root, they load assets/ by relative path
     cargo test <name>                   # single test, e.g. cargo test falling_box
-    cargo test --release -- --ignored --nocapture   # benchmarks in src/bench.rs (`bench`, `systems`, and `shake` with SEEDS=40 for more seeds)
-    cargo run --example game [stage]   # F3 toggles the debug overlay
-    cargo fmt && cargo clippy --all-targets -- -D warnings
     cargo test --no-default-features    # lean build: software renderer, no audio
+    cargo test --release -- --ignored --nocapture   # benchmarks in src/bench.rs (`bench`, `systems`, and `shake` with SEEDS=40 for more seeds)
+    cargo run --example game [stage]    # F3 toggles the debug overlay
+    cargo fmt && cargo clippy --all-targets -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps   # broken doc links fail CI
 
-`ENGINE_TICK_HZ=n` overrides `Config::tick_hz`, `ENGINE_MUTE=1` silences audio, `ENGINE_STATS=1` logs frame timings, `ENGINE_RENDERER=soft|gpu|auto` picks the renderer, `ENGINE_SCALE=n` scales the window, `ENGINE_RECORD=path` / `ENGINE_REPLAY=path` record and replay input, `ENGINE_DUMP=<dir>` makes the GPU/Soft comparison test write `soft.png` and `gpu.png`. The window needs an X display (WSLg works); `minifb` is built with the `x11` feature only, because its Wayland backend spams EGL/Zink errors under WSL.
+Environment variables:
 
-Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (`feat|fix|refactor|perf|test|docs|chore|ci|build`, optional scope), plus `cargo fmt --check` and clippy with `-D warnings` for both the default and the `--no-default-features` build, and `cargo test -q` on pre-push. `.github/workflows/ci.yml` runs fmt, clippy (both builds) and `cargo test` (both builds) on Linux, Windows and macOS on every push to `main` and on pull requests, plus an `msrv` job (`cargo check` on Rust 1.90, the `rust-version` in `Cargo.toml`); `docs.yml` publishes the rustdoc to GitHub Pages. When asked to commit and push, commit on `main` and push `main` directly (no feature branch, no PR), with no `Co-Authored-By` trailer.
+- `ENGINE_TICK_HZ=n` overrides `Config::tick_hz`; `ENGINE_SCALE=n` scales the window; `ENGINE_RENDERER=soft|gpu|auto` picks the renderer.
+- `ENGINE_MUTE=1` silences audio; `ENGINE_STATS=1` logs frame timings.
+- `ENGINE_RECORD=path` / `ENGINE_REPLAY=path` record and replay input.
+- `ENGINE_DUMP=<dir>` makes the GPU/Soft comparison test write `soft.png` and `gpu.png`.
 
-## Project conventions
+The window needs an X display (WSLg works). `minifb` is built with the `x11` feature only, because its Wayland backend spams EGL/Zink errors under WSL.
 
-- Comments are rare and plain. Inside a body, add one only where the code cannot show *why* (a non-obvious constraint, workaround or invariant), in a line or two; never restate what the code does, since the owner dislikes comment-heavy code. A private fn, struct or field may carry a short `//` saying what it is for when the name cannot. Write the current rule, not its history (no "as it used to", no file or example names that may move), and fix or delete a comment in the same change that makes it untrue. Public items are the exception: `#![warn(missing_docs)]` is on (CI denies warnings), so every pub item gets a one-line `///`, and each pub type and function has a doctest (`cargo test --doc`; types that need a window or `Ctx` use a function that only has to compile).
-- `rustfmt.toml` uses `max_width = 120` and `use_small_heuristics = "Max"`. Run `cargo fmt` rather than formatting by hand.
+## Workflow
+
+- Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (`feat|fix|refactor|perf|test|docs|chore|ci|build`, optional scope), `cargo fmt --check`, clippy with `-D warnings` for both the default and the `--no-default-features` build, and `cargo test -q` plus the rustdoc build on pre-push.
+- `.github/workflows/ci.yml` runs fmt, clippy (both builds), the rustdoc build with warnings denied and `cargo test` (both builds, on Linux, Windows and macOS) on every push to `main` and on pull requests, plus an `msrv` job (`cargo check` on Rust 1.90, the `rust-version` in `Cargo.toml`). `docs.yml` publishes the rustdoc to GitHub Pages.
+- When asked to commit and push, commit on `main` and push `main` directly (no feature branch, no PR), with no `Co-Authored-By` trailer.
 - Keep changes minimal; measure before optimizing (see `src/bench.rs`). Put measurements in commit messages, not here.
-- Reuse before writing: `Rect::center/contains/edges/penetration/overlaps`, `Sprite::bounds`, `DrawCmd::new`, `Paint::region`, `base::read_text(_if_exists)` and `write_atomic`, and the `sub/dot/apply/shove` helpers in `physics/node.rs` already exist. The public API is documented in rustdoc (`cargo doc --open`); read it or the source instead of guessing a name.
-- Prefer in-house code or tiny crates over new dependencies: build time is a stated concern. Code touching `wgpu` or `rodio` stays behind `#[cfg(feature = "gpu" | "audio")]`; the lean build must keep compiling.
-- This file holds invariants and pitfalls, not API listings. Add a line only for something the code and rustdoc cannot tell a reader.
+
+## Conventions
+
+**Comments.** Rare and plain, since the owner dislikes comment-heavy code.
+- Inside a body, add one only where the code cannot show *why* (a non-obvious constraint, workaround or invariant), in a line or two. Never restate what the code does.
+- A private fn, struct or field may carry a short `//` saying what it is for when the name cannot.
+- Write the current rule, not its history (no "as it used to", no file or example names that may move). Fix or delete a comment in the same change that makes it untrue.
+
+**Docs.** `#![warn(missing_docs)]` is on and CI denies warnings, so every pub item gets a one-line `///`, and each pub type and function has a doctest (`cargo test --doc`; types that need a window or `Ctx` use a function that only has to compile). Links to items must resolve.
+
+The panic and error policy is stated once, in the `lib.rs` conventions: a `Result` error names the file, and a mistake in the game's own code panics. A pub fn that can do either says so in its `///` ("Panics on …"); there are no `# Panics` or `# Errors` sections.
+
+**Format and lints.**
+- `rustfmt.toml` uses `max_width = 120` and `use_small_heuristics = "Max"`. Run `cargo fmt` rather than formatting by hand.
+- Prefer `#[expect]` to `#[allow]`. A `cfg_attr(..., allow(..))` is the exception: an `expect` there goes unfulfilled in the test build.
+- Imports are explicit. Two exceptions: a test module uses `use super::*`, and the `mod.rs` of a directory split into files gathers their items with `use file::*`, so the files import each other through `super::`.
+- A rule a lint can enforce goes in `[lints.clippy]` in `Cargo.toml` (now `undocumented_unsafe_blocks`, `ignore_without_reason`, `dbg_macro`, `todo`, `unimplemented`), not only in this file.
+
+**Unsafe.** Every `unsafe` block or impl carries a `// SAFETY:` comment naming why it is sound; `undocumented_unsafe_blocks` (in `Cargo.toml`) enforces it. What remains is FFI and raw window handles: Xlib in `app/fullscreen.rs`, `env::set_var` in `run`, and the wgpu surface and display handle in `render/gpu/`. A safe X11 crate (x11rb) was considered for the first and rejected: one `unsafe` block is not worth a new dependency.
+
+**Dependencies and features.** Prefer in-house code or tiny crates over new dependencies: build time is a stated concern. Code touching `wgpu` or `rodio` stays behind `#[cfg(feature = "gpu" | "audio")]`; the lean build must keep compiling.
+
+**Reuse before writing.** `Rect::center/contains/edges/penetration/overlaps`, `Sprite::bounds`, `DrawCmd::new`, `Paint::region`, `base::read_text(_if_exists)`, `write_atomic` and `in_file`, and the `sub/dot/len/apply/shove` helpers in `physics/node.rs` already exist. The public API is documented in rustdoc (`cargo doc --open`); read it or the source instead of guessing a name.
+
+**This file** holds invariants and pitfalls, not API listings. Add a line only for something the code and rustdoc cannot tell a reader.
 
 ## Architecture
 
-`engine` is a library crate. Source is grouped by area in layers, `base/` → `render/`, `audio/` → `level/`, `assets/`, `input/` → `ecs/` → `physics/` → `app/` → `ui/` → `debug.rs`: a module reaches only modules in a lower layer, and the `layers` test checks it (test code is exempt). `base/` holds `Vec2`, `Rect`, `Sprite`, the timers, `Rng`, `Save`, the file helpers and the `fx` hasher. `src/lib.rs` re-exports the public API at the crate root, so games and internal code use flat `engine::X` / `crate::X` paths. Anything crossing a layer boundary stays `pub(crate)`; and `src/lib.rs` re-exports the public API at the crate root, so games and internal code use flat `engine::X` / `crate::X` paths. Games use only that API, never `minifb` directly. `World` and `Entity` come from `hecs` (0.11: `query` iterates plain items; ask for `Entity` in the tuple when needed); components must be `Send + Sync`, which is why `Assets` hands out `Arc<Sprite>`.
+`engine` is a library crate. `src/lib.rs` re-exports the public API at the crate root, so games and internal code use flat `engine::X` / `crate::X` paths. Games use only that API, never `minifb` directly. `World` and `Entity` come from `hecs` (0.11: `query` iterates plain items; ask for `Entity` in the tuple when needed); components must be `Send + Sync`, which is why `Assets` hands out `Arc<Sprite>`.
+
+**Layers.** A module reaches only modules in a lower layer; the `layers` test checks it (test code is exempt).
+
+    base  →  render, audio  →  level, assets, input  →  ecs  →  physics  →  app  →  ui  →  debug.rs
+
+- `base/` is what every layer shares: `Vec2`, `Rect`, `Sprite`, the timers, `Rng`, `Save`, the file helpers and the `fx` hasher.
+- Anything crossing a layer boundary stays `pub(crate)`.
+- A directory split into several files shares its private items between them as `pub(super)`; a test may reach them the same way.
 
 **Loop and scenes (`app/`).**
 - `run(cfg, first)` owns the window, a fixed-timestep accumulator (`Config::tick_hz`) and a scene stack. Only the top scene updates; every scene draws, bottom first. A `Push`ed overlay does not touch the scene beneath. The engine does not handle Esc; scenes do. Game scenes call `ctx.cam().reset()` in `on_enter`, and anything that outlives a scene (music) is stopped in `on_exit`.
@@ -38,24 +75,22 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 - Hot reload (`assets/watch.rs`, default on in debug builds) swaps a changed image *inside* the existing `Sprite`, so every held `Arc<Sprite>` shows it and the GPU re-uploads on a version change. Decode or parse errors keep the last good data.
 
 **Rendering (`render/`).**
-- `Gfx` does not draw: it records `DrawCmd`s into a per-frame list in screen space, and `run` hands the list to a backend. `DrawCmd` is the whole contract; `render/` knows nothing about the ECS.
+- `Gfx` does not draw: it records `DrawCmd`s into a per-frame list in screen space, and `run` hands the list to a backend. `DrawCmd` is the whole contract; `render/` knows nothing about the ECS or levels.
 - `Soft` and `Gpu` (wgpu) must give the same pixels: `gpu_output_matches_the_software_rasterizer` renders one scene on both and compares (skips without an adapter). Fill edges are truncated and sprite, region, tile and mask origins floored the same way on both, and scaled or turned sprites are sampled `SAMPLE_BIAS` towards the next texel so ties break the same way. `Light` and `Blend::Multiply` are baked so both backends agree by construction.
-- `Soft`'s `scaled_blit` (scale without angle) and `warp` (turned shapes) must keep the same arithmetic, and `fill_alpha`'s plain and AVX2 `blend` must stay bit-identical; a test checks each.
+- `Soft`'s `scaled_blit` (scale without angle) and `warp` (turned shapes) must keep the same arithmetic, and `fill_alpha`'s row blend must equal the per-pixel `blend`; a test checks it.
 - `Config::renderer` `Auto` takes the GPU only if a non-CPU adapter can present. Under WSL `run` sets `GALLIUM_DRIVER=d3d12` itself when `/dev/dxg` exists. The GPU texture cache keys sprites by `Arc` pointer and drops entries nobody else references each frame.
 - The camera is applied in `Gfx::draw`, not in `fill`/`blit`/`text`, so HUD drawn directly stays in screen space. `Gfx::draw` drops plain quads wholly outside the view before it sorts by layer (stable); turned or scaled commands and every other paint are kept.
 - `Transform { angle, sx, sy }` (radians, clockwise on screen; scale about the centre of the drawn quad; zero draws nothing) is ignored by `Glyph`, `Mask`, `Tiles`, `Outline` and `Clear`. `Style` applies to `Sprite`, `Region`, `Color` and `Alpha` paints only.
 - Camera state lives in `ctx.cam` and advances in the fixed update; `run` copies the whole-pixel offset and zoom into `gfx.cam` / `gfx.zoom`. With zoom != 1 flat rects get each edge rounded so neighbours keep sharing edges, text scale is `round(scale * zoom)` and at least 1, and a `Tiles` batch is split into one `Region` per tile. A NaN follow target is ignored. The camera is one per app and persists across scenes.
-- Public vector arguments take `impl Into<Vec2>` (tuples still work) and return `Vec2`; `Rect` is passed by value. The engine's internal `V2` is still a tuple.
 
 **ECS (`ecs/`).**
 - `draw_list` sorts by `Layer`, stable, so spawn order breaks ties; `Anim` entities follow `Look` ones in a layer. Particles are ordinary entities (`Particle` component) with their own velocity instead of `Vel`. Games define their own components and logic inside `Scene::update`.
 - `Anim` treats a sheet as a grid of equal frames: a row is a clip. `AnimStates::set("name")` panics on an unknown name.
-- `Tilemap::slide` moves axis by axis and assumes less than a tile per step. `raycast`, `RayIndex` and `query_rect` look at colliders only, never tiles; `Tilemap::raycast` and `path` look at tiles only, and treat one-way and slope tiles as full blocks.
+- `raycast`, `RayIndex` and `query_rect` look at colliders only, never tiles. `Tilemap::raycast` and `path` look at tiles only, and treat one-way and slope tiles as full blocks.
 - `Filter { group, mask }`: two entities meet only when each one's mask holds a bit of the other's group. Tiles are group `Filter::TERRAIN` (bit 31), one-way tiles `Filter::PLATFORM` (bit 30). A `Collider` without a `RigidBody` is a trigger.
-- `base/fx.rs` is a small multiplicative hasher (`FxMap`, `FxSet`) for the engine's own keys.
 - Saving a world (`ecs/persist.rs`) writes only registered components, sorted by entity id, so saving what was loaded gives the same text. Not saved: `Look::Sprite`, animation, links between entities (an `Entity` is not stable across a load) and `Physics` itself, so rebuild `Physics` after a load or `Rewind::back`.
 
-**Physics (`physics/`).** `mod.rs` (the step and substeps), `body.rs`, `node.rs` (the solver's nodes, vectors and pair helpers), `solver.rs`, `joints.rs`, `events.rs` (contact events, sleeping queries), `tiles.rs` (tile contacts), `contact.rs` (contact generation) and `tests/`. In-house boxes and circles with rotation, no dependency. Build `Physics::default()` and set the public `gravity` and `iterations` afterwards; entities without `RigidBody` are ignored.
+**Physics (`physics/`).** In-house boxes and circles with rotation, no dependency. Build `Physics::default()` and set the public `gravity` and `iterations` afterwards; entities without `RigidBody` are ignored. The engine's internal vector type here, `V2`, is a tuple; the public API takes and returns `Vec2`.
 - Rotation is opt-in by adding a `Transform`; `sx`/`sy` are ignored. Two bodies bounce by the smaller restitution, so walls need one too (`RigidBody::fixed().bounce(e)`, `Tilemap::bounce`).
 - The step: gravity, semi-implicit Euler, solid tiles near each body joined as fixed boxes, pairs from `Sweep`, `touch`, sequential-impulse passes with accumulated impulses and Coulomb friction, then positional correction. Contacts are warm-started from `cache`; every `prepare` must run before any replay or piles explode.
 - Untilted boxes take their contact direction from where the boxes were *before* the step, not from the current overlap (two regression tests; each fails without it). `step` cuts the step into substeps until no body moves more than `TRAVEL` (an eighth of its smaller side), up to `MAX_SUBSTEPS`; past that a fast body can still pass a thin wall. No true CCD. Only a fast body whose swept bounds meet another node or a solid tile counts (`substeps`), so a body that fell out of the world or flies through empty space does not keep every step at 16 substeps.
@@ -67,7 +102,12 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 - `ContactEvent`s merge substeps by pair, so a bounce that left again within the step still shows, and a pair at rest keeps being listed while both are asleep or immovable. To walk on a moving platform use `ground(e).other(e)`.
 - The physics is bit-for-bit repeatable (a test checks it), which replay relies on. Tuning constants (`TRAVEL`, `HEAVY_RATIO`, correction passes, `WAKE_SPEED`) were set against the `shake` benchmark in `src/bench.rs`; rerun it with many seeds before changing them.
 
-**Levels and tiles (`level/`).** `Tilemap::load` reads a plain-text grid: rows must be ASCII and only trailing newlines are trimmed; a space is an empty tile. `Tile.auto` makes `id` the first of 16 sheet tiles chosen by joined neighbours (up 1, right 2, down 4, left 8). Cells are `(usize, usize)`; only `TileHit::tile` is `(i32, i32)` because the map's side edges count as solid at any height. `set(cell, id)` panics for an id past the sheet. `Tiled::load` reads a `.tmx` (finite, orthogonal, square tiles, one tileset embedded or `.tsx` without spacing or margin, layers saved as CSV, no flips, at most 255 tiles; the XML reader is in-house). `Spawner` errors on a kind nobody handles and spawns nothing. Every `load` returns a `Result` and takes the path first; `from_ascii` panics where `try_from_ascii` returns `Err`.
+**Levels and tiles (`level/`).**
+- `Tilemap::load` reads a plain-text grid: rows must be ASCII and only trailing newlines are trimmed; a space is an empty tile. `Tile.auto` makes `id` the first of 16 sheet tiles chosen by joined neighbours (up 1, right 2, down 4, left 8).
+- `Tilemap::slide` moves axis by axis and assumes less than a tile per step.
+- Cells are `(usize, usize)`; only `TileHit::tile` is `(i32, i32)` because the map's side edges count as solid at any height. `set(cell, id)` panics for an id past the sheet.
+- `Tiled::load` reads a `.tmx` (finite, orthogonal, square tiles, one tileset embedded or `.tsx` without spacing or margin, layers saved as CSV, no flips, at most 255 tiles; the XML reader is in-house). `Spawner` (in `ecs/`) errors on a kind nobody handles and spawns nothing.
+- Every `load` returns a `Result` and takes the path first; `from_ascii` panics where `try_from_ascii` returns `Err`.
 
 **Input, replay and save data (`input/`, `base/save.rs`).**
 - Games read input by action name, never by key; querying an unbound action panics. Input is latched between steps, so a tap that ends before the step still counts. `repeated` is counted in steps so replay keeps it. A malformed bindings file, or one naming an action the game never bound, returns `Err` and applies nothing; a reload starts from the defaults the game had before the first file.
@@ -79,6 +119,11 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 
 **Fonts and Korean text.** `gfx.text` is the 8x8 ASCII font; `ctx.assets().font(path)` loads a BDF font (`render/bdf.rs`). `assets/fonts/galmuri9.bdf` is Galmuri9 (SIL OFL) cut down to ASCII, compatibility jamo and all 11172 syllables; a character the font lacks draws as `?`. The pre-commit large-file limit is 2000 KB for it. `TextField` composes Hangul itself (`ui/hangul.rs`) because minifb has no input method.
 
-**Example and debug tools.** `examples/game.rs` is one platformer whose stages each add a feature; levels are built in code by `level::rows`. Its controller drops a grounded body's upward speed (`vel.y.max(0.0)`), or a slope launches it at the crest. Tests in `physics/tests/platformer.rs` walk `assets/levels/platformer.txt` with the same controller. `Inspector` (F4) and `Console` (backquote) are in `debug.rs`; the game should ignore its own keys while the console `is_open()`.
+**Example and debug tools.** `examples/game.rs` is one platformer whose stages each add a feature; its levels are built in code by its own `level::rows`. Its controller drops a grounded body's upward speed (`vel.y.max(0.0)`), or a slope launches it at the crest. Tests in `physics/tests/platformer.rs` walk `assets/levels/platformer.txt` with the same controller. `Inspector` (F4) and `Console` (backquote) are in `debug.rs`; the game should ignore its own keys while the console `is_open()`.
 
-**Not verified.** Nothing was listened to (audio: only the numbers are tested; the OGG path was checked with a real file once). No real gamepad was tried (WSL has no `/dev/input`); decoding is tested with synthetic events. A real recorded session has not been replayed. Typing in a real window was not tried; only the Hangul composing logic is tested.
+## Not verified
+
+- Nothing was listened to (audio: only the numbers are tested; the OGG path was checked with a real file once).
+- No real gamepad was tried (WSL has no `/dev/input`); decoding is tested with synthetic events.
+- A real recorded session has not been replayed.
+- Typing in a real window was not tried; only the Hangul composing logic is tested.

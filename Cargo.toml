@@ -25,7 +25,11 @@ wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "gl
 x11-dl = "2.21.0"
 
 [lints.clippy]
+dbg_macro = "warn"
+ignore_without_reason = "warn"
+todo = "warn"
 undocumented_unsafe_blocks = "warn"
+unimplemented = "warn"
 
 [profile.dev]
 debug = "line-tables-only"

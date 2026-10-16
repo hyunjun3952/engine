@@ -47,7 +47,7 @@ A window needs an X display (WSLg works). Press F3 for the debug overlay. CI bui
 ```sh
 cargo fmt && cargo clippy --all-targets -- -D warnings
 cargo test --release -- --ignored --nocapture   # benchmarks in src/bench.rs
-cargo doc --open                                # API reference
+cargo doc --open                                # API reference; CI builds it with warnings denied
 pre-commit install                              # Conventional Commits, fmt, clippy
 ```
 
