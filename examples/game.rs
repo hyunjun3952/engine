@@ -760,12 +760,12 @@ mod stage {
 mod title {
     use super::level::STAGES;
     use super::stage::Stage;
-    use engine::{Ctx, Font, Gfx, Menu, Rect, Scene, ScrollList, Theme, Trans};
+    use engine::{Ctx, Font, Gfx, Rect, Scene, ScrollList, Theme, Trans};
     use std::sync::Arc;
 
     pub struct Title {
         font: Arc<Font>,
-        menu: Menu,
+        menu: ScrollList,
         list: Option<ScrollList>,
         cleared: usize,
     }
@@ -774,7 +774,7 @@ mod title {
         pub fn new(ctx: &mut Ctx) -> Self {
             Title {
                 font: ctx.assets().font("assets/fonts/galmuri9.bdf"),
-                menu: Menu::new(260, 170, &["시작", "스테이지 선택", "끝"]),
+                menu: ScrollList::menu(260, 170, &["시작", "스테이지 선택", "끝"]),
                 list: None,
                 cleared: super::load_save().get_or("cleared", 0),
             }
@@ -835,12 +835,12 @@ mod title {
 }
 
 mod pause {
-    use engine::{Ctx, Font, Gfx, Key, Menu, Rebind, Rect, Scene, Theme, Trans, draw_panel};
+    use engine::{Ctx, Font, Gfx, Key, Rebind, Rect, Scene, ScrollList, Theme, Trans, draw_panel};
     use std::{cell::Cell, rc::Rc, sync::Arc};
 
     pub struct Pause {
         font: Arc<Font>,
-        menu: Menu,
+        menu: ScrollList,
         rebind: Option<Rebind>,
         quit: Rc<Cell<bool>>,
     }
@@ -850,7 +850,7 @@ mod pause {
             let font = ctx.assets().font("assets/fonts/galmuri9.bdf");
             Pause {
                 font,
-                menu: Menu::new(260, 130, &["계속", "키 바꾸기", "전체 화면", "타이틀로"]),
+                menu: ScrollList::menu(260, 130, &["계속", "키 바꾸기", "전체 화면", "타이틀로"]),
                 rebind: None,
                 quit,
             }

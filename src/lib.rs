@@ -44,7 +44,7 @@
 //! | Saving | [`Save`], [`data_dir`], [`WorldFile`], [`Persist`], [`Rewind`] |
 //! | Input | [`Input`], [`Key`], [`MouseButton`], [`Pad`], [`PadAxis`] |
 //! | Assets and audio | [`Assets`], [`Atlas`], [`Audio`], [`Sound`], [`Voice`], [`Bus`] |
-//! | UI | [`Theme`], [`Button`], [`Checkbox`], [`Menu`], [`ScrollList`], [`TextField`], [`Focus`], [`Rebind`], [`Layout`], [`grid`], [`draw_panel`], [`draw_bar`], [`hovered`], [`clicked`], [`slider`] |
+//! | UI | [`Theme`], [`Button`], [`Checkbox`], [`ScrollList`], [`TextField`], [`Focus`], [`Rebind`], [`Layout`], [`grid`], [`draw_panel`], [`draw_bar`], [`hovered`], [`clicked`], [`slider`] |
 //! | Debug | [`Inspector`], [`Console`], [`Command`] (F3 shows the frame overlay) |
 //!
 //! # Conventions
@@ -96,6 +96,6 @@ pub use level::{Slide, Slope, Tile, TileHit, Tiled, TiledObject, Tilemap};
 pub use physics::{ContactEvent, JointId, Physics, RigidBody};
 pub use render::{Blend, Camera, DrawCmd, Font, Gfx, Light, LightMap, Paint, Style, Transform, scanlines, vignette};
 pub use ui::{
-    Button, Checkbox, Focus, Layout, Menu, Rebind, ScrollList, TextField, Theme, clicked, draw_bar, draw_panel,
-    draw_wrapped, grid, hovered, slider, wrap,
+    Button, Checkbox, Focus, Layout, Rebind, ScrollList, TextField, Theme, clicked, draw_bar, draw_panel, draw_wrapped,
+    grid, hovered, slider, wrap,
 };

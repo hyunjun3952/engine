@@ -8,7 +8,7 @@ mod text;
 
 pub use button::{Button, Checkbox};
 pub use layout::{Layout, grid};
-pub use menu::{Focus, Menu, Rebind, ScrollList};
+pub use menu::{Focus, Rebind, ScrollList};
 pub use text::{TextField, draw_wrapped, wrap};
 
 use crate::{Font, Gfx, Input, MouseButton, Rect, Vec2};

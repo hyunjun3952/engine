@@ -1,90 +1,8 @@
 use super::{Theme, clicked, hovered, row_metrics};
-use crate::{Ctx, Font, Gfx, Input, Key, MouseButton, Rect, Vec2};
+use crate::{Ctx, Font, Gfx, Input, Key, Rect, Vec2};
 
-/// A column of rows from `x`, `y`, one of them highlighted.
-///
-/// ```
-/// use engine::Menu;
-///
-/// let mut menu = Menu::new(10, 10, &["Start", "Options", "Quit"]);
-/// menu.select(1);
-/// assert_eq!(menu.selected(), 1);
-/// ```
-pub struct Menu {
-    /// Left edge.
-    pub x: i32,
-    /// Top edge.
-    pub y: i32,
-    pub(super) items: Vec<String>,
-    sel: usize,
-}
-
-impl Menu {
-    /// A menu of `items`, the first highlighted.
-    pub fn new(x: i32, y: i32, items: &[&str]) -> Self {
-        assert!(!items.is_empty(), "a menu needs at least one item");
-        Menu { x, y, items: items.iter().map(std::string::ToString::to_string).collect(), sel: 0 }
-    }
-
-    /// The highlighted row.
-    pub fn selected(&self) -> usize {
-        self.sel
-    }
-
-    /// Replaces the text of row `i`.
-    pub fn set_item(&mut self, i: usize, text: String) {
-        self.items[i] = text;
-    }
-
-    /// `up`/`down` presses move the highlight (wrapping) and moving the mouse over a row highlights it; returns the
-    /// chosen index on `accept` or a left click on a row.
-    pub fn update(&mut self, input: &Input, font: &Font, up: &str, down: &str, accept: &str) -> Option<usize> {
-        if input.pressed(up) {
-            self.select(-1);
-        }
-        if input.pressed(down) {
-            self.select(1);
-        }
-        let over = (0..self.items.len()).find(|&i| hovered(input, self.row(font, i)));
-        if let Some(over) = over {
-            if input.mouse_moved() {
-                self.sel = over;
-            }
-            if input.mouse_pressed(MouseButton::Left) {
-                self.sel = over;
-                return Some(over);
-            }
-        }
-        input.pressed(accept).then_some(self.sel)
-    }
-
-    /// Moves the highlight by `delta` rows, wrapping.
-    pub fn select(&mut self, delta: isize) {
-        self.sel = (self.sel as isize + delta).rem_euclid(self.items.len() as isize) as usize;
-    }
-
-    fn row(&self, font: &Font, i: usize) -> Rect {
-        let (step, indent) = row_metrics(font);
-        let w = (indent + font.width(&self.items[i])) as f32;
-        Rect::new(self.x as f32, (self.y + i as i32 * step) as f32, w, step as f32)
-    }
-
-    /// Draws the rows with the highlighted one marked.
-    pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
-        let (step, indent) = row_metrics(font);
-        for (i, item) in self.items.iter().enumerate() {
-            let row = self.y + i as i32 * step;
-            if i == self.sel {
-                gfx.text_font(font, ">", self.x, row, theme.active);
-                gfx.text_font(font, item, self.x + indent, row, theme.active);
-            } else {
-                gfx.text_font(font, item, self.x + indent, row, theme.text);
-            }
-        }
-    }
-}
-
-/// A list too long for its rectangle: arrow keys (as actions) move the highlight, the wheel scrolls, a click picks.
+/// A list of rows with one highlighted: arrow keys (as actions) move the highlight, the mouse highlights and picks a
+/// row, and in a list too long for its rectangle the wheel scrolls. [`ScrollList::menu`] makes a short wrapping one.
 ///
 /// ```
 /// use engine::{Rect, ScrollList};
@@ -96,15 +14,34 @@ impl Menu {
 pub struct ScrollList {
     /// The area the list fills.
     pub rect: Rect,
-    items: Vec<String>,
+    pub(super) items: Vec<String>,
     sel: usize,
     pub(super) top: usize,
+    wrap: bool,
+    // Set by `select`; the next `update` scrolls the highlight into view, as that needs the font.
+    follow: bool,
 }
 
 impl ScrollList {
     /// A list of `items` in `rect`, the first highlighted.
     pub fn new(rect: Rect, items: &[&str]) -> Self {
-        ScrollList { rect, items: items.iter().map(std::string::ToString::to_string).collect(), sel: 0, top: 0 }
+        let items = items.iter().map(std::string::ToString::to_string).collect();
+        ScrollList { rect, items, sel: 0, top: 0, wrap: false, follow: false }
+    }
+
+    /// Every row from `x`, `y` down with no scrolling, the highlight wrapping at the ends. Panics without `items`.
+    ///
+    /// ```
+    /// use engine::ScrollList;
+    ///
+    /// let mut menu = ScrollList::menu(10, 10, &["Start", "Options", "Quit"]);
+    /// menu.select(-1);
+    /// assert_eq!(menu.selected(), 2);
+    /// ```
+    pub fn menu(x: i32, y: i32, items: &[&str]) -> Self {
+        assert!(!items.is_empty(), "a menu needs at least one item");
+        let rect = Rect::new(x as f32, y as f32, f32::INFINITY, f32::INFINITY);
+        ScrollList { wrap: true, ..ScrollList::new(rect, items) }
     }
 
     /// The highlighted row.
@@ -120,6 +57,11 @@ impl ScrollList {
     /// True when there are no rows.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// Replaces the text of row `i`.
+    pub fn set_item(&mut self, i: usize, text: String) {
+        self.items[i] = text;
     }
 
     fn rows(&self, font: &Font) -> usize {
@@ -142,33 +84,41 @@ impl ScrollList {
         }
     }
 
-    /// Moves the highlight by `delta` rows (not wrapping), keeping it in view.
-    pub fn select(&mut self, delta: isize, font: &Font) {
-        self.sel = (self.sel as isize + delta).clamp(0, self.items.len().saturating_sub(1) as isize) as usize;
-        self.settle(self.rows(font));
+    /// Moves the highlight by `delta` rows, wrapping in a menu and stopping at the ends in a list; the next `update`
+    /// scrolls it into view.
+    pub fn select(&mut self, delta: isize) {
+        let (last, to) = (self.items.len().saturating_sub(1) as isize, self.sel as isize + delta);
+        self.sel = if self.wrap { to.rem_euclid(last + 1) } else { to.clamp(0, last) } as usize;
+        self.follow = true;
     }
 
     /// `up`/`down` move the highlight and bring it into view, the wheel over `rect` scrolls three rows a notch (the
-    /// highlight may leave the view), a click on a row highlights it and returns its index, as does `accept` for the
-    /// highlighted row.
+    /// highlight may leave the view), moving the mouse over a row highlights it, a click on a row highlights it and
+    /// returns its index, as does `accept` for the highlighted row.
     pub fn update(&mut self, input: &Input, font: &Font, up: &str, down: &str, accept: &str) -> Option<usize> {
         let (r, rows, step) = (self.rect, self.rows(font), row_metrics(font).0);
         if input.pressed(up) {
-            self.select(-1, font);
+            self.select(-1);
         }
         if input.pressed(down) {
-            self.select(1, font);
+            self.select(1);
+        }
+        if std::mem::take(&mut self.follow) {
+            self.settle(rows);
         }
         if hovered(input, r) && input.wheel() != 0.0 {
             let max = self.items.len().saturating_sub(rows) as isize;
             self.top = (self.top as isize - 3 * input.wheel().signum() as isize).clamp(0, max) as usize;
         }
         self.clamp(rows);
-        if let Some(Vec2 { y, .. }) = input.mouse().filter(|_| clicked(input, r)) {
-            let row = self.top + ((y - r.y) as i32 / step) as usize;
-            if row < self.items.len() {
+        let row_at = |y: f32| self.top + ((y - r.y) as i32 / step) as usize;
+        if let Some(Vec2 { y, .. }) = input.mouse().filter(|_| hovered(input, r)) {
+            let row = row_at(y);
+            if row < self.items.len() && (input.mouse_moved() || clicked(input, r)) {
                 self.sel = row;
-                return Some(row);
+                if clicked(input, r) {
+                    return Some(row);
+                }
             }
         }
         input.pressed(accept).then_some(self.sel).filter(|_| !self.items.is_empty())
@@ -280,18 +230,18 @@ impl Focus {
 /// }
 /// ```
 pub struct Rebind {
-    pub(super) menu: Menu,
+    pub(super) menu: ScrollList,
     actions: Vec<String>,
     waiting: bool,
 }
 
 impl Rebind {
-    /// Panics when no action is bound, like `Menu::new` without rows.
+    /// Panics when no action is bound, like `ScrollList::menu` without rows.
     pub fn new(input: &Input, x: i32, y: i32) -> Self {
         let actions: Vec<String> = input.actions().into_iter().map(String::from).collect();
         assert!(!actions.is_empty(), "bind actions before opening a Rebind screen");
         let mut screen = Rebind {
-            menu: Menu::new(x, y, &actions.iter().map(String::as_str).collect::<Vec<_>>()),
+            menu: ScrollList::menu(x, y, &actions.iter().map(String::as_str).collect::<Vec<_>>()),
             actions,
             waiting: false,
         };

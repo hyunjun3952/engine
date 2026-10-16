@@ -18,7 +18,7 @@ fn menu_input() -> Input {
 #[test]
 fn the_highlight_wraps_and_accept_returns_it_once() {
     let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
-    let (mut input, mut menu) = (menu_input(), Menu::new(0, 0, &["a", "b", "c"]));
+    let (mut input, mut menu) = (menu_input(), ScrollList::menu(0, 0, &["a", "b", "c"]));
     press(&mut input, Key::Up);
     assert_eq!(menu.update(&input, &font, "up", "down", "ok"), None);
     assert_eq!(menu.selected(), 2);
@@ -99,7 +99,7 @@ fn a_checkbox_flips_on_a_click_on_the_box_or_its_label_and_shows_its_state() {
 #[test]
 fn a_menu_row_highlights_on_hover_and_returns_on_click_but_ignores_a_resting_cursor() {
     let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
-    let (mut input, mut menu) = (menu_input(), Menu::new(0, 0, &["시작", "끝"]));
+    let (mut input, mut menu) = (menu_input(), ScrollList::menu(0, 0, &["시작", "끝"]));
     let second_row = font.line_height() as f32 + 3.0 + 2.0;
     at(&mut input, 4.0, second_row, false);
     assert_eq!(menu.update(&input, &font, "up", "down", "ok"), None);
@@ -167,7 +167,7 @@ fn bar_clamps_and_menu_draws_one_command_per_glyph() {
     assert_eq!(g.cmds().len(), 2);
     let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
     let mut g = Gfx::new(100, 50);
-    Menu::new(0, 0, &["시작", "끝"]).draw(&mut g, &font, &Theme::DEFAULT);
+    ScrollList::menu(0, 0, &["시작", "끝"]).draw(&mut g, &font, &Theme::DEFAULT);
     assert_eq!(g.cmds().len(), 1 + 2 + 1);
 }
 
@@ -269,9 +269,12 @@ fn a_scroll_list_keeps_the_highlight_in_view_and_does_not_wrap() {
         l.update(&input, &font, "up", "down", "ok");
     }
     assert_eq!((l.selected(), l.top), (5, 3), "scrolled so row 5 is the last of three");
-    l.select(100, &font);
+    let idle = menu_input();
+    l.select(100);
+    l.update(&idle, &font, "up", "down", "ok");
     assert_eq!((l.selected(), l.top), (9, 7), "clamped at the end");
-    l.select(-100, &font);
+    l.select(-100);
+    l.update(&idle, &font, "up", "down", "ok");
     assert_eq!((l.selected(), l.top), (0, 0));
 }
 

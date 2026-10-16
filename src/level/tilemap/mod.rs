@@ -226,23 +226,30 @@ impl Tilemap {
         id != 0 && self.flags[id as usize] & SOLID != 0
     }
 
+    // The flags of a tile, 0 outside the map.
+    fn flags_at(&self, tx: i32, ty: i32) -> u8 {
+        match (usize::try_from(tx), usize::try_from(ty)) {
+            (Ok(x), Ok(y)) if x < self.w && y < self.h => self.flags[self.tiles[y * self.w + x] as usize],
+            _ => 0,
+        }
+    }
+
     /// Whether the tile is one-way (solid only from above); false outside the map.
     pub fn one_way(&self, (tx, ty): (usize, usize)) -> bool {
-        tx < self.w && ty < self.h && self.flags[self.tiles[ty * self.w + tx] as usize] & ONE_WAY != 0
+        self.one_way_at(i32::try_from(tx).unwrap_or(-1), i32::try_from(ty).unwrap_or(-1))
     }
 
     /// The slope of a tile, if it is one; none outside the map.
     pub fn slope(&self, (tx, ty): (usize, usize)) -> Option<Slope> {
-        let inside = tx < self.w && ty < self.h;
-        inside.then(|| Slope::from_bits(self.flags[self.tiles[ty * self.w + tx] as usize])).flatten()
+        self.slope_at(i32::try_from(tx).unwrap_or(-1), i32::try_from(ty).unwrap_or(-1))
     }
 
     pub(crate) fn one_way_at(&self, tx: i32, ty: i32) -> bool {
-        tx >= 0 && ty >= 0 && self.one_way((tx as usize, ty as usize))
+        self.flags_at(tx, ty) & ONE_WAY != 0
     }
 
     pub(crate) fn slope_at(&self, tx: i32, ty: i32) -> Option<Slope> {
-        (tx >= 0 && ty >= 0).then(|| self.slope((tx as usize, ty as usize))).flatten()
+        Slope::from_bits(self.flags_at(tx, ty))
     }
 
     // Whether the map has any one-way tile kind (a cheap, conservative check on the flag table).
