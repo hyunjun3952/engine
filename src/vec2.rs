@@ -1,14 +1,27 @@
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
+/// A point or direction in pixels, with the usual operators.
+///
+/// ```
+/// use engine::Vec2;
+///
+/// let v = Vec2::new(3.0, 4.0);
+/// assert_eq!(v.length(), 5.0);
+/// assert_eq!(v + Vec2::new(1.0, 1.0), Vec2::new(4.0, 5.0));
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec2 {
+    /// Horizontal part.
     pub x: f32,
+    /// Vertical part.
     pub y: f32,
 }
 
 impl Vec2 {
+    /// The origin, `(0, 0)`.
     pub const ZERO: Vec2 = Vec2 { x: 0.0, y: 0.0 };
 
+    /// A vector from its parts.
     pub const fn new(x: f32, y: f32) -> Self {
         Vec2 { x, y }
     }
@@ -30,18 +43,22 @@ impl Vec2 {
         if len > max { self * (max.max(0.0) / len) } else { self }
     }
 
+    /// The smaller of each part.
     pub fn min(self, o: Vec2) -> Vec2 {
         Vec2 { x: self.x.min(o.x), y: self.y.min(o.y) }
     }
 
+    /// The larger of each part.
     pub fn max(self, o: Vec2) -> Vec2 {
         Vec2 { x: self.x.max(o.x), y: self.y.max(o.y) }
     }
 
+    /// Each part made positive.
     pub fn abs(self) -> Vec2 {
         Vec2 { x: self.x.abs(), y: self.y.abs() }
     }
 
+    /// The dot product.
     pub fn dot(self, o: Vec2) -> f32 {
         self.x * o.x + self.y * o.y
     }
@@ -51,14 +68,17 @@ impl Vec2 {
         self.x * o.y - self.y * o.x
     }
 
+    /// The length squared, without the square root.
     pub fn length_sq(self) -> f32 {
         self.dot(self)
     }
 
+    /// The length.
     pub fn length(self) -> f32 {
         self.x.hypot(self.y)
     }
 
+    /// The distance to `o`.
     pub fn distance(self, o: Vec2) -> f32 {
         (self - o).length()
     }
@@ -74,6 +94,7 @@ impl Vec2 {
         Vec2 { x: -self.y, y: self.x }
     }
 
+    /// The point `t` of the way from `self` to `o`.
     pub fn lerp(self, o: Vec2, t: f32) -> Vec2 {
         self + (o - self) * t
     }

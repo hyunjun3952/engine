@@ -1,29 +1,61 @@
 use crate::ecs::fx::FxSet;
 use std::io::Read;
 
+/// A gamepad button, named as on an Xbox pad; bind it to an action with `Ctx::bind_pad`.
+///
+/// ```
+/// use engine::Pad;
+///
+/// assert_ne!(Pad::A, Pad::B);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Pad {
+    /// The bottom face button.
     A,
+    /// The right face button.
     B,
+    /// The left face button.
     X,
+    /// The top face button.
     Y,
+    /// The left shoulder button.
     LB,
+    /// The right shoulder button.
     RB,
+    /// The back (select) button.
     Back,
+    /// The start button.
     Start,
+    /// The d-pad or left stick pushed up.
     Up,
+    /// The d-pad or left stick pushed down.
     Down,
+    /// The d-pad or left stick pushed left.
     Left,
+    /// The d-pad or left stick pushed right.
     Right,
 }
 
+/// An analog stick or trigger, read with `Input::pad_axis`.
+///
+/// ```
+/// use engine::PadAxis;
+///
+/// assert_ne!(PadAxis::LeftX, PadAxis::LeftY);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PadAxis {
+    /// Left stick, -1 (left) to 1 (right).
     LeftX,
+    /// Left stick, -1 (up) to 1 (down).
     LeftY,
+    /// Right stick, -1 (left) to 1 (right).
     RightX,
+    /// Right stick, -1 (up) to 1 (down).
     RightY,
+    /// Left trigger, how far it is pressed.
     LeftTrigger,
+    /// Right trigger, how far it is pressed.
     RightTrigger,
 }
 

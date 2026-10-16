@@ -10,6 +10,17 @@ use std::sync::{Arc, Mutex};
 /// Bind actions once with `ctx.bind("jump", &[Key::Space])` (and `bind_pad`), then read `down`, `pressed` or `axis`;
 /// asking for an action that was never bound panics. `ctx.load_bindings(path)` lets the player rebind them in a text
 /// file of `action = Key Key pad.A` lines. A tap shorter than a step still counts.
+///
+/// ```
+/// use engine::Input;
+///
+/// fn read(input: &Input) -> f32 {
+///     if input.pressed("jump") {
+///         return -1.0;
+///     }
+///     input.axis("left", "right")
+/// }
+/// ```
 #[derive(Default)]
 pub struct Input {
     down: FxSet<Key>,
@@ -207,10 +218,12 @@ impl Input {
         self.keys(action).iter().any(|k| keys.contains(k)) || self.pads(action).iter().any(|p| pads.contains(p))
     }
 
+    /// True while the action is held.
     pub fn down(&self, action: &str) -> bool {
         self.held(action, &self.down, &self.pad_down)
     }
 
+    /// True on the step the action goes down.
     pub fn pressed(&self, action: &str) -> bool {
         self.down(action) && !self.held(action, &self.prev, &self.pad_prev)
     }
@@ -225,6 +238,7 @@ impl Input {
         self.keys(action).iter().any(|&k| self.key_repeated(k))
             || self.pads(action).iter().any(|p| self.pad_down.contains(p) && self.repeats(self.pad_held.get(p)))
     }
+    /// `1` while `pos` is held, `-1` while `neg` is, `0` for both or neither.
     pub fn axis(&self, neg: &str, pos: &str) -> f32 {
         self.down(pos) as i32 as f32 - self.down(neg) as i32 as f32
     }
@@ -236,12 +250,15 @@ impl Input {
     pub fn mouse_moved(&self) -> bool {
         self.mouse != self.mouse_prev
     }
+    /// True while the mouse button is held.
     pub fn mouse_down(&self, b: MouseButton) -> bool {
         self.buttons[slot(b)]
     }
+    /// True on the step the mouse button goes down.
     pub fn mouse_pressed(&self, b: MouseButton) -> bool {
         self.buttons[slot(b)] && !self.buttons_prev[slot(b)]
     }
+    /// True on the step the mouse button comes up.
     pub fn mouse_released(&self, b: MouseButton) -> bool {
         !self.buttons[slot(b)] && self.buttons_prev[slot(b)]
     }
@@ -257,6 +274,7 @@ impl Input {
     pub fn typed(&self) -> &[char] {
         &self.typed
     }
+    /// True on the step the raw key goes down; prefer actions.
     pub fn key_pressed(&self, key: Key) -> bool {
         self.down.contains(&key) && !self.prev.contains(&key)
     }
@@ -275,6 +293,7 @@ impl Input {
         self.down.iter().filter(|k| !self.prev.contains(k)).filter(named).min_by_key(|k| **k as usize).copied()
     }
 
+    /// True while the raw key is held; prefer actions.
     pub fn key_down(&self, key: Key) -> bool {
         self.down.contains(&key)
     }

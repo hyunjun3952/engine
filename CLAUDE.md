@@ -17,7 +17,7 @@ Commits are checked by pre-commit (`pre-commit install`): Conventional Commits (
 
 ## Project conventions
 
-- Comments are allowed but rare: add one only where the code cannot show *why* (a non-obvious constraint, workaround or invariant). Keep it to one short, plain line. Never restate what the code does, and skip doc comments on self-explanatory items. The owner dislikes comment-heavy code.
+- Comments are allowed but rare: add one only where the code cannot show *why* (a non-obvious constraint, workaround or invariant). Keep it to one short, plain line. Never restate what the code does inside bodies; the owner dislikes comment-heavy code. Public items are the exception: `#![warn(missing_docs)]` is on (CI denies warnings), so every pub item gets a one-line `///`, and each pub type and function has a doctest (`cargo test --doc`; types that need a window or `Ctx` use a function that only has to compile).
 - `rustfmt.toml` uses `max_width = 120` and `use_small_heuristics = "Max"`. Run `cargo fmt` rather than formatting by hand.
 - Keep changes minimal; measure before optimizing (see `src/bench.rs`). Put measurements in commit messages, not here.
 - Reuse before writing: `Rect::center/contains/edges/penetration/overlaps`, `Sprite::bounds`, `DrawCmd::new`, `Paint::region`, `assets::read_text(_if_exists)` and `write_atomic`, and the `sub/dot/apply/shove` helpers in `physics/mod.rs` already exist.

@@ -5,33 +5,51 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+/// An axis-aligned rectangle in pixels; `x`, `y` is the top-left corner.
+///
+/// ```
+/// use engine::Rect;
+///
+/// let a = Rect::new(0.0, 0.0, 10.0, 10.0);
+/// assert!(a.overlaps(Rect::new(5.0, 5.0, 10.0, 10.0)));
+/// assert!(a.contains((3.0, 3.0)));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
+    /// Left edge.
     pub x: f32,
+    /// Top edge.
     pub y: f32,
+    /// Width.
     pub w: f32,
+    /// Height.
     pub h: f32,
 }
 
 impl Rect {
+    /// A rectangle from its top-left corner and size.
     pub const fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
         Rect { x, y, w, h }
     }
 
+    /// The middle point.
     pub fn center(&self) -> Vec2 {
         Vec2::new(self.x + self.w / 2.0, self.y + self.h / 2.0)
     }
 
+    /// How far `o` overlaps this rectangle on each axis, or `None` if they do not touch.
     pub fn penetration(&self, o: Rect) -> Option<Vec2> {
         let ox = (self.x + self.w).min(o.x + o.w) - self.x.max(o.x);
         let oy = (self.y + self.h).min(o.y + o.h) - self.y.max(o.y);
         (ox > 0.0 && oy > 0.0).then_some(Vec2::new(ox, oy))
     }
 
+    /// True if the rectangles share some area.
     pub fn overlaps(&self, o: Rect) -> bool {
         self.penetration(o).is_some()
     }
 
+    /// True if the point is inside.
     pub fn contains(&self, p: impl Into<Vec2>) -> bool {
         let p = p.into();
         p.x >= self.x && p.x < self.x + self.w && p.y >= self.y && p.y < self.y + self.h
@@ -72,10 +90,24 @@ fn off_screen(c: &DrawCmd, view: Rect) -> bool {
 /// `fill`, `blit`, `text` and the other methods draw straight to the screen in canvas pixels (`i32` positions), for
 /// HUD and menus. [`Gfx::draw`] takes world-space commands (from [`draw_list`](crate::draw_list), [`Tilemap::draw_list`](crate::Tilemap::draw_list) or built with
 /// [`DrawCmd::new`]), applies the camera and zoom, and sorts them by layer.
+///
+/// ```
+/// use engine::{Gfx, Rect};
+///
+/// fn draw(gfx: &mut Gfx) {
+///     gfx.clear(0x101018);
+///     gfx.fill(Rect::new(20.0, 20.0, 40.0, 40.0), 0xffd040);
+///     gfx.text("hello", 4, 4, 1, 0xffffff);
+/// }
+/// ```
 pub struct Gfx {
+    /// Width of the canvas in pixels.
     pub w: usize,
+    /// Height of the canvas in pixels.
     pub h: usize,
+    /// True while the debug overlay is on.
     pub debug: bool,
+    /// The camera offset that `draw` subtracts.
     pub cam: Vec2,
     /// Magnification of what `draw` is given (the camera's zoom); 1 leaves it as it is.
     pub zoom: f32,
@@ -99,22 +131,27 @@ impl Gfx {
         self.cmds.push(DrawCmd::new(rect, paint));
     }
 
+    /// The part of the world on screen, in world pixels.
     pub fn view(&self) -> Rect {
         Rect::new(self.cam.x, self.cam.y, self.w as f32 / self.zoom, self.h as f32 / self.zoom)
     }
 
+    /// Fills the whole canvas.
     pub fn clear(&mut self, c: u32) {
         self.push(Rect::new(0.0, 0.0, self.w as f32, self.h as f32), Paint::Clear(c));
     }
 
+    /// Fills a rectangle in screen space.
     pub fn fill(&mut self, r: Rect, c: u32) {
         self.push(r, Paint::Color(c));
     }
 
+    /// Fills a rectangle with an alpha from 0 to 255.
     pub fn fill_alpha(&mut self, r: Rect, c: u32, alpha: u8) {
         self.push(r, Paint::Alpha(c, alpha));
     }
 
+    /// Draws a one pixel frame.
     pub fn outline(&mut self, r: Rect, c: u32) {
         self.push(r, Paint::Outline(c));
     }
@@ -153,6 +190,7 @@ impl Gfx {
         s.chars().count() as i32 * 8 * scale.max(1)
     }
 
+    /// Draws a sprite with its top-left corner at `x`, `y`.
     pub fn blit(&mut self, s: &Arc<Sprite>, x: i32, y: i32) {
         self.push(Rect { x: x as f32, y: y as f32, ..s.bounds() }, Paint::Sprite(s.clone()));
     }
@@ -170,6 +208,7 @@ impl Gfx {
         self.blit_styled(s, 0, 0, Style::PLAIN.multiplied());
     }
 
+    /// Draws the part `src` of a sheet, optionally mirrored.
     pub fn blit_region(&mut self, s: &Arc<Sprite>, src: Rect, x: i32, y: i32, flip: bool) {
         let paint = Paint::Region { sheet: s.clone(), src, flip };
         self.push(Rect::new(x as f32, y as f32, src.w, src.h), paint);
@@ -322,6 +361,7 @@ impl Gfx {
         }
     }
 
+    /// Draws text with a BDF font.
     pub fn text_font(&mut self, font: &Font, s: &str, x: i32, y: i32, color: u32) {
         self.text_font_scaled(font, s, x, y, 1, color);
     }
@@ -336,6 +376,7 @@ impl Gfx {
         }
     }
 
+    /// Draws ASCII text with the built-in 8x8 font, `scale` times larger.
     pub fn text(&mut self, s: &str, x: i32, y: i32, scale: i32, c: u32) {
         let (scale, size) = (scale.max(1) as u32, 8.0 * scale.max(1) as f32);
         for (i, ch) in s.chars().enumerate() {
@@ -364,12 +405,21 @@ impl Image {
 }
 
 /// An image, shared as `Arc<Sprite>`. Pixels are 0xAARRGGBB; hot reload swaps them inside the same sprite.
+///
+/// ```
+/// use engine::{Rect, Sprite};
+///
+/// let sprite = Sprite::new(2, 1, vec![0xffff0000, 0xff00ff00]);
+/// assert_eq!(sprite.size(), (2, 1));
+/// assert_eq!(sprite.bounds(), Rect::new(0.0, 0.0, 2.0, 1.0));
+/// ```
 pub struct Sprite {
     image: RwLock<Image>,
     version: AtomicU64,
 }
 
 impl Sprite {
+    /// Reads a PNG.
     pub fn load(path: &str) -> Result<Self, String> {
         Ok(Sprite { image: RwLock::new(decode(path)?), version: AtomicU64::new(0) })
     }
@@ -380,6 +430,7 @@ impl Sprite {
         Sprite { image: RwLock::new(Image { w, h, px }), version: AtomicU64::new(0) }
     }
 
+    /// Width and height in pixels.
     pub fn size(&self) -> (usize, usize) {
         let img = self.image();
         (img.w, img.h)

@@ -1,5 +1,14 @@
 use crate::{Anim, Body, Collider, DrawCmd, Layer, Look, Paint, Style, Transform, World};
 
+/// ```
+/// use engine::{Body, Layer, Look, Rect, World, draw_list};
+///
+/// let mut world = World::new();
+/// world.spawn((Body(Rect::new(0.0, 0.0, 8.0, 8.0)), Look::Color(0xff0000), Layer(2)));
+/// world.spawn((Body(Rect::new(4.0, 4.0, 8.0, 8.0)), Look::Color(0x00ff00), Layer(1)));
+/// let cmds = draw_list(&world);
+/// assert_eq!(cmds.iter().map(|c| c.layer).collect::<Vec<_>>(), [1, 2]);
+/// ```
 pub fn draw_list(world: &World) -> Vec<DrawCmd> {
     let mut cmds = Vec::new();
     let mut query =

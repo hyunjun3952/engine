@@ -62,6 +62,7 @@
 //!   the bare name and setters start with `set_`.
 //! - Systems over a [`World`] are free functions (`movement`, `animate`, `particles`, `collisions`); stateful parts
 //!   ([`Physics`], [`Camera`], widgets) are types with `update`/`step` and `draw`.
+#![warn(missing_docs)]
 
 mod app;
 mod assets;

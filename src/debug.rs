@@ -9,6 +9,15 @@ type Show = Box<dyn Fn(&World, Entity) -> Option<String>>;
 /// Lists what an entity has: press F4 to open it, click an entity in the world to pick it. The engine's own
 /// components are shown; `register` adds your own. Call `update` in `Scene::update` and `draw` in `Scene::draw`
 /// after the world; the text is the built-in 8x8 ASCII font.
+///
+/// ```
+/// use engine::{Body, Inspector, Rect, World};
+///
+/// let mut world = World::new();
+/// let e = world.spawn((Body(Rect::new(0.0, 0.0, 8.0, 8.0)),));
+/// let inspector = Inspector::new();
+/// assert!(!inspector.describe(&world, e).is_empty());
+/// ```
 pub struct Inspector {
     shows: Vec<(&'static str, Show)>,
     open: bool,
@@ -16,6 +25,7 @@ pub struct Inspector {
 }
 
 impl Inspector {
+    /// A closed inspector that knows the engine's components.
     pub fn new() -> Self {
         let mut i = Inspector { shows: Vec::new(), open: false, picked: None };
         i.register::<Body>("Body");
@@ -57,14 +67,17 @@ impl Inspector {
         self
     }
 
+    /// True while the panel is shown.
     pub fn is_open(&self) -> bool {
         self.open
     }
 
+    /// The entity whose components are listed.
     pub fn selected(&self) -> Option<Entity> {
         self.picked
     }
 
+    /// Picks an entity, or none.
     pub fn select(&mut self, e: Option<Entity>) {
         self.picked = e;
     }
@@ -93,6 +106,7 @@ impl Inspector {
         lines
     }
 
+    /// Draws the panel when it is open.
     pub fn draw(&self, gfx: &mut Gfx, world: &World) {
         if !self.open {
             return;
@@ -133,9 +147,20 @@ fn pick(world: &World, x: f32, y: f32) -> Option<Entity> {
 }
 
 /// A line of text typed into the console: the first word and the rest, where "double quotes" keep spaces inside one word.
+///
+/// ```
+/// use engine::Command;
+///
+/// let cmd = Command::parse("spawn \"big goblin\" 3").unwrap();
+/// assert_eq!(cmd.name, "spawn");
+/// assert_eq!(cmd.args[0], "big goblin");
+/// assert_eq!(cmd.arg::<i32>(1), Some(3));
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {
+    /// The first word of the line.
     pub name: String,
+    /// The words after it.
     pub args: Vec<String>,
 }
 
@@ -191,6 +216,7 @@ pub struct Console {
 }
 
 impl Console {
+    /// A closed console with no lines.
     pub fn new() -> Self {
         Console {
             open: false,
@@ -201,10 +227,12 @@ impl Console {
         }
     }
 
+    /// True while the console is shown.
     pub fn is_open(&self) -> bool {
         self.open
     }
 
+    /// Adds a line to the console's output.
     pub fn print(&mut self, text: impl Into<String>) {
         self.lines.push_back(text.into());
         while self.lines.len() > SCROLLBACK {

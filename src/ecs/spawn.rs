@@ -3,12 +3,25 @@ use crate::{Entity, TiledObject, World};
 type Maker = Box<dyn Fn(&mut World, &TiledObject) -> Entity>;
 
 /// Turns the objects of a Tiled map into entities: one function per object kind.
+///
+/// ```
+/// use engine::{Body, Spawner, TiledObject, World};
+///
+/// let coin = TiledObject { name: "c1".into(), kind: "coin".into(), x: 8.0, y: 8.0, w: 8.0, h: 8.0, props: vec![] };
+/// let mut world = World::new();
+/// let made = Spawner::new()
+///     .on("coin", |world, obj| world.spawn((Body(obj.rect()),)))
+///     .spawn(&mut world, &[coin])
+///     .unwrap();
+/// assert_eq!(made.len(), 1);
+/// ```
 #[derive(Default)]
 pub struct Spawner {
     makers: Vec<(String, Option<Maker>)>,
 }
 
 impl Spawner {
+    /// A spawner that handles no kind yet.
     pub fn new() -> Self {
         Spawner::default()
     }

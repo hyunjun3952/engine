@@ -1,6 +1,17 @@
+/// A small seeded random generator: the same seed always gives the same numbers, which replay relies on.
+///
+/// ```
+/// use engine::Rng;
+///
+/// let mut a = Rng::new(7);
+/// let mut b = Rng::new(7);
+/// assert_eq!(a.f32(), b.f32());
+/// assert!(a.below(3) < 3);
+/// ```
 pub struct Rng(u32);
 
 impl Rng {
+    /// A generator that starts from `seed`.
     pub fn new(seed: u32) -> Self {
         Rng(seed)
     }
@@ -11,10 +22,12 @@ impl Rng {
         self.0 >> 8
     }
 
+    /// A number in `0.0..1.0`.
     pub fn f32(&mut self) -> f32 {
         self.bits() as f32 / (1u32 << 24) as f32
     }
 
+    /// A number in `lo..hi`.
     pub fn range(&mut self, lo: f32, hi: f32) -> f32 {
         lo + (hi - lo) * self.f32()
     }

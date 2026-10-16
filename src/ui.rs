@@ -1,28 +1,66 @@
 use crate::hangul::{Hangul, latin_to_jamo};
 use crate::{Ctx, Font, Gfx, Input, Key, MouseButton, Rect, Vec2};
 
+/// ```
+/// use engine::{Gfx, Rect, draw_panel};
+///
+/// fn draw(gfx: &mut Gfx) {
+///     draw_panel(gfx, Rect::new(10.0, 10.0, 100.0, 40.0), 0x303048, 0x8080a0);
+/// }
+/// ```
 pub fn draw_panel(gfx: &mut Gfx, r: Rect, fill: u32, border: u32) {
     gfx.fill(r, fill);
     gfx.outline(r, border);
 }
 
 /// Fills `frac` (clamped to 0..=1) of `r` from the left over a `back` track.
+///
+/// ```
+/// use engine::{Gfx, Rect, draw_bar};
+///
+/// fn draw(gfx: &mut Gfx, hp: f32) {
+///     draw_bar(gfx, Rect::new(10.0, 4.0, 60.0, 6.0), hp, 0xff4040, 0x401010);
+/// }
+/// ```
 pub fn draw_bar(gfx: &mut Gfx, r: Rect, frac: f32, color: u32, back: u32) {
     gfx.fill(r, back);
     gfx.fill(Rect { w: (r.w * frac.clamp(0.0, 1.0)).floor(), ..r }, color);
 }
 
+/// ```
+/// use engine::{Input, Rect, hovered};
+///
+/// fn over(input: &Input) -> bool {
+///     hovered(input, Rect::new(10.0, 10.0, 40.0, 16.0))
+/// }
+/// ```
 pub fn hovered(input: &Input, r: Rect) -> bool {
     input.mouse().is_some_and(|p| r.contains(p))
 }
 
 /// True on the step the left button goes down over `r`.
+///
+/// ```
+/// use engine::{Input, Rect, clicked};
+///
+/// fn press(input: &Input) -> bool {
+///     clicked(input, Rect::new(10.0, 10.0, 40.0, 16.0))
+/// }
+/// ```
 pub fn clicked(input: &Input, r: Rect) -> bool {
     input.mouse_pressed(MouseButton::Left) && hovered(input, r)
 }
 
 /// While the left button is held over `r`, the value (0..=1) under the cursor (first pixel 0, last pixel 1); otherwise `value` unchanged.
 /// Dragging off the rectangle stops it following, so make the rectangle taller than the drawn track.
+///
+/// ```
+/// use engine::{Input, Rect, slider};
+///
+/// fn volume(input: &Input, value: f32) -> f32 {
+///     slider(input, Rect::new(10.0, 10.0, 80.0, 8.0), value)
+/// }
+/// ```
 pub fn slider(input: &Input, r: Rect, value: f32) -> f32 {
     match input.mouse() {
         Some(Vec2 { x, .. }) if input.mouse_down(MouseButton::Left) && hovered(input, r) => {
@@ -35,21 +73,32 @@ pub fn slider(input: &Input, r: Rect, value: f32) -> f32 {
 const BOX: f32 = 10.0;
 
 /// The colours every widget draws with; `Theme::default()` is the engine's own look.
+///
+/// ```
+/// use engine::Theme;
+///
+/// let mut theme = Theme::default();
+/// theme.active = 0x40ff80;
+/// assert_ne!(theme, Theme::DEFAULT);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Theme {
     /// Labels, typed text and the rows that are not highlighted.
     pub text: u32,
     /// The highlighted row of a list and the focus outline.
     pub active: u32,
+    /// The colour of a box or button.
     pub fill: u32,
     /// A button or box under the cursor.
     pub hot: u32,
     /// A button held down.
     pub down: u32,
+    /// The colour of borders.
     pub edge: u32,
 }
 
 impl Theme {
+    /// The engine's own colours.
     pub const DEFAULT: Theme =
         Theme { text: 0xffffff, active: 0xffd040, fill: 0x303048, hot: 0x454568, down: 0x202030, edge: 0x8080a0 };
 }
@@ -88,17 +137,31 @@ impl Shade {
 
 /// A labelled button: `update` once per step (true on the step it is clicked), then `draw`; the look follows the
 /// cursor as of the last `update`.
+///
+/// ```
+/// use engine::{Button, Input, Rect};
+///
+/// let mut start = Button::new(Rect::new(10.0, 10.0, 60.0, 16.0), "Start");
+/// fn update(start: &mut Button, input: &Input) -> bool {
+///     start.update(input)
+/// }
+/// # let _ = &mut start;
+/// ```
 pub struct Button {
+    /// Where the button is.
     pub rect: Rect,
+    /// What it says.
     pub label: String,
     shade: Shade,
 }
 
 impl Button {
+    /// A button with a label.
     pub fn new(rect: Rect, label: &str) -> Self {
         Button { rect, label: label.to_string(), shade: Shade::Idle }
     }
 
+    /// True on the step it is clicked.
     pub fn update(&mut self, input: &Input) -> bool {
         self.shade = Shade::of(input, self.rect);
         clicked(input, self.rect)
@@ -117,14 +180,28 @@ impl Button {
 }
 
 /// A box with a label to its right that flips when the box or the label is clicked. `rect` covers both.
+///
+/// ```
+/// use engine::{Checkbox, Font, Input};
+///
+/// fn update(sound: &mut Checkbox, input: &Input) -> bool {
+///     sound.update(input)
+/// }
+/// fn make(font: &Font) -> Checkbox {
+///     Checkbox::new(font, 10, 10, "Sound", true)
+/// }
+/// ```
 pub struct Checkbox {
+    /// Whether the box is ticked.
     pub checked: bool,
+    /// Covers the box and its label.
     pub rect: Rect,
     label: String,
     shade: Shade,
 }
 
 impl Checkbox {
+    /// A box with a label to its right.
     pub fn new(font: &Font, x: i32, y: i32, label: &str, checked: bool) -> Self {
         let w = BOX + 4.0 + font.width(label) as f32;
         let rect = Rect::new(x as f32, y as f32, w, BOX.max(font.line_height() as f32));
@@ -139,6 +216,7 @@ impl Checkbox {
         flip
     }
 
+    /// Draws the box and its label.
     pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
         let r = Rect::new(self.rect.x, self.rect.y, BOX, BOX);
         draw_panel(gfx, r, self.shade.color(theme), theme.edge);
@@ -152,8 +230,20 @@ impl Checkbox {
 /// A single-line text box at `x`, `y`: call `update` once per fixed step with the typed characters and Backspace.
 ///
 /// Composes Hangul itself (no input method): Korean-layout jamo join into syllables, and `set_korean(true)` maps letters.
+///
+/// ```
+/// use engine::TextField;
+///
+/// let mut name = TextField::new(10, 10, 12);
+/// name.set("Ada");
+/// assert_eq!(name.text(), "Ada");
+/// name.clear();
+/// assert_eq!(name.text(), "");
+/// ```
 pub struct TextField {
+    /// Left edge.
     pub x: i32,
+    /// Top edge.
     pub y: i32,
     text: String,
     max: usize,
@@ -167,6 +257,7 @@ impl TextField {
         TextField { x, y, text: String::new(), max, korean: false, hangul: Hangul::default() }
     }
 
+    /// What has been typed.
     pub fn text(&self) -> &str {
         &self.text
     }
@@ -177,15 +268,18 @@ impl TextField {
         self.hangul.end();
     }
 
+    /// Empties the field.
     pub fn clear(&mut self) {
         self.text.clear();
         self.hangul.end();
     }
 
+    /// True while letter keys type Korean jamo.
     pub fn korean(&self) -> bool {
         self.korean
     }
 
+    /// Turns Korean typing on or off.
     pub fn set_korean(&mut self, on: bool) {
         self.korean = on;
         self.hangul.end();
@@ -232,23 +326,36 @@ fn row_metrics(font: &Font) -> (i32, i32) {
 }
 
 /// A column of rows from `x`, `y`, one of them highlighted.
+///
+/// ```
+/// use engine::Menu;
+///
+/// let mut menu = Menu::new(10, 10, &["Start", "Options", "Quit"]);
+/// menu.select(1);
+/// assert_eq!(menu.selected(), 1);
+/// ```
 pub struct Menu {
+    /// Left edge.
     pub x: i32,
+    /// Top edge.
     pub y: i32,
     items: Vec<String>,
     sel: usize,
 }
 
 impl Menu {
+    /// A menu of `items`, the first highlighted.
     pub fn new(x: i32, y: i32, items: &[&str]) -> Self {
         assert!(!items.is_empty(), "a menu needs at least one item");
         Menu { x, y, items: items.iter().map(|s| s.to_string()).collect(), sel: 0 }
     }
 
+    /// The highlighted row.
     pub fn selected(&self) -> usize {
         self.sel
     }
 
+    /// Replaces the text of row `i`.
     pub fn set_item(&mut self, i: usize, text: String) {
         self.items[i] = text;
     }
@@ -286,6 +393,7 @@ impl Menu {
         Rect::new(self.x as f32, (self.y + i as i32 * step) as f32, w, step as f32)
     }
 
+    /// Draws the rows with the highlighted one marked.
     pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
         let (step, indent) = row_metrics(font);
         for (i, item) in self.items.iter().enumerate() {
@@ -302,6 +410,15 @@ impl Menu {
 
 /// Splits an area into consecutive rectangles along one axis, `gap` pixels apart, each as wide (or tall) as the
 /// area is across.
+///
+/// ```
+/// use engine::{Layout, Rect};
+///
+/// let mut column = Layout::column(Rect::new(0.0, 0.0, 100.0, 100.0), 4.0);
+/// assert_eq!(column.next(20.0), Rect::new(0.0, 0.0, 100.0, 20.0));
+/// assert_eq!(column.next(20.0), Rect::new(0.0, 24.0, 100.0, 20.0));
+/// assert_eq!(column.rest().y, 48.0);
+/// ```
 pub struct Layout {
     area: Rect,
     vertical: bool,
@@ -341,6 +458,14 @@ impl Layout {
 }
 
 /// `cols` by `rows` equal cells filling `area`, left to right and then down, `gap` apart.
+///
+/// ```
+/// use engine::{Rect, grid};
+///
+/// let cells = grid(Rect::new(0.0, 0.0, 100.0, 100.0), 2, 2, 0.0);
+/// assert_eq!(cells.len(), 4);
+/// assert_eq!(cells[3], Rect::new(50.0, 50.0, 50.0, 50.0));
+/// ```
 pub fn grid(area: Rect, cols: usize, rows: usize, gap: f32) -> Vec<Rect> {
     let (cols, rows) = (cols.max(1), rows.max(1));
     let w = (area.w - gap * (cols - 1) as f32) / cols as f32;
@@ -352,6 +477,14 @@ pub fn grid(area: Rect, cols: usize, rows: usize, gap: f32) -> Vec<Rect> {
 
 /// Breaks `text` into lines at most `max` pixels wide: at spaces, at line breaks, and inside a word that is too long
 /// for a line (a run of Korean without spaces, say). A line always holds at least one character.
+///
+/// ```
+/// use engine::{Font, wrap};
+///
+/// let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+/// let lines = wrap(&font, "one two three four", font.width("one two"));
+/// assert!(lines.len() >= 2);
+/// ```
 pub fn wrap(font: &Font, text: &str, max: i32) -> Vec<String> {
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
@@ -381,6 +514,14 @@ pub fn wrap(font: &Font, text: &str, max: i32) -> Vec<String> {
 
 /// Draws `text` wrapped to the width of `r` and as many lines as fit its height; returns the number of lines the
 /// whole text takes, so a caller can tell it was cut off.
+///
+/// ```
+/// use engine::{Font, Gfx, Rect, draw_wrapped};
+///
+/// fn say(gfx: &mut Gfx, font: &Font) -> usize {
+///     draw_wrapped(gfx, font, "A long line of speech.", Rect::new(10.0, 10.0, 80.0, 40.0), 0xffffff)
+/// }
+/// ```
 pub fn draw_wrapped(gfx: &mut Gfx, font: &Font, text: &str, r: Rect, color: u32) -> usize {
     let lines = wrap(font, text, r.w as i32);
     let fit = ((r.h as i32) / font.line_height().max(1)).max(0) as usize;
@@ -391,7 +532,16 @@ pub fn draw_wrapped(gfx: &mut Gfx, font: &Font, text: &str, r: Rect, color: u32)
 }
 
 /// A list too long for its rectangle: arrow keys (as actions) move the highlight, the wheel scrolls, a click picks.
+///
+/// ```
+/// use engine::{Rect, ScrollList};
+///
+/// let list = ScrollList::new(Rect::new(10.0, 10.0, 100.0, 48.0), &["a", "b", "c"]);
+/// assert_eq!(list.len(), 3);
+/// assert_eq!(list.selected(), 0);
+/// ```
 pub struct ScrollList {
+    /// The area the list fills.
     pub rect: Rect,
     items: Vec<String>,
     sel: usize,
@@ -399,18 +549,22 @@ pub struct ScrollList {
 }
 
 impl ScrollList {
+    /// A list of `items` in `rect`, the first highlighted.
     pub fn new(rect: Rect, items: &[&str]) -> Self {
         ScrollList { rect, items: items.iter().map(|s| s.to_string()).collect(), sel: 0, top: 0 }
     }
 
+    /// The highlighted row.
     pub fn selected(&self) -> usize {
         self.sel
     }
 
+    /// How many rows there are.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
+    /// True when there are no rows.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -463,6 +617,7 @@ impl ScrollList {
         input.pressed(accept).then_some(self.sel).filter(|_| !self.items.is_empty())
     }
 
+    /// Draws the rows that fit with the highlighted one marked.
     pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
         let (r, rows, (step, indent)) = (self.rect, self.rows(font), row_metrics(font));
         for (n, item) in self.items.iter().enumerate().skip(self.top).take(rows) {
@@ -486,16 +641,26 @@ impl ScrollList {
 
 /// Which of several widgets has the keyboard or pad focus: arrows (as actions) jump to the nearest rectangle in
 /// that direction, hovering one with the mouse takes the focus, and accept (or a click) picks it.
+///
+/// ```
+/// use engine::{Focus, Input, Rect};
+///
+/// fn update(focus: &mut Focus, input: &Input, buttons: &[Rect]) -> Option<usize> {
+///     focus.update(input, buttons, ["up", "down", "left", "right"], "accept")
+/// }
+/// ```
 #[derive(Default)]
 pub struct Focus {
     index: usize,
 }
 
 impl Focus {
+    /// Focus starts on the first rectangle.
     pub fn new() -> Self {
         Focus::default()
     }
 
+    /// The index of the focused rectangle.
     pub fn selected(&self) -> usize {
         self.index
     }
@@ -549,6 +714,14 @@ impl Focus {
 
 /// A key remapping screen with fixed Up/Down/Enter/Escape so it cannot lock the player out; `update` is true on a change.
 /// It takes the whole `Ctx` because it changes the bindings.
+///
+/// ```
+/// use engine::{Ctx, Rebind};
+///
+/// fn update(rebind: &mut Rebind, ctx: &mut Ctx) -> bool {
+///     rebind.update(ctx)
+/// }
+/// ```
 pub struct Rebind {
     menu: Menu,
     actions: Vec<String>,
@@ -569,6 +742,7 @@ impl Rebind {
         screen
     }
 
+    /// True while it waits for the key to bind.
     pub fn waiting(&self) -> bool {
         self.waiting
     }
@@ -607,6 +781,7 @@ impl Rebind {
         changed
     }
 
+    /// Draws the actions and the keys bound to them.
     pub fn draw(&self, gfx: &mut Gfx, font: &Font, theme: &Theme) {
         self.menu.draw(gfx, font, theme);
     }

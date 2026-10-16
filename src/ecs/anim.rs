@@ -11,6 +11,14 @@ enum Timing {
 
 /// One row of a sprite sheet played as an animation: how long each frame shows, whether it loops, and named events
 /// that fire when a frame starts (a footstep on the frame the foot lands).
+///
+/// ```
+/// use engine::Clip;
+///
+/// let hit = Clip::new(2, 3, 12.0).once().event(1, "damage");
+/// let walk = Clip::timed(0, &[0.1, 0.2, 0.1]);
+/// # let _ = (hit, walk);
+/// ```
 #[derive(Clone)]
 pub struct Clip {
     row: usize,
@@ -89,6 +97,17 @@ impl Clip {
 /// `play(row, frames, fps)` restarts only when the row changes; `play_clip`/`start` take a [`Clip`] with per-frame
 /// times, `once()` and named events (read with `fired` after `animate`). An [`AnimStates`] next to it picks the clip
 /// by state name.
+///
+/// ```
+/// use engine::{Anim, Clip, Sprite};
+/// use std::sync::Arc;
+///
+/// let sheet = Arc::new(Sprite::new(32, 32, vec![0; 1024]));
+/// let mut anim = Anim::new(sheet, 16, 16);
+/// anim.start(&Clip::new(1, 2, 10.0).once());
+/// assert_eq!(anim.frame(), 0);
+/// assert!(!anim.finished());
+/// ```
 pub struct Anim {
     pub(super) sheet: Arc<Sprite>,
     size: (usize, usize),
@@ -98,10 +117,12 @@ pub struct Anim {
     fresh: bool,
     done: bool,
     fired: Vec<&'static str>,
+    /// Draw the frames mirrored.
     pub flip: bool,
 }
 
 impl Anim {
+    /// Cuts `sheet` into frames of `frame_w` by `frame_h`, with the first row playing.
     pub fn new(sheet: Arc<Sprite>, frame_w: usize, frame_h: usize) -> Self {
         Anim {
             sheet,
@@ -150,6 +171,7 @@ impl Anim {
         &self.fired
     }
 
+    /// True if the event `name` fired during the last `animate`.
     pub fn fired(&self, name: &str) -> bool {
         self.fired.contains(&name)
     }
@@ -217,6 +239,7 @@ pub struct AnimStates {
 }
 
 impl AnimStates {
+    /// No states yet; add them with `state`.
     pub fn new() -> Self {
         AnimStates { states: Vec::new(), after: Vec::new(), current: 0, wanted: None, started: false }
     }
@@ -247,6 +270,7 @@ impl AnimStates {
         self.wanted = (i != self.current || !self.started).then_some(i);
     }
 
+    /// The name of the state now playing.
     pub fn current(&self) -> &'static str {
         self.states[self.current].0
     }
@@ -271,6 +295,17 @@ impl Default for AnimStates {
     }
 }
 
+/// ```
+/// use engine::{Anim, Body, Clip, Rect, Sprite, World, animate};
+/// use std::sync::Arc;
+///
+/// let mut world = World::new();
+/// let mut anim = Anim::new(Arc::new(Sprite::new(32, 16, vec![0; 512])), 16, 16);
+/// anim.play_clip(&Clip::new(0, 2, 10.0));
+/// let e = world.spawn((Body(Rect::new(0.0, 0.0, 16.0, 16.0)), anim));
+/// animate(&mut world, 0.1);
+/// assert_eq!(world.get::<&Anim>(e).unwrap().frame(), 1);
+/// ```
 pub fn animate(world: &mut World, dt: f32) {
     for (anim, states) in world.query_mut::<(&mut Anim, &mut AnimStates)>() {
         states.sync(anim);

@@ -4,6 +4,13 @@ use std::str::FromStr;
 /// A folder for the player's own files (saves, settings, `input.txt`), made if it is missing: `$XDG_DATA_HOME/<app>`
 /// or `~/.local/share/<app>` on Linux, `%APPDATA%\<app>` on Windows, `~/Library/Application Support/<app>` on macOS.
 /// Join file names onto it, as in `format!("{dir}/save.txt")`.
+///
+/// ```no_run
+/// let dir = engine::data_dir("mygame")?;
+/// let path = format!("{dir}/save.txt");
+/// # let _ = path;
+/// # Ok::<(), String>(())
+/// ```
 pub fn data_dir(app: &str) -> Result<String, String> {
     let dir = data_dir_in(app, std::env::consts::OS, |k| std::env::var(k).ok().filter(|v| !v.is_empty()))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{dir}: {e}"))?;
@@ -30,12 +37,23 @@ fn data_dir_in(app: &str, os: &str, env: impl Fn(&str) -> Option<String>) -> Res
 
 /// A game's own `key = value` file: settings, progress, high scores. `load` treats a missing file as empty and
 /// `save` writes atomically, so a crash cannot leave half a file.
+///
+/// ```
+/// use engine::Save;
+/// let mut save = Save::new();
+/// save.set("coins", 3);
+/// assert_eq!(save.get::<i32>("coins"), Some(3));
+/// assert_eq!(save.get_or("lives", 5), 5);
+/// save.remove("coins");
+/// assert_eq!(save.get::<i32>("coins"), None);
+/// ```
 #[derive(Default, Debug, PartialEq)]
 pub struct Save {
     map: BTreeMap<String, String>,
 }
 
 impl Save {
+    /// An empty save.
     pub fn new() -> Self {
         Save::default()
     }
@@ -53,19 +71,23 @@ impl Save {
         crate::assets::write_atomic(path, &self.to_text())
     }
 
+    /// Stores `value` under `key`; panics if the key holds `=` or `#`.
     pub fn set(&mut self, key: &str, value: impl ToString) {
         assert!(valid_key(key), "bad save key {key:?}");
         self.map.insert(key.to_string(), value.to_string());
     }
 
+    /// The value under `key`, or `None` if it is missing or does not parse as `T`.
     pub fn get<T: FromStr>(&self, key: &str) -> Option<T> {
         self.map.get(key)?.parse().ok()
     }
 
+    /// Like `get`, with `default` for a missing or unparsable value.
     pub fn get_or<T: FromStr>(&self, key: &str, default: T) -> T {
         self.get(key).unwrap_or(default)
     }
 
+    /// Forgets `key`.
     pub fn remove(&mut self, key: &str) {
         self.map.remove(key);
     }

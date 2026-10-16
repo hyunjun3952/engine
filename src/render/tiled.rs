@@ -164,23 +164,47 @@ fn parse_xml(src: &str) -> Result<Node, String> {
 
 /// A thing placed on an object layer in Tiled: a spawn point, a trigger area, a sign. Positions are pixels, from
 /// the top left (for a point `w` and `h` are 0).
+///
+/// ```
+/// use engine::{Rect, TiledObject};
+///
+/// let obj = TiledObject {
+///     name: "hero".into(),
+///     kind: "player".into(),
+///     x: 20.0,
+///     y: 30.0,
+///     w: 16.0,
+///     h: 16.0,
+///     props: vec![("hp".into(), "3".into())],
+/// };
+/// assert_eq!(obj.rect(), Rect::new(20.0, 30.0, 16.0, 16.0));
+/// assert_eq!(obj.prop("hp"), Some("3"));
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct TiledObject {
+    /// The object's name in the editor.
     pub name: String,
     /// The object's type (`class` in newer versions of Tiled).
     pub kind: String,
+    /// Left edge in pixels.
     pub x: f32,
+    /// Top edge in pixels.
     pub y: f32,
+    /// Width in pixels; 0 for a point.
     pub w: f32,
+    /// Height in pixels; 0 for a point.
     pub h: f32,
+    /// Custom properties as name and value text.
     pub props: Vec<(String, String)>,
 }
 
 impl TiledObject {
+    /// The object's area.
     pub fn rect(&self) -> Rect {
         Rect::new(self.x, self.y, self.w, self.h)
     }
 
+    /// A custom property by name.
     pub fn prop(&self, name: &str) -> Option<&str> {
         self.props.iter().find(|p| p.0 == name).map(|p| p.1.as_str())
     }
@@ -194,12 +218,30 @@ impl TiledObject {
 /// triangle when its string property `slope` is `bl`, `br`, `tl` or `tr` (the corner with the right angle), and is
 /// drawn over entities when it has `front`.
 /// Flipped or rotated tiles are not supported.
+///
+/// ```
+/// use engine::{Sprite, Tiled};
+/// use std::sync::Arc;
+///
+/// let tmx = r#"<map orientation="orthogonal" width="2" height="1" tilewidth="16" tileheight="16" infinite="0">
+///  <tileset firstgid="1" name="t" tilewidth="16" tileheight="16" tilecount="4" columns="4">
+///   <image source="t.png" width="64" height="16"/>
+///  </tileset>
+///  <layer id="1" name="ground" width="2" height="1"><data encoding="csv">1,0</data></layer>
+/// </map>"#;
+/// let sheet = Arc::new(Sprite::new(64, 16, vec![0; 1024]));
+/// let tiled = Tiled::parse(tmx, |file| Err(format!("no file {file}")), sheet).unwrap();
+/// assert!(tiled.layer("ground").is_some());
+/// ```
 pub struct Tiled {
+    /// Every tile layer by name, bottom first.
     pub layers: Vec<(String, Tilemap)>,
+    /// The objects of every object layer.
     pub objects: Vec<TiledObject>,
 }
 
 impl Tiled {
+    /// Reads a `.tmx` file.
     pub fn load(path: &str, sheet: Arc<Sprite>) -> Result<Tiled, String> {
         let text = crate::assets::read_text(path)?;
         let dir = std::path::Path::new(path).parent().map(std::path::Path::to_path_buf).unwrap_or_default();
@@ -340,6 +382,7 @@ impl Tiled {
         Ok(Tiled { layers, objects })
     }
 
+    /// The tile layer called `name`.
     pub fn layer(&self, name: &str) -> Option<&Tilemap> {
         self.layers.iter().find(|l| l.0 == name).map(|l| &l.1)
     }

@@ -19,11 +19,22 @@ const FRONT_LAYER: i32 = i32::MAX - 1;
 /// A tile cut along a diagonal into a solid right triangle, named by the corner that holds the right angle:
 /// `BottomRight` is a floor rising to the right (`/`), `BottomLeft` one rising to the left (`\`), and the top
 /// corners are ceilings. Physics and `slide` see the exact triangle; rays and paths still treat the tile as a full block.
+///
+/// ```
+/// use engine::{Slope, Tile};
+///
+/// let ramp = Tile { slope: Some(Slope::BottomRight), ..Tile::DEFAULT[0] };
+/// assert!(ramp.slope.is_some());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Slope {
+    /// The right angle is at the bottom left.
     BottomLeft,
+    /// The right angle is at the bottom right.
     BottomRight,
+    /// The right angle is at the top left.
     TopLeft,
+    /// The right angle is at the top right.
     TopRight,
 }
 
@@ -82,14 +93,28 @@ impl Slope {
 /// A `one_way` tile is solid only from above: bodies pass it sideways and from below, and land on its top.
 /// A `slope` tile is a solid triangle for physics.
 /// With `auto`, `id` starts 16 sheet tiles chosen by joined neighbours (up 1, right 2, down 4, left 8).
+///
+/// ```
+/// use engine::Tile;
+///
+/// let spikes = Tile { ch: b'^', id: 2, solid: false, front: true, auto: false, one_way: false, slope: None };
+/// assert!(Tile::DEFAULT[0].solid && !spikes.solid);
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Tile {
+    /// The character that stands for the tile in a level file.
     pub ch: u8,
+    /// The sheet tile it shows, counted from 1.
     pub id: u8,
+    /// Blocks bodies.
     pub solid: bool,
+    /// Drawn over entities instead of behind them.
     pub front: bool,
+    /// `id` starts 16 tiles picked by joined neighbours.
     pub auto: bool,
+    /// Solid only from above.
     pub one_way: bool,
+    /// A right triangle instead of a full block.
     pub slope: Option<Slope>,
 }
 
@@ -110,18 +135,46 @@ pub(super) fn tile_count(sheet: &Sprite, size: usize) -> usize {
 
 /// Where a ray entered a solid tile: the distance factor `t` (the point is `from + t * dir`), the tile, and the
 /// direction the face it crossed looks (against the ray; zero when the ray began inside the tile).
+///
+/// ```
+/// use engine::{Rect, Sprite, Tilemap};
+/// use std::sync::Arc;
+///
+/// let sheet = Arc::new(Sprite::new(16, 8, vec![0; 128]));
+/// let map = Tilemap::from_ascii(&["P...", "####"], 8, sheet);
+/// let hit = map.raycast((4.0, 0.0), (0.0, 1.0), 100.0).unwrap();
+/// assert_eq!(hit.tile, (0, 1));
+/// assert_eq!(hit.t, 8.0);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TileHit {
+    /// Distance along the ray, in lengths of `dir`.
     pub t: f32,
+    /// The tile that was hit.
     pub tile: (i32, i32),
+    /// The direction the crossed face looks.
     pub normal: Vec2,
 }
 
 /// Where `Tilemap::slide` left a box, and whether tiles stopped it along each axis.
+///
+/// ```
+/// use engine::{Rect, Sprite, Tilemap};
+/// use std::sync::Arc;
+///
+/// let sheet = Arc::new(Sprite::new(16, 8, vec![0; 128]));
+/// let map = Tilemap::from_ascii(&["P...", "####"], 8, sheet);
+/// let landed = map.slide(Rect::new(4.0, 0.0, 6.0, 6.0), 0.0, 4.0);
+/// assert!(landed.blocked_y);
+/// assert_eq!(landed.rect.y, 2.0);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Slide {
+    /// Where the box ended up.
     pub rect: Rect,
+    /// Something stopped it sideways.
     pub blocked_x: bool,
+    /// Something stopped it vertically.
     pub blocked_y: bool,
 }
 
@@ -130,9 +183,22 @@ pub struct Slide {
 /// Load a plain-text grid with [`Tilemap::load`] (`#` and `+` are solid, `.` or space is empty, any other character is
 /// a marker read with [`Tilemap::marks`]) or a Tiled map with [`Tiled::load`](crate::Tiled::load). Cells are `(usize, usize)`. Draw it with
 /// `gfx.draw(map.draw_list(gfx.view()))`.
+///
+/// ```
+/// use engine::{Rect, Sprite, Tilemap};
+/// use std::sync::Arc;
+///
+/// let sheet = Arc::new(Sprite::new(16, 8, vec![0; 128]));
+/// let map = Tilemap::from_ascii(&["P...", "####"], 8, sheet);
+/// assert_eq!(map.marks(b'P').count(), 1);
+/// assert_eq!(map.pixel_size(), (32.0, 16.0).into());
+/// ```
 pub struct Tilemap {
+    /// Width in tiles.
     pub w: usize,
+    /// Height in tiles.
     pub h: usize,
+    /// Side of a tile in pixels.
     pub size: usize,
     /// Restitution of every solid tile for physics (0 by default); a body bounces by the smaller of the two.
     pub bounce: f32,
@@ -145,10 +211,12 @@ pub struct Tilemap {
 }
 
 impl Tilemap {
+    /// Builds a map from rows of characters; panics on a bad level, see `try_from_ascii`.
     pub fn from_ascii(rows: &[&str], size: usize, sheet: Arc<Sprite>) -> Self {
         Tilemap::try_from_ascii(rows, size, sheet).unwrap_or_else(|e| panic!("{e}"))
     }
 
+    /// Builds a map from rows of characters, or says why it cannot.
     pub fn try_from_ascii(rows: &[&str], size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
         Tilemap::try_from_ascii_with(rows, size, sheet, &Tile::DEFAULT)
     }
@@ -246,10 +314,12 @@ impl Tilemap {
         Tilemap { w, h, size, bounce: 0.0, tiles, marks: Vec::new(), sheet, flags: table, stamp }
     }
 
+    /// Reads a level file with the default legend.
     pub fn load(path: &str, size: usize, sheet: Arc<Sprite>) -> Result<Self, String> {
         Tilemap::load_with(path, size, sheet, &Tile::DEFAULT)
     }
 
+    /// Reads a level file with a custom legend.
     pub fn load_with(path: &str, size: usize, sheet: Arc<Sprite>, legend: &[Tile]) -> Result<Self, String> {
         let text = crate::assets::read_text(path)?;
         // Only newlines are trimmed: a space is an empty tile, so a last row may end in them.
@@ -257,6 +327,7 @@ impl Tilemap {
         Tilemap::try_from_ascii_with(&rows, size, sheet, legend).map_err(|e| format!("{path}: {e}"))
     }
 
+    /// The pixel position of every cell marked with `c`.
     pub fn marks(&self, c: u8) -> impl Iterator<Item = Vec2> + '_ {
         self.marks
             .iter()
@@ -283,6 +354,7 @@ impl Tilemap {
         self.stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Width and height of the map in pixels.
     pub fn pixel_size(&self) -> Vec2 {
         Vec2::new((self.w * self.size) as f32, (self.h * self.size) as f32)
     }
@@ -505,6 +577,7 @@ impl Tilemap {
         astar((self.w, self.h), from, to, diagonal, |x, y| !self.solid(x as i32, y as i32) && open(x, y))
     }
 
+    /// The solid tiles that touch `area`, as rectangles.
     pub fn solid_in(&self, area: Rect) -> Vec<Rect> {
         let s = self.size as f32;
         let (x0, x1) = ((area.x / s).floor() as i32, ((area.x + area.w) / s).ceil() as i32);
@@ -533,6 +606,7 @@ impl Tilemap {
         same(0, -1) as u8 | (same(1, 0) as u8) << 1 | (same(0, 1) as u8) << 2 | (same(-1, 0) as u8) << 3
     }
 
+    /// The commands that draw the tiles in `view`, behind and in front of entities.
     pub fn draw_list(&self, view: Rect) -> Vec<DrawCmd> {
         let s = self.size as f32;
         let (tx0, ty0) = ((view.x / s).floor().max(0.0) as usize, (view.y / s).floor().max(0.0) as usize);

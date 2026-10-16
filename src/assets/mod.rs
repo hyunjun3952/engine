@@ -57,6 +57,16 @@ pub(crate) fn read_text_if_exists(path: &str) -> Result<Option<String>, String> 
 ///
 /// A file that cannot be read panics with its path; load with [`Sprite::load`] or [`Font::load`] to handle the error
 /// yourself. Sprites are reloaded in place when their file changes if `Config::hot_reload` is on.
+///
+/// ```
+/// use engine::Ctx;
+///
+/// fn load(ctx: &mut Ctx) {
+///     let ball = ctx.assets().sprite("assets/images/ball.png");
+///     let font = ctx.assets().font("assets/fonts/galmuri9.bdf");
+///     # let _ = (ball, font);
+/// }
+/// ```
 #[derive(Default)]
 pub struct Assets {
     sprites: FxMap<String, Arc<Sprite>>,
@@ -65,6 +75,7 @@ pub struct Assets {
 }
 
 impl Assets {
+    /// Loads a sprite by path, or hands out the cached one; panics if it cannot be read.
     pub fn sprite(&mut self, path: &str) -> Arc<Sprite> {
         if let Some(s) = self.sprites.get(path) {
             return s.clone();
@@ -76,6 +87,7 @@ impl Assets {
             .clone()
     }
 
+    /// Loads a BDF font by path, or hands out the cached one; panics if it cannot be read.
     pub fn font(&mut self, path: &str) -> Arc<Font> {
         let load = || Arc::new(Font::load(path).unwrap_or_else(|e| panic!("{e}")));
         self.fonts.entry(path.to_string()).or_insert_with(load).clone()

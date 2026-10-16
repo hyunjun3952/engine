@@ -22,21 +22,47 @@ use minifb::{ScaleMode, Window, WindowOptions};
 use replay::Tape;
 use std::time::Instant;
 
+/// Which renderer draws the frame; see `Config::renderer`.
+///
+/// ```
+/// use engine::{Config, RenderMode};
+///
+/// let mut cfg = Config::default();
+/// cfg.renderer = RenderMode::Software;
+/// assert_eq!(cfg.renderer, RenderMode::Software);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RenderMode {
+    /// Picks the GPU if a non-CPU adapter can present, else the software renderer.
     Auto,
+    /// Always the GPU; fails to start without one.
     Gpu,
+    /// Always the CPU rasterizer.
     Software,
 }
 
 /// How [`run`] opens the window and steps the game; start from `Config::default()` (640x360, 60 ticks a second).
+///
+/// ```
+/// use engine::Config;
+///
+/// let cfg = Config { title: "demo", ..Config::default() };
+/// assert_eq!(cfg.title, "demo");
+/// ```
 pub struct Config {
+    /// The window title.
     pub title: &'static str,
+    /// Width of the internal canvas in pixels.
     pub w: usize,
+    /// Height of the internal canvas in pixels.
     pub h: usize,
+    /// Fixed updates per second.
     pub tick_hz: f32,
+    /// Which renderer draws the frames.
     pub renderer: RenderMode,
+    /// Reload changed assets while the game runs.
     pub hot_reload: bool,
+    /// The window is `scale` times the internal resolution.
     pub scale: usize,
     /// Lets the player drag the window to any size; the picture keeps its shape and the rest is black.
     pub resizable: bool,
@@ -77,6 +103,17 @@ impl Default for Config {
 ///
 /// Each accessor borrows the whole `Ctx`, so read values into locals first: `let dt = ctx.dt();` then
 /// `ctx.cam().follow(.., dt)`.
+///
+/// ```
+/// use engine::{Ctx, Rect};
+///
+/// fn update(ctx: &mut Ctx, player: Rect) {
+///     let dt = ctx.dt();
+///     ctx.cam().follow(player, (1600.0, 900.0), dt);
+///     let roll = ctx.rng().f32();
+///     # let _ = roll;
+/// }
+/// ```
 pub struct Ctx {
     pub(crate) input: Input,
     pub(crate) assets: Assets,
@@ -131,18 +168,22 @@ impl Ctx {
         }
     }
 
+    /// Flips fullscreen; see `set_fullscreen`.
     pub fn toggle_fullscreen(&mut self) {
         self.set_fullscreen(!self.fullscreen);
     }
 
+    /// Binds an action name to keys; call it once, before the action is read.
     pub fn bind(&mut self, action: &str, keys: &[Key]) {
         self.input.bind(action, keys);
     }
 
+    /// Binds an action name to gamepad buttons.
     pub fn bind_pad(&mut self, action: &str, pads: &[Pad]) {
         self.input.bind_pad(action, pads);
     }
 
+    /// Applies an `input.txt` over the defaults; a missing file is fine, a malformed one is an `Err` and changes nothing.
     pub fn load_bindings(&mut self, path: &str) -> Result<(), String> {
         self.bindings_path = Some(path.to_string());
         self.defaults.get_or_insert_with(|| self.input.to_text());
@@ -160,10 +201,12 @@ impl Ctx {
         crate::assets::write_atomic(path, &all.lines().filter(kept).map(|l| format!("{l}\n")).collect::<String>())
     }
 
+    /// Starts watching `path` for changes; read them with `changed`.
     pub fn watch(&mut self, path: &str) {
         self.assets.watcher.watch(path);
     }
 
+    /// True once after the watched file changed.
     pub fn changed(&mut self, path: &str) -> bool {
         self.assets.watcher.take(path)
     }
@@ -186,6 +229,7 @@ impl Ctx {
         }
     }
 
+    /// The input of this step.
     pub fn input(&self) -> &Input {
         &self.input
     }
@@ -195,37 +239,55 @@ impl Ctx {
         self.input.mouse().map(|p| self.cam.to_world(p))
     }
 
+    /// The sprite and font cache.
     pub fn assets(&mut self) -> &mut Assets {
         &mut self.assets
     }
 
+    /// The sound mixer.
     pub fn audio(&mut self) -> &mut Audio {
         &mut self.audio
     }
 
+    /// The camera, which advances in the fixed update.
     pub fn cam(&mut self) -> &mut Camera {
         &mut self.cam
     }
 
+    /// The seeded random generator; take all randomness from here so a replay reproduces the run.
     pub fn rng(&mut self) -> &mut Rng {
         &mut self.rng
     }
 
+    /// Seconds in one fixed step.
     pub fn dt(&self) -> f32 {
         self.dt
     }
 
+    /// Size of the internal canvas in pixels.
     pub fn size(&self) -> (usize, usize) {
         (self.w, self.h)
     }
 }
 
 /// What the scene stack does after an `update`.
+///
+/// ```
+/// use engine::Trans;
+///
+/// let leave = Trans::Fade(Box::new(Trans::Pop), 0.5);
+/// assert!(matches!(leave, Trans::Fade(_, _)));
+/// ```
 pub enum Trans {
+    /// Stay on this scene.
     None,
+    /// Put a scene on top; the one beneath stays as it is.
     Push(Box<dyn Scene>),
+    /// Remove the top scene.
     Pop,
+    /// Swap the top scene for another.
     Replace(Box<dyn Scene>),
+    /// End the game.
     Quit,
     /// Fades to black over half of `secs`, makes the inner change, and fades back over the other half. The scenes
     /// stand still while it darkens.
@@ -237,10 +299,30 @@ pub enum Trans {
 /// `update` runs once per fixed step and returns a [`Trans`]; `on_enter` runs when the scene joins the stack and
 /// `on_exit` when it leaves (stop music there). A pushed overlay does not touch the scene beneath. The engine does
 /// not handle Esc; scenes do.
+///
+/// ```
+/// use engine::{Config, Ctx, Gfx, Key, Scene, Trans};
+///
+/// struct Title;
+///
+/// impl Scene for Title {
+///     fn update(&mut self, ctx: &mut Ctx) -> Trans {
+///         if ctx.input().pressed("quit") { Trans::Quit } else { Trans::None }
+///     }
+///     fn draw(&self, gfx: &mut Gfx) {
+///         gfx.clear(0x101018);
+///     }
+/// }
+/// # let _ = Title;
+/// ```
 pub trait Scene {
+    /// Advances the scene by one fixed step and says what the stack does next.
     fn update(&mut self, ctx: &mut Ctx) -> Trans;
+    /// Records what the scene looks like; runs for every scene on the stack, bottom first.
     fn draw(&self, gfx: &mut Gfx);
+    /// Runs when the scene joins the stack.
     fn on_enter(&mut self, _ctx: &mut Ctx) {}
+    /// Runs when the scene leaves the stack; stop music here.
     fn on_exit(&mut self, _ctx: &mut Ctx) {}
 }
 
@@ -356,6 +438,26 @@ pub(crate) fn env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|v| !v.is_empty() && v != "0")
 }
 
+/// ```no_run
+/// use engine::{Config, Ctx, Gfx, Key, Scene, Trans};
+///
+/// struct Title;
+///
+/// impl Scene for Title {
+///     fn update(&mut self, ctx: &mut Ctx) -> Trans {
+///         if ctx.input().pressed("quit") { Trans::Quit } else { Trans::None }
+///     }
+///     fn draw(&self, gfx: &mut Gfx) {
+///         gfx.clear(0x101018);
+///     }
+/// }
+///
+/// let cfg = Config { title: "demo", ..Config::default() };
+/// engine::run(cfg, |ctx| {
+///     ctx.bind("quit", &[Key::Escape]);
+///     Box::new(Title)
+/// });
+/// ```
 pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
     if let Ok(v) = std::env::var("ENGINE_TICK_HZ") {
         match v.parse::<f32>() {

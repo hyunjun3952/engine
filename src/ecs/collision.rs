@@ -14,14 +14,30 @@ fn turned(r: Rect, t: Option<&Transform>) -> Rect {
     t.filter(|t| t.angle != 0.0).map_or(r, |t| turned_box(r, t.angle.sin_cos(), 0.0))
 }
 
+/// Two overlapping colliders and how deep they overlap on each axis; see [`collisions`](crate::collisions).
+///
+/// ```
+/// use engine::{Contact, World};
+///
+/// let mut world = World::new();
+/// let (a, b) = (world.spawn(()), world.spawn(()));
+/// let hit = Contact { a, b, ox: 1.0, oy: 3.0 };
+/// assert_eq!(hit.other(a), Some(b));
+/// assert!(hit.x_axis());
+/// ```
 pub struct Contact {
+    /// One of the two entities.
     pub a: Entity,
+    /// The other entity.
     pub b: Entity,
+    /// How deep the boxes overlap along x.
     pub ox: f32,
+    /// How deep the boxes overlap along y.
     pub oy: f32,
 }
 
 impl Contact {
+    /// The entity that is not `e`, or `None` if `e` is in neither.
     pub fn other(&self, e: Entity) -> Option<Entity> {
         if self.a == e {
             Some(self.b)
@@ -32,6 +48,7 @@ impl Contact {
         }
     }
 
+    /// True when the overlap is shallower along x, so the way out is sideways.
     pub fn x_axis(&self) -> bool {
         self.ox < self.oy
     }
@@ -112,6 +129,15 @@ pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)>
     Sweep::default().pairs(&flipped, |_| false).iter().map(|&(a, b, ox, oy)| (a, b, oy, ox)).collect()
 }
 
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let a = world.spawn((Body(Rect::new(0.0, 0.0, 10.0, 10.0)), Collider));
+/// let b = world.spawn((Body(Rect::new(5.0, 5.0, 10.0, 10.0)), Collider));
+/// let hits = engine::collisions(&world);
+/// assert_eq!(hits.len(), 1);
+/// assert_eq!(hits[0].other(a), Some(b));
+/// ```
 pub fn collisions(world: &World) -> Vec<Contact> {
     let mut ents = Vec::new();
     let (mut rects, mut filters) = (Vec::new(), Vec::new());
@@ -129,6 +155,19 @@ pub fn collisions(world: &World) -> Vec<Contact> {
 
 /// Remembers which pairs overlapped at the last `update`, to tell when two colliders start and stop touching (a
 /// player entering a trigger zone). Feed it `collisions(&world)` once per step.
+///
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let a = world.spawn((Body(Rect::new(0.0, 0.0, 10.0, 10.0)), Collider));
+/// let b = world.spawn((Body(Rect::new(5.0, 5.0, 10.0, 10.0)), Collider));
+/// use engine::{Overlaps, collisions};
+///
+/// let mut overlaps = Overlaps::new();
+/// let changes = overlaps.update(&collisions(&world));
+/// assert_eq!(changes.began, vec![(a, b)]);
+/// assert!(overlaps.touching(a, b));
+/// ```
 #[derive(Default)]
 pub struct Overlaps {
     pairs: FxSet<(Entity, Entity)>,
@@ -136,17 +175,35 @@ pub struct Overlaps {
 
 /// The pairs that started and stopped overlapping since the last `Overlaps::update`, each pair as `(a, b)` with
 /// `a < b`, sorted. A despawned entity's pairs come out as ended.
+///
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let a = world.spawn((Body(Rect::new(0.0, 0.0, 10.0, 10.0)), Collider));
+/// let b = world.spawn((Body(Rect::new(5.0, 5.0, 10.0, 10.0)), Collider));
+/// use engine::{Overlaps, collisions};
+///
+/// let mut overlaps = Overlaps::new();
+/// overlaps.update(&collisions(&world));
+/// world.get::<&mut Body>(b).unwrap().0.x = 100.0;
+/// let changes = overlaps.update(&collisions(&world));
+/// assert_eq!(changes.ended, vec![(a, b)]);
+/// ```
 #[derive(Debug, Default, PartialEq)]
 pub struct OverlapChanges {
+    /// Pairs that started to overlap this step.
     pub began: Vec<(Entity, Entity)>,
+    /// Pairs that stopped overlapping this step.
     pub ended: Vec<(Entity, Entity)>,
 }
 
 impl Overlaps {
+    /// Nothing is touching yet.
     pub fn new() -> Self {
         Overlaps::default()
     }
 
+    /// Takes this step's contacts and returns what began and ended since the last call.
     pub fn update(&mut self, contacts: &[Contact]) -> OverlapChanges {
         let now: FxSet<(Entity, Entity)> = contacts.iter().map(|c| (c.a.min(c.b), c.a.max(c.b))).collect();
         let mut began: Vec<_> = now.difference(&self.pairs).copied().collect();
@@ -157,11 +214,20 @@ impl Overlaps {
         OverlapChanges { began, ended }
     }
 
+    /// True if the two overlapped at the last `update`.
     pub fn touching(&self, a: Entity, b: Entity) -> bool {
         self.pairs.contains(&(a.min(b), a.max(b)))
     }
 }
 
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let a = world.spawn((Body(Rect::new(0.0, 0.0, 10.0, 10.0)), Collider));
+/// let b = world.spawn((Body(Rect::new(5.0, 5.0, 10.0, 10.0)), Collider));
+/// let near = engine::query_rect(&world, Rect::new(14.0, 14.0, 1.0, 1.0));
+/// assert_eq!(near, vec![b]);
+/// ```
 pub fn query_rect(world: &World, area: Rect) -> Vec<Entity> {
     world
         .query::<(Entity, &Body, &Collider, Option<&Transform>)>()

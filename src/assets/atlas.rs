@@ -6,12 +6,22 @@ use std::sync::Arc;
 ///
 /// The text form is one `name x y w h` per line (pixels in the sheet); `#` starts a comment and blank lines are
 /// skipped. A name cannot repeat and a region cannot reach outside the sheet.
+///
+/// ```
+/// use engine::{Atlas, Rect, Sprite};
+/// use std::sync::Arc;
+///
+/// let sheet = Arc::new(Sprite::new(16, 16, vec![0; 256]));
+/// let atlas = Atlas::parse("hero 0 0 8 8\ncoin 8 0 8 8", sheet).unwrap();
+/// assert_eq!(atlas.get("coin"), Rect::new(8.0, 0.0, 8.0, 8.0));
+/// ```
 pub struct Atlas {
     sheet: Arc<Sprite>,
     regions: FxMap<String, Rect>,
 }
 
 impl Atlas {
+    /// Reads regions from `name x y w h` lines.
     pub fn parse(text: &str, sheet: Arc<Sprite>) -> Result<Atlas, String> {
         let (limit, mut regions) = (sheet.size(), FxMap::default());
         for (n, line) in text.lines().enumerate() {
@@ -37,10 +47,12 @@ impl Atlas {
         Ok(Atlas { sheet, regions })
     }
 
+    /// Like `parse`, from a file.
     pub fn load(path: &str, sheet: Arc<Sprite>) -> Result<Atlas, String> {
         Atlas::parse(&super::read_text(path)?, sheet).map_err(|e| format!("{path}: {e}"))
     }
 
+    /// The sheet the regions cut from.
     pub fn sheet(&self) -> &Arc<Sprite> {
         &self.sheet
     }
@@ -50,6 +62,7 @@ impl Atlas {
         *self.regions.get(name).unwrap_or_else(|| panic!("no region called {name:?} in the atlas"))
     }
 
+    /// Draws the region `name` with its top-left corner at `x`, `y`.
     pub fn draw(&self, gfx: &mut Gfx, name: &str, x: i32, y: i32) {
         gfx.blit_region(&self.sheet, self.get(name), x, y, false);
     }

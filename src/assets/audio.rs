@@ -17,31 +17,67 @@ fn unit(v: f32) -> f32 {
 /// A volume that sounds are sent to, on top of the master volume: `Bus::SFX` for one-shots and `Bus::MUSIC` for the
 /// music are built in, and `Audio::bus("voice")` makes others. Changing a bus changes what is already playing, and
 /// `Audio::fade_bus` moves it over time (to duck the music under speech, say).
+///
+/// ```
+/// use engine::{Audio, Bus};
+///
+/// fn duck(audio: &mut Audio) {
+///     audio.set_bus_volume(Bus::MUSIC, 0.4);
+///     let voice = audio.bus("voice");
+///     audio.fade_bus(voice, 1.0, 0.5);
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bus(usize);
 
 impl Bus {
+    /// The bus of one-shot effects.
     pub const SFX: Bus = Bus(0);
+    /// The bus of the music track.
     pub const MUSIC: Bus = Bus(1);
 }
 
 /// One sound that `play` or `play_with` started, to `stop` it or ask whether it `is_playing`.
+///
+/// ```
+/// use engine::Audio;
+///
+/// fn blip(audio: &mut Audio) {
+///     let voice = audio.play("assets/sounds/jump.wav");
+///     if audio.is_playing(voice) {
+///         audio.stop(voice);
+///     }
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Voice(u64);
 
 /// How one sound is played: on the `Bus::SFX` unless `on` says another, with `volume` (0..=1); `pan` from -1 (left) to
 /// 1 (right), which plays it as mono through both speakers at the balance; `pitch`, a speed multiplier (0.25 to
 /// 4, 1 as recorded) that raises or lowers pitch together with speed; and `looped`, over and over until stopped.
+///
+/// ```
+/// use engine::{Bus, Sound};
+///
+/// let step = Sound::new().pan(-0.5).pitch(1.2).volume(0.8).on(Bus::SFX).looped();
+/// # let _ = step;
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sound {
+    /// Loudness, 0 to 1.
     pub volume: f32,
+    /// Stereo position, -1 (left) to 1 (right).
     pub pan: f32,
+    /// Speed multiplier, 0.25 to 4.
     pub pitch: f32,
+    /// The bus the sound plays on.
     pub bus: Bus,
+    /// Repeat until stopped.
     pub looped: bool,
 }
 
 impl Sound {
+    /// A plain sound: full volume, centred, normal pitch, on the effects bus.
     pub fn new() -> Self {
         Sound { volume: 1.0, pan: 0.0, pitch: 1.0, bus: Bus::SFX, looped: false }
     }
@@ -51,14 +87,17 @@ impl Sound {
         Sound { looped: true, ..self }
     }
 
+    /// Sets the loudness.
     pub fn volume(self, volume: f32) -> Self {
         Sound { volume, ..self }
     }
 
+    /// Sets the stereo position.
     pub fn pan(self, pan: f32) -> Self {
         Sound { pan, ..self }
     }
 
+    /// Sets the speed multiplier.
     pub fn pitch(self, pitch: f32) -> Self {
         Sound { pitch, ..self }
     }
@@ -197,6 +236,15 @@ impl Mix {
 ///
 /// Volumes are the master times a [`Bus`]: `Bus::SFX`, `Bus::MUSIC` or one made with `bus(name)`. Without the `audio`
 /// feature, with `ENGINE_MUTE=1` or with no output device every call does nothing. WAV and OGG Vorbis are read.
+///
+/// ```
+/// use engine::{Ctx, Sound};
+///
+/// fn jump(ctx: &mut Ctx) {
+///     ctx.audio().play_with("assets/sounds/jump.wav", Sound::new().pitch(1.1));
+///     ctx.audio().music("assets/sounds/theme.wav");
+/// }
+/// ```
 pub struct Audio {
     mix: Mix,
     #[cfg(feature = "audio")]
@@ -245,6 +293,7 @@ impl Audio {
         }
     }
 
+    /// The master volume.
     pub fn volume(&self) -> f32 {
         self.mix.volume
     }
@@ -260,6 +309,7 @@ impl Audio {
         self.mix.bus(name)
     }
 
+    /// The current volume of a bus.
     pub fn bus_volume(&self, bus: Bus) -> f32 {
         self.mix.buses[bus.0].volume
     }
@@ -314,6 +364,7 @@ impl Audio {
         entry.clone().map(Cursor::new)
     }
 
+    /// Plays a sound file once.
     pub fn play(&mut self, path: &str) -> Voice {
         self.play_with(path, Sound::new())
     }
@@ -364,11 +415,13 @@ impl Audio {
         self.dev.music.iter().for_each(Player::pause);
     }
 
+    /// Continues a paused music track.
     #[cfg(feature = "audio")]
     pub fn resume_music(&mut self) {
         self.dev.music.iter().for_each(Player::play);
     }
 
+    /// Loops one track, replacing the current one.
     pub fn music(&mut self, path: &str) {
         self.start_music(path);
     }
@@ -398,6 +451,7 @@ impl Audio {
         }
     }
 
+    /// Stops the music at once.
     #[cfg(feature = "audio")]
     pub fn stop_music(&mut self) {
         self.dev.music = None;
@@ -413,22 +467,27 @@ impl Audio {
         }
     }
 
+    /// Like `play` with a volume, pan, pitch and looping of its own.
     #[cfg(not(feature = "audio"))]
     pub fn play_with(&mut self, _path: &str, _sound: Sound) -> Voice {
         self.mix.voice()
     }
 
+    /// Stops a sound `play` started; one that already ended or was cut off is left alone.
     #[cfg(not(feature = "audio"))]
     pub fn stop(&mut self, _voice: Voice) {}
 
+    /// Whether a sound `play` started is still playing (never without a sound device).
     #[cfg(not(feature = "audio"))]
     pub fn is_playing(&self, _voice: Voice) -> bool {
         false
     }
 
+    /// Holds the music where it is until `resume_music`.
     #[cfg(not(feature = "audio"))]
     pub fn pause_music(&mut self) {}
 
+    /// Continues a paused music track.
     #[cfg(not(feature = "audio"))]
     pub fn resume_music(&mut self) {}
 
@@ -439,6 +498,7 @@ impl Audio {
         true
     }
 
+    /// Stops the music at once.
     #[cfg(not(feature = "audio"))]
     pub fn stop_music(&mut self) {}
 

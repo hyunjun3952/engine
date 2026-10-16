@@ -30,14 +30,31 @@ const SLEEP_TIME: f32 = 0.5;
 ///
 /// Chain `.circle()`, `.bounce(e)`, `.friction(f)`, `.spin(rad_per_sec)`, `.gravity(scale)` and, for fixed or kinematic ones,
 /// `.one_way()` (holds a body only from above). Two bodies bounce by the smaller restitution, so walls need one too.
+///
+/// ```
+/// use engine::{Body, Physics, Rect, RigidBody, Vel, World};
+///
+/// let mut world = World::new();
+/// let floor = world.spawn((Body(Rect::new(0.0, 100.0, 200.0, 10.0)), Vel::default(), RigidBody::fixed()));
+/// let ball = world.spawn((Body(Rect::new(50.0, 0.0, 10.0, 10.0)), Vel::default(), RigidBody::dynamic(1.0)));
+/// let mut physics = Physics::default();
+/// for _ in 0..120 {
+///     physics.step(&mut world, None, 1.0 / 60.0);
+/// }
+/// assert!(physics.grounded(ball));
+/// # let _ = floor;
+/// ```
 #[derive(Debug)]
 pub struct RigidBody {
     inv_mass: f32,
     circle: bool,
     kinematic: bool,
     one_way: bool,
+    /// Bounciness, 0 to 1; two bodies use the smaller one.
     pub restitution: f32,
+    /// Friction coefficient; a pair uses the geometric mean.
     pub friction: f32,
+    /// Turning speed in radians per second.
     pub spin: f32,
     /// How much of `Physics::gravity` pulls it: 1 by default, 0 floats, negative falls up.
     pub gravity: f32,
@@ -79,6 +96,7 @@ impl crate::Persist for RigidBody {
 }
 
 impl RigidBody {
+    /// A body that moves, with this mass.
     pub fn dynamic(mass: f32) -> Self {
         assert!(mass > 0.0, "a dynamic body needs a positive mass");
         RigidBody {
@@ -93,6 +111,7 @@ impl RigidBody {
         }
     }
 
+    /// A wall: it never moves.
     pub fn fixed() -> Self {
         RigidBody { inv_mass: 0.0, ..RigidBody::dynamic(1.0) }
     }
@@ -110,6 +129,7 @@ impl RigidBody {
         self
     }
 
+    /// Makes the body a circle inside its `Body` box.
     pub fn circle(mut self) -> Self {
         self.circle = true;
         self
@@ -121,16 +141,19 @@ impl RigidBody {
         self
     }
 
+    /// Sets the bounciness.
     pub fn bounce(mut self, restitution: f32) -> Self {
         self.restitution = restitution;
         self
     }
 
+    /// Sets the friction.
     pub fn friction(mut self, friction: f32) -> Self {
         self.friction = friction;
         self
     }
 
+    /// Sets the turning speed in radians per second.
     pub fn spin(mut self, radians_per_sec: f32) -> Self {
         self.spin = radians_per_sec;
         self
@@ -167,11 +190,29 @@ struct Raw {
 /// Two things touching during the last `step`: `a` is a body and `b` another body, or `None` for a tile.
 /// `normal` points from `a` to `b` and `impulse` is the hardest push the pair gave (mass times speed) in any
 /// substep, so a hit that bounced away within the step still shows.
+///
+/// ```
+/// use engine::{Body, Physics, Rect, RigidBody, Vel, World};
+///
+/// let mut world = World::new();
+/// let floor = world.spawn((Body(Rect::new(0.0, 100.0, 200.0, 10.0)), Vel::default(), RigidBody::fixed()));
+/// let ball = world.spawn((Body(Rect::new(50.0, 0.0, 10.0, 10.0)), Vel::default(), RigidBody::dynamic(1.0)));
+/// let mut physics = Physics::default();
+/// for _ in 0..120 {
+///     physics.step(&mut world, None, 1.0 / 60.0);
+/// }
+/// let ground = physics.ground(ball).unwrap();
+/// assert_eq!(ground.other(ball), Some(floor));
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct ContactEvent {
+    /// The entity that was touched.
     pub a: Entity,
+    /// The other entity, or `None` for a tile.
     pub b: Option<Entity>,
+    /// The contact direction, from `a` to `b`.
     pub normal: Vec2,
+    /// The hardest push of any substep.
     pub impulse: f32,
     /// The pair was not touching at the previous step.
     pub began: bool,
@@ -179,6 +220,7 @@ pub struct ContactEvent {
 }
 
 impl ContactEvent {
+    /// True if `e` is `a` or `b`.
     pub fn involves(&self, e: Entity) -> bool {
         self.a == e || self.b == Some(e)
     }
@@ -201,6 +243,19 @@ impl ContactEvent {
 }
 
 /// One joint, as `rod`, `rope`, `spring` and `hinge` return it, to `remove_joint` it later.
+///
+/// ```
+/// use engine::{Body, Physics, Rect, RigidBody, Vel, World};
+///
+/// let mut world = World::new();
+/// let mut ball = |x| world.spawn((Body(Rect::new(x, 0.0, 10.0, 10.0)), Vel::default(), RigidBody::dynamic(1.0)));
+/// let (a, b) = (ball(0.0), ball(40.0));
+/// let mut physics = Physics::default();
+/// let rod = physics.rod(a, b, 40.0);
+/// assert!(physics.has_joint(rod));
+/// physics.remove_joint(rod);
+/// assert!(!physics.has_joint(rod));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct JointId(u64);
 
@@ -231,8 +286,24 @@ struct Rest {
 /// ([`rod`](Physics::rod), [`rope`](Physics::rope), [`spring`](Physics::spring), [`hinge`](Physics::hinge)) last until
 /// [`remove_joint`](Physics::remove_joint) or [`clear_joints`](Physics::clear_joints), and are dropped when an end is
 /// despawned.
+///
+/// ```
+/// use engine::{Body, Physics, Rect, RigidBody, Vel, World};
+///
+/// let mut world = World::new();
+/// let floor = world.spawn((Body(Rect::new(0.0, 100.0, 200.0, 10.0)), Vel::default(), RigidBody::fixed()));
+/// let ball = world.spawn((Body(Rect::new(50.0, 0.0, 10.0, 10.0)), Vel::default(), RigidBody::dynamic(1.0)));
+/// let mut physics = Physics::default();
+/// for _ in 0..120 {
+///     physics.step(&mut world, None, 1.0 / 60.0);
+/// }
+/// assert!((world.get::<&Body>(ball).unwrap().0.y - 90.0).abs() < 1.0);
+/// # let _ = floor;
+/// ```
 pub struct Physics {
+    /// Acceleration in pixels per second squared.
     pub gravity: Vec2,
+    /// Solver passes per substep.
     pub iterations: usize,
     // Last step's contact impulses per body pair, replayed first so resting piles start the solve near its answer.
     cache: FxMap<(u64, u64), Memory>,
@@ -522,6 +593,7 @@ impl Physics {
         }
     }
 
+    /// Drops the joint; an id that is gone is fine.
     pub fn remove_joint(&mut self, id: JointId) {
         self.joints.retain(|j| j.id != id);
     }
@@ -531,6 +603,7 @@ impl Physics {
         self.joints.iter().any(|j| j.id == id)
     }
 
+    /// Drops every joint.
     pub fn clear_joints(&mut self) {
         self.joints.clear();
     }
@@ -596,6 +669,7 @@ impl Physics {
         self.rest.remove(&e);
     }
 
+    /// Moves every body by `dt`; call once per fixed update.
     pub fn step(&mut self, world: &mut World, tiles: Option<&Tilemap>, dt: f32) {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();

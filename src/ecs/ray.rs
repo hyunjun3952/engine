@@ -53,22 +53,50 @@ fn slab(x: (f32, f32, f32, f32), y: (f32, f32, f32, f32), max: f32) -> Option<f3
 }
 
 /// What a ray met: the entity and how far along the ray, in multiples of `dir`.
+///
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let wall = world.spawn((Body(Rect::new(20.0, 0.0, 10.0, 10.0)), Collider));
+/// let hit = engine::raycast(&world, (0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX).unwrap();
+/// assert_eq!(hit.entity, wall);
+/// assert_eq!(hit.t, 20.0);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RayHit {
+    /// The entity the ray hit.
     pub entity: Entity,
+    /// Distance along the ray, in lengths of `dir`.
     pub t: f32,
 }
 
 /// One ray for `raycasts`: `from + t * dir` for `0 <= t <= max`, meeting only colliders whose group is in `mask`.
+///
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let wall = world.spawn((Body(Rect::new(20.0, 0.0, 10.0, 10.0)), Collider));
+/// use engine::{Ray, raycasts};
+///
+/// let rays = [Ray::new((0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX), Ray::new((0.0, 50.0), (1.0, 0.0), 100.0, u32::MAX)];
+/// let hits = raycasts(&world, &rays);
+/// assert_eq!(hits[0].unwrap().entity, wall);
+/// assert!(hits[1].is_none());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ray {
+    /// Where the ray starts.
     pub from: Vec2,
+    /// Its direction.
     pub dir: Vec2,
+    /// How far it reaches, in lengths of `dir`.
     pub max: f32,
+    /// The groups it can hit.
     pub mask: u32,
 }
 
 impl Ray {
+    /// A ray from `from` along `dir`.
     pub fn new(from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32, mask: u32) -> Self {
         Ray { from: from.into(), dir: dir.into(), max, mask }
     }
@@ -89,6 +117,15 @@ fn hit((entity, t): (Entity, f32)) -> RayHit {
 }
 
 /// Nearest collider in `mask` hit by `from + t * dir`, `0 <= t <= max`; follows `Transform::angle`, ignores scale.
+///
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let wall = world.spawn((Body(Rect::new(20.0, 0.0, 10.0, 10.0)), Collider));
+/// let hit = engine::raycast(&world, (0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX);
+/// assert_eq!(hit.map(|h| h.entity), Some(wall));
+/// assert!(engine::raycast(&world, (0.0, 5.0), (-1.0, 0.0), 100.0, u32::MAX).is_none());
+/// ```
 pub fn raycast(world: &World, from: impl Into<Vec2>, dir: impl Into<Vec2>, max: f32, mask: u32) -> Option<RayHit> {
     let (from, dir) = (v2(from), v2(dir));
     if !finite(from, dir) {
@@ -108,6 +145,16 @@ pub fn raycast(world: &World, from: impl Into<Vec2>, dir: impl Into<Vec2>, max: 
 const INDEX_FROM: usize = 8;
 
 /// `raycast` for many rays at once; from a handful of rays on it builds a `RayIndex`.
+///
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let wall = world.spawn((Body(Rect::new(20.0, 0.0, 10.0, 10.0)), Collider));
+/// use engine::{Ray, raycasts};
+///
+/// let hits = raycasts(&world, &[Ray::new((0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX)]);
+/// assert_eq!(hits[0].unwrap().t, 20.0);
+/// ```
 pub fn raycasts(world: &World, rays: &[Ray]) -> Vec<Option<RayHit>> {
     if rays.len() < INDEX_FROM {
         return rays.iter().map(|r| raycast(world, r.from, r.dir, r.max, r.mask)).collect();
@@ -117,6 +164,17 @@ pub fn raycasts(world: &World, rays: &[Ray]) -> Vec<Option<RayHit>> {
 }
 
 /// The colliders on a uniform grid for many rays against one snapshot; rebuild it after bodies move.
+///
+/// ```
+/// use engine::{Body, Collider, Rect, World};
+/// let mut world = World::new();
+/// let wall = world.spawn((Body(Rect::new(20.0, 0.0, 10.0, 10.0)), Collider));
+/// use engine::RayIndex;
+///
+/// let index = RayIndex::new(&world);
+/// let hit = index.cast((0.0, 5.0), (1.0, 0.0), 100.0, u32::MAX).unwrap();
+/// assert_eq!(hit.entity, wall);
+/// ```
 pub struct RayIndex {
     items: Vec<Item>,
     origin: V2,
@@ -131,6 +189,7 @@ pub struct RayIndex {
 const MAX_CELLS: usize = 1 << 16;
 
 impl RayIndex {
+    /// Snapshots the colliders of `world`; rebuild it after bodies move.
     pub fn new(world: &World) -> Self {
         let items: Vec<Item> = world.query::<Row>().iter().map(Item::new).collect();
         let boxes: Vec<Rect> = items.iter().map(Item::bounds).collect();

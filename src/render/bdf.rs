@@ -10,6 +10,14 @@ struct Glyph {
 
 /// A bitmap font read from a BDF file. Glyphs are packed once into a white-on-transparent atlas that
 /// text is tinted from, so any colour costs nothing extra and the GPU can batch a whole string.
+///
+/// ```
+/// use engine::Font;
+///
+/// let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
+/// assert!(font.width("ab") > 0);
+/// assert!(font.line_height() > 0);
+/// ```
 pub struct Font {
     pub(crate) atlas: Arc<Sprite>,
     // Sorted by character, so a lookup is a binary search; hashing 11k glyphs at load cost more than it saved.
@@ -20,11 +28,13 @@ pub struct Font {
 const ATLAS_W: usize = 1024;
 
 impl Font {
+    /// Reads a BDF file.
     pub fn load(path: &str) -> Result<Font, String> {
         let text = crate::assets::read_text(path)?;
         Font::parse(&text).map_err(|e| format!("{path}: {e}"))
     }
 
+    /// Reads BDF text.
     pub fn parse(text: &str) -> Result<Font, String> {
         struct Raw {
             ch: char,
@@ -139,10 +149,12 @@ impl Font {
         Ok(Font { atlas: Arc::new(Sprite::new(ATLAS_W, height, px)), glyphs, line: ascent + descent })
     }
 
+    /// Height of a line in pixels.
     pub fn line_height(&self) -> i32 {
         self.line
     }
 
+    /// Width of `s` in pixels.
     pub fn width(&self, s: &str) -> i32 {
         s.chars().filter_map(|c| self.glyph(c)).map(|g| g.advance).sum()
     }

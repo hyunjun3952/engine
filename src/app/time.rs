@@ -1,4 +1,13 @@
 /// Counts the fixed `dt` given to `tick`: `once(secs)` runs out, `looping(secs)` restarts.
+///
+/// ```
+/// use engine::Timer;
+/// let mut t = Timer::once(1.0);
+/// t.tick(0.5);
+/// assert_eq!(t.fraction(), 0.5);
+/// t.tick(0.5);
+/// assert!(t.done());
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Timer {
     duration: f32,
@@ -10,16 +19,19 @@ pub struct Timer {
 }
 
 impl Timer {
+    /// A timer that finishes once after `secs`.
     pub fn once(secs: f32) -> Self {
         assert!(secs >= 0.0, "timer duration must be a number, not negative: {secs}");
         Timer { duration: secs, elapsed: 0.0, looping: false, reported: false }
     }
 
+    /// A timer that wraps every `secs`.
     pub fn looping(secs: f32) -> Self {
         assert!(secs > 0.0, "a looping timer needs a positive duration");
         Timer { duration: secs, elapsed: 0.0, looping: true, reported: false }
     }
 
+    /// Adds `dt`; true on the one tick a once-timer finishes, and on every tick a looping one wraps.
     pub fn tick(&mut self, dt: f32) -> bool {
         self.elapsed += dt;
         if self.looping && self.elapsed >= self.duration {
@@ -31,35 +43,54 @@ impl Timer {
         first
     }
 
+    /// True once a once-timer has run its time.
     pub fn done(&self) -> bool {
         !self.looping && self.elapsed >= self.duration
     }
 
+    /// Progress from 0 to 1.
     pub fn fraction(&self) -> f32 {
         if self.duration <= 0.0 { 1.0 } else { (self.elapsed / self.duration).min(1.0) }
     }
 
+    /// Seconds left, never below 0.
     pub fn remaining(&self) -> f32 {
         (self.duration - self.elapsed).max(0.0)
     }
 
+    /// Starts the timer over.
     pub fn reset(&mut self) {
         self.elapsed = 0.0;
         self.reported = false;
     }
 }
 
+/// A curve that turns progress 0..=1 into an eased 0..=1, for [`Tween`].
+///
+/// ```
+/// use engine::Ease;
+///
+/// assert_eq!(Ease::Linear.apply(0.5), 0.5);
+/// assert_eq!(Ease::InQuad.apply(0.5), 0.25);
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub enum Ease {
+    /// A constant rate.
     Linear,
+    /// Starts slow, speeds up.
     InQuad,
+    /// Starts fast, slows down.
     OutQuad,
+    /// Slow at both ends.
     InOutQuad,
+    /// Starts fast and settles gently.
     OutCubic,
+    /// Overshoots the end a little, then comes back.
     OutBack,
 }
 
 impl Ease {
+    /// The eased value for progress `t`.
     pub fn apply(self, t: f32) -> f32 {
         let t = t.clamp(0.0, 1.0);
         match self {
@@ -82,6 +113,17 @@ impl Ease {
     }
 }
 
+/// A number that moves from one value to another over time along an [`Ease`] curve.
+///
+/// ```
+/// use engine::{Ease, Tween};
+///
+/// let mut t = Tween::new(0.0, 10.0, 1.0, Ease::Linear);
+/// t.tick(0.5);
+/// assert_eq!(t.value(), 5.0);
+/// t.tick(0.5);
+/// assert!(t.done());
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Tween {
     from: f32,
@@ -91,19 +133,23 @@ pub struct Tween {
 }
 
 impl Tween {
+    /// Moves from `from` to `to` over `secs`.
     pub fn new(from: f32, to: f32, secs: f32, ease: Ease) -> Self {
         Tween { from, to, ease, timer: Timer::once(secs) }
     }
 
+    /// Advances by `dt` and returns the new value.
     pub fn tick(&mut self, dt: f32) -> f32 {
         self.timer.tick(dt);
         self.value()
     }
 
+    /// The current value.
     pub fn value(&self) -> f32 {
         self.from + (self.to - self.from) * self.ease.apply(self.timer.fraction())
     }
 
+    /// True once the end is reached.
     pub fn done(&self) -> bool {
         self.timer.done()
     }

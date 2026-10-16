@@ -10,6 +10,15 @@ const MAX_ZOOM: f32 = 8.0;
 /// `shake` jitters, `set_zoom`/`zoom_to` zoom about the middle of the view (0.25..=8). It moves what [`Gfx::draw`](crate::Gfx::draw)
 /// draws; HUD drawn with `fill`, `blit` and `text` stays in screen space. Game scenes call `ctx.cam().reset()` in
 /// `on_enter`.
+///
+/// ```
+/// use engine::{Ctx, Rect};
+///
+/// fn follow_player(ctx: &mut Ctx, player: Rect) {
+///     let dt = ctx.dt();
+///     ctx.cam().follow(player, (1600.0, 900.0), dt);
+/// }
+/// ```
 pub struct Camera {
     // The top-left of the part of the world in view, in world pixels.
     pos: (f32, f32),
@@ -41,6 +50,7 @@ impl Camera {
         (self.view.0 / self.zoom, self.view.1 / self.zoom)
     }
 
+    /// The current zoom.
     pub fn zoom(&self) -> f32 {
         self.zoom
     }
@@ -71,6 +81,7 @@ impl Camera {
         self.pos = (cx - vw / 2.0, cy - vh / 2.0);
     }
 
+    /// Eases towards `target` and stays inside a world of the given size; the first call snaps.
     pub fn follow(&mut self, target: Rect, world: impl Into<Vec2>, dt: f32) {
         if !dt.is_finite() {
             return;
@@ -91,14 +102,17 @@ impl Camera {
         self.pos = (self.pos.0 + (goal.0 - self.pos.0) * k, self.pos.1 + (goal.1 - self.pos.1) * k);
     }
 
+    /// Forgets the position, zoom and shake; call it in `on_enter`.
     pub fn reset(&mut self) {
         *self = Camera::new(self.view.0, self.view.1);
     }
 
+    /// Makes the next `follow` snap instead of ease.
     pub fn cut(&mut self) {
         self.placed = false;
     }
 
+    /// Jitters the view by up to `amplitude` pixels for `secs`.
     pub fn shake(&mut self, amplitude: f32, secs: f32) {
         let amplitude = if amplitude.is_finite() { amplitude.max(0.0) } else { 0.0 };
         self.shake = Some((amplitude, Timer::once(secs.max(0.0))));

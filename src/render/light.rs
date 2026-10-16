@@ -4,12 +4,25 @@ use std::sync::Arc;
 
 /// A point of light on a `LightMap`: where it is, how far it reaches (pixels), its colour (0xRRGGBB) and how strongly
 /// it shines (1 at its centre restores the colour of what is there to itself; more only saturates).
+///
+/// ```
+/// use engine::Light;
+///
+/// let torch = Light::new((40.0, 30.0), 64.0).colored(0xffc060).intensity(0.8);
+/// assert_eq!(torch.radius, 64.0);
+/// assert_eq!(torch.intensity, 0.8);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Light {
+    /// Centre x in pixels.
     pub x: f32,
+    /// Centre y in pixels.
     pub y: f32,
+    /// How far the light reaches.
     pub radius: f32,
+    /// Colour, 0xRRGGBB.
     pub color: u32,
+    /// Strength; 1 is full.
     pub intensity: f32,
 }
 
@@ -20,10 +33,12 @@ impl Light {
         Light { x: at.x, y: at.y, radius, color: 0xFF_FFFF, intensity: 1.0 }
     }
 
+    /// Sets the colour.
     pub fn colored(self, color: u32) -> Self {
         Light { color: color & 0xFF_FFFF, ..self }
     }
 
+    /// Sets the strength.
     pub fn intensity(self, intensity: f32) -> Self {
         Light { intensity, ..self }
     }
@@ -36,6 +51,17 @@ impl Light {
 ///
 /// The map is made on the CPU and drawn as one multiplied sprite, so the software and GPU renderers show the same
 /// picture.
+///
+/// ```
+/// use engine::{Gfx, Light, LightMap};
+///
+/// fn lit(gfx: &mut Gfx) {
+///     let mut map = LightMap::new(gfx.w, gfx.h);
+///     map.clear(0x202020);
+///     map.add(Light::new((80.0, 60.0), 48.0));
+///     map.draw(gfx);
+/// }
+/// ```
 pub struct LightMap {
     w: usize,
     h: usize,
@@ -110,6 +136,11 @@ impl LightMap {
 
 /// A picture to multiply over the whole screen that darkens the corners: `strength` 0 does nothing and 1 makes the
 /// corners black. Make it once and draw it each frame with `Gfx::multiply`.
+///
+/// ```
+/// let v = engine::vignette(32, 32, 0.5);
+/// assert_eq!(v.size(), (32, 32));
+/// ```
 pub fn vignette(w: usize, h: usize, strength: f32) -> Arc<Sprite> {
     let (w, h) = (w.max(1), h.max(1));
     let strength = if strength.is_nan() { 0.0 } else { strength.clamp(0.0, 1.0) };
@@ -125,6 +156,11 @@ pub fn vignette(w: usize, h: usize, strength: f32) -> Arc<Sprite> {
 }
 
 /// A picture to multiply over the whole screen that darkens every second row by `dark` out of 255.
+///
+/// ```
+/// let s = engine::scanlines(32, 32, 40);
+/// assert_eq!(s.size(), (32, 32));
+/// ```
 pub fn scanlines(w: usize, h: usize, dark: u8) -> Arc<Sprite> {
     let (w, h) = (w.max(1), h.max(1));
     let line = 0xFF00_0000 | ((255 - dark as u32) * 0x01_0101);

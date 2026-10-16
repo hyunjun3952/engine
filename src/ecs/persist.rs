@@ -4,8 +4,27 @@ use hecs::{EntityBuilder, EntityRef};
 use std::collections::VecDeque;
 
 /// A component's text form for a saved world. `read` gets back what `write` made; `None` means malformed.
+///
+/// ```
+/// use engine::Persist;
+///
+/// struct Hp(i32);
+///
+/// impl Persist for Hp {
+///     fn write(&self) -> String {
+///         self.0.to_string()
+///     }
+///     fn read(text: &str) -> Option<Self> {
+///         text.trim().parse().ok().map(Hp)
+///     }
+/// }
+///
+/// assert_eq!(Hp::read(&Hp(3).write()).unwrap().0, 3);
+/// ```
 pub trait Persist: Sized + Send + Sync + 'static {
+    /// The text form of the value, on one line.
     fn write(&self) -> String;
+    /// Parses what `write` made; `None` if it is malformed.
     fn read(text: &str) -> Option<Self>;
 }
 
@@ -113,12 +132,26 @@ struct Entry {
 /// Only registered components are written, and an entity with none of them is left out. Not saved: what is not a
 /// registered component (the physics state such as sleep and joints, `Look::Sprite`, animation), and links between
 /// entities (an `Entity` id is not stable across a load).
+///
+/// ```
+/// use engine::{Vel, World, WorldFile};
+///
+/// let file = WorldFile::new().component::<Vel>("vel");
+/// let mut world = World::new();
+/// world.spawn((Vel { x: 1.0, y: 2.0 },));
+/// let text = file.to_text(&world);
+///
+/// let mut copy = World::new();
+/// assert_eq!(file.spawn_from(&mut copy, &text).unwrap().len(), 1);
+/// assert_eq!(file.to_text(&copy), text);
+/// ```
 #[derive(Default)]
 pub struct WorldFile {
     entries: Vec<Entry>,
 }
 
 impl WorldFile {
+    /// A file that saves no component yet.
     pub fn new() -> Self {
         WorldFile::default()
     }
@@ -140,6 +173,7 @@ impl WorldFile {
         self
     }
 
+    /// One `[entity]` block per entity with a registered component.
     pub fn to_text(&self, world: &World) -> String {
         let mut ents: Vec<EntityRef<'_>> = world.iter().collect();
         ents.sort_by_key(|e| e.entity().to_bits());
@@ -214,24 +248,44 @@ impl WorldFile {
 /// The last `cap` snapshots of a world, to step back through: rewind, checkpoints. Call `record` once per fixed step
 /// (or every few) and `back` to restore. The world is replaced as `WorldFile` saves it, so entities are new, and what
 /// it does not save is lost (an entity with no registered component, physics sleep and joints): rebuild `Physics` after.
+///
+/// ```
+/// use engine::{Rewind, Vel, World, WorldFile};
+///
+/// let file = WorldFile::new().component::<Vel>("vel");
+/// let mut world = World::new();
+/// let e = world.spawn((Vel { x: 1.0, y: 0.0 },));
+/// let mut rewind = Rewind::new(4);
+/// rewind.record(&file, &world);
+/// world.get::<&mut Vel>(e).unwrap().x = 9.0;
+/// rewind.record(&file, &world);
+///
+/// rewind.back(&file, &mut world, 2).unwrap();
+/// let x = world.query::<&Vel>().iter().next().unwrap().x;
+/// assert_eq!(x, 1.0);
+/// ```
 pub struct Rewind {
     frames: VecDeque<String>,
     cap: usize,
 }
 
 impl Rewind {
+    /// Keeps at most `cap` snapshots.
     pub fn new(cap: usize) -> Self {
         Rewind { frames: VecDeque::new(), cap: cap.max(1) }
     }
 
+    /// How many snapshots are kept.
     pub fn len(&self) -> usize {
         self.frames.len()
     }
 
+    /// True when there is nothing to go back to.
     pub fn is_empty(&self) -> bool {
         self.frames.is_empty()
     }
 
+    /// Stores a snapshot of `world`; the oldest goes when full.
     pub fn record(&mut self, file: &WorldFile, world: &World) {
         if self.frames.len() == self.cap {
             self.frames.pop_front();
