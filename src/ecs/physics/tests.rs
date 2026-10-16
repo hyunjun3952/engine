@@ -1307,7 +1307,7 @@ fn a_ceiling_slope_deflects_a_body_rising_into_it_along_the_diagonal() {
     assert!(r.x > 10.0, "it was pushed sideways along the diagonal instead of rising through: {r:?}");
 }
 
-// The level and legend of examples/platformer.rs.
+// The level and legend of examples/game.rs.
 fn platformer_level() -> Tilemap {
     let tile = |ch, id, one_way, slope| crate::Tile { ch, id, solid: false, front: false, auto: false, one_way, slope };
     let legend = [
