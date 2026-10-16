@@ -26,7 +26,7 @@ fn data_dir_in(app: &str, os: &str, env: impl Fn(&str) -> Option<String>) -> Res
     let base = match os {
         "windows" => env("APPDATA").ok_or_else(|| missing("APPDATA"))?,
         "macos" => format!("{}/Library/Application Support", env("HOME").ok_or_else(|| missing("HOME"))?),
-        _ => match env("XDG_DATA_HOME") {
+        _ => match env("XDG_DATA_HOME").filter(|x| x.starts_with('/')) {
             Some(xdg) => xdg,
             None => format!("{}/.local/share", env("HOME").ok_or_else(|| missing("HOME"))?),
         },
@@ -208,6 +208,8 @@ mod tests {
         };
         let home = env(&[("HOME", "/home/a")]);
         assert_eq!(data_dir_in("g", "linux", home).unwrap(), "/home/a/.local/share/g");
+        let relative = env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "data")]);
+        assert_eq!(data_dir_in("g", "linux", relative).unwrap(), "/home/a/.local/share/g");
         let xdg = env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data/")]);
         assert_eq!(data_dir_in("g", "linux", xdg).unwrap(), "/data/g");
         assert_eq!(data_dir_in("g", "macos", home).unwrap(), "/home/a/Library/Application Support/g");

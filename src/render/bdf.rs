@@ -94,9 +94,17 @@ impl Font {
                 }
                 "BITMAP" => in_bitmap = true,
                 "ENDCHAR" => {
-                    let done = cur.take().filter(|g| g.rows.len() as i32 == g.bbx[1]);
-                    bits.truncate(done.as_ref().map_or(bits.len(), |g| g.rows.end));
-                    raws.extend(done);
+                    if let Some(g) = &cur
+                        && g.rows.len() as i32 != g.bbx[1]
+                    {
+                        return Err(format!(
+                            "U+{:04X}: {} bitmap rows for a height of {}",
+                            g.ch as u32,
+                            g.rows.len(),
+                            g.bbx[1]
+                        ));
+                    }
+                    raws.extend(cur.take());
                 }
                 _ if in_bitmap => {
                     if let Some(g) = &mut cur {
@@ -235,5 +243,11 @@ mod tests {
         let none = "FONT_ASCENT 1\nFONT_DESCENT 0\nENCODING -1 5\nDWIDTH 1 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n";
         let text = format!("{none}ENCODING 65\nDWIDTH 1 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n");
         assert_eq!(Font::parse(&text).unwrap().width("A"), 1);
+    }
+
+    #[test]
+    fn a_glyph_whose_rows_do_not_match_its_height_is_an_error() {
+        let bad = "FONT_ASCENT 1\nFONT_DESCENT 0\nENCODING 65\nDWIDTH 1 0\nBBX 1 2 0 0\nBITMAP\n80\nENDCHAR\n";
+        assert!(Font::parse(bad).err().unwrap().contains("U+0041"));
     }
 }

@@ -410,8 +410,33 @@ impl Tilemap {
 
     /// Moves `r` by `dx`, then `dy`, stopping at solid tiles: the moved box and whether x and y were blocked. Slope
     /// tiles are climbed (a step up as long as the step sideways) and followed down when the box stood on one; a
-    /// box that stands on a slope or lands on one reports a blocked y.
+    /// box that stands on a slope or lands on one reports a blocked y. A move longer than half a tile is done in
+    /// pieces of at most that, so a fast box cannot skip a thin wall.
     pub fn slide(&self, r: Rect, dx: f32, dy: f32) -> Slide {
+        let half = self.size as f32 / 2.0;
+        let far = dx.abs().max(dy.abs());
+        if !(far > half && far.is_finite()) {
+            return self.slide_once(r, dx, dy);
+        }
+        let (px, py) = (dx / far * half, dy / far * half);
+        let (mut rest, mut out) = ((dx, dy), Slide { rect: r, blocked_x: false, blocked_y: false });
+        let walk = |out: &mut Slide, (mx, my): (f32, f32)| {
+            let s = self.slide_once(out.rect, mx, my);
+            (out.rect, out.blocked_x, out.blocked_y) =
+                (s.rect, out.blocked_x | s.blocked_x, out.blocked_y | s.blocked_y);
+        };
+        for _ in 0..4096 {
+            if rest.0.abs().max(rest.1.abs()) <= half {
+                break;
+            }
+            walk(&mut out, (px, py));
+            rest = (rest.0 - px, rest.1 - py);
+        }
+        walk(&mut out, rest);
+        out
+    }
+
+    fn slide_once(&self, r: Rect, dx: f32, dy: f32) -> Slide {
         let on_slope = dx != 0.0 && dy >= 0.0 && self.resting_on_slope(&r);
         let (mut r, hit_x, lifted) = self.step_x(r, dx);
         let mut grounded = lifted && dy >= 0.0;
@@ -1068,5 +1093,13 @@ mod tests {
         soft.render(&map.draw_list(Rect::new(0.0, 0.0, 8.0, 2.0)));
         let colors: Vec<u32> = [0, 2, 4, 6].iter().map(|&x| soft.buf[x] & 0xFF_FFFF).collect();
         assert_eq!(colors, [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00]);
+    }
+
+    #[test]
+    fn a_long_move_does_not_skip_a_thin_floor() {
+        let sheet = Arc::new(Sprite::new(16, 8, vec![0; 128]));
+        let map = Tilemap::from_ascii(&["....", "....", "####", "...."], 8, sheet);
+        let s = map.slide(Rect::new(4.0, 0.0, 6.0, 6.0), 0.0, 40.0);
+        assert_eq!((s.rect.y, s.blocked_y), (10.0, true));
     }
 }
