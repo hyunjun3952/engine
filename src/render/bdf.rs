@@ -30,7 +30,7 @@ const ATLAS_W: usize = 1024;
 impl Font {
     /// Reads a BDF file.
     pub fn load(path: &str) -> Result<Font, String> {
-        let text = crate::assets::read_text(path)?;
+        let text = crate::base::read_text(path)?;
         Font::parse(&text).map_err(|e| format!("{path}: {e}"))
     }
 

@@ -60,7 +60,7 @@ impl Save {
 
     /// A missing file is an empty save; a malformed one is an error so a hand-edited file is never silently dropped.
     pub fn load(path: &str) -> Result<Save, String> {
-        match crate::assets::read_text_if_exists(path)? {
+        match crate::base::read_text_if_exists(path)? {
             Some(text) => Save::parse(&text).map_err(|e| format!("{path}: {e}")),
             None => Ok(Save::new()),
         }
@@ -68,7 +68,7 @@ impl Save {
 
     /// Writes beside the target and renames, so a crash mid-write cannot destroy the previous save.
     pub fn save(&self, path: &str) -> Result<(), String> {
-        crate::assets::write_atomic(path, &self.to_text())
+        crate::base::write_atomic(path, &self.to_text())
     }
 
     /// Stores `value` under `key`; panics if the key holds `=` or `#`.

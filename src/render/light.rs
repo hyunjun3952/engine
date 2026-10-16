@@ -1,4 +1,5 @@
-use super::{Gfx, Sprite, Style};
+use super::{Gfx, Style};
+use crate::Sprite;
 use crate::Vec2;
 use std::sync::Arc;
 

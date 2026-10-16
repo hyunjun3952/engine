@@ -56,11 +56,17 @@ See `CLAUDE.md` for the architecture and conventions.
 ## Layout
 
 ```
-src/app/      loop, scenes, input, time, save data, replay
-src/render/   Gfx, Soft and Gpu backends, camera, tilemap, Tiled, light
-src/ecs/      components, systems, physics, persistence
-src/assets/   sprite and font cache, atlas, audio, hot reload
-src/          UI widgets, debug tools, Hangul composition, Vec2
+src/base/     Vec2, Rect, Sprite, Rng, timers, save data, file helpers
+src/render/   Gfx, Soft and Gpu backends, camera, light, BDF fonts
+src/audio/    sound decoding, mixing, buses
+src/level/    Tilemap, Tiled, pathfinding
+src/assets/   sprite and font cache, atlas, hot reload
+src/input/    keys, mouse, gamepads, replay
+src/ecs/      components, systems, persistence
+src/physics/  rigid bodies, joints, contacts
+src/app/      loop, scenes, Ctx, fades
+src/ui/       widgets, text fields, Hangul composition
+src/debug.rs  Inspector and Console
 examples/     game.rs, a platformer that brings in one engine feature per stage
 assets/       fonts, images, levels
 ```

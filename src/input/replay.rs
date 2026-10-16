@@ -1,5 +1,5 @@
-use super::input::{Input, KEYS, Key};
 use super::pad::{PADS, Pad};
+use super::{Input, KEYS, Key};
 
 /// What the player was holding for one fixed step. Analog axes, the wheel and typed characters are not recorded.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,7 +98,7 @@ impl Tape {
     pub(crate) fn from_env(seed: u32, hz: f32) -> Result<Tape, String> {
         if let Some(path) = std::env::var_os("ENGINE_REPLAY") {
             let path = path.to_string_lossy().into_owned();
-            let text = crate::assets::read_text(&path)?;
+            let text = crate::base::read_text(&path)?;
             let rec = Recording::parse(&text).map_err(|e| format!("{path}: {e}"))?;
             return match rec.hz {
                 Some(at) if at != hz => Err(format!("{path}: recorded at {at} steps a second, the game runs at {hz}")),
@@ -142,7 +142,7 @@ impl Tape {
     // Runs on drop, so a run that panics still leaves its recording.
     fn finish(&self) {
         if let Tape::Record(path, r) = self {
-            match crate::assets::write_atomic(path, &r.to_text()) {
+            match crate::base::write_atomic(path, &r.to_text()) {
                 Ok(()) => eprintln!("recorded {} steps to {path}", r.frames.len()),
                 Err(e) => eprintln!("{e}"),
             }
@@ -222,7 +222,7 @@ mod tests {
         assert!(
             fresh.key_down(Key::Space)
                 && fresh.mouse() == Some(Vec2::new(3.0, 4.0))
-                && fresh.mouse_down(super::super::input::MouseButton::Left)
+                && fresh.mouse_down(crate::MouseButton::Left)
         );
         assert!(play.step(&mut fresh));
         assert!(!fresh.key_down(Key::Space));

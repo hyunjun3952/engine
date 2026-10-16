@@ -243,9 +243,9 @@ pub struct Tiled {
 impl Tiled {
     /// Reads a `.tmx` file.
     pub fn load(path: &str, sheet: Arc<Sprite>) -> Result<Tiled, String> {
-        let text = crate::assets::read_text(path)?;
+        let text = crate::base::read_text(path)?;
         let dir = std::path::Path::new(path).parent().map(std::path::Path::to_path_buf).unwrap_or_default();
-        let read = |source: &str| crate::assets::read_text(&dir.join(source).to_string_lossy());
+        let read = |source: &str| crate::base::read_text(&dir.join(source).to_string_lossy());
         Tiled::parse(&text, read, sheet).map_err(|e| format!("{path}: {e}"))
     }
 

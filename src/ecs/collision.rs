@@ -1,4 +1,4 @@
-use crate::ecs::fx::FxSet;
+use crate::base::fx::FxSet;
 use crate::{Body, Collider, Entity, Filter, Rect, Transform, Vec2, World};
 
 /// The box that holds `r` turned about its centre by an angle given as `(sin, cos)`, grown by `pad` on every side.
@@ -141,7 +141,7 @@ pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)>
 pub fn collisions(world: &World) -> Vec<Contact> {
     let mut ents = Vec::new();
     let (mut rects, mut filters) = (Vec::new(), Vec::new());
-    for (e, b, f, _, t) in world.query::<(Entity, &Body, Option<&Filter>, &Collider, Option<&Transform>)>().iter() {
+    for (e, b, f, _, t) in &mut world.query::<(Entity, &Body, Option<&Filter>, &Collider, Option<&Transform>)>() {
         ents.push(e);
         rects.push(turned(b.0, t));
         filters.push(f.copied().unwrap_or_default());
@@ -301,7 +301,7 @@ mod tests {
         for round in 0..40 {
             let got = normalized(sweep.pairs(&rects, inert));
             assert_eq!(got, normalized(&brute(&rects, &inert)), "round {round}");
-            for r in rects.iter_mut() {
+            for r in &mut rects {
                 if rng.f32() < 0.5 {
                     (r.x, r.y) = (r.x + rng.range(-3.0, 3.0), r.y + rng.range(-3.0, 3.0));
                 }

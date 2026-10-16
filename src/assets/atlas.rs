@@ -1,4 +1,4 @@
-use crate::ecs::fx::FxMap;
+use crate::base::fx::FxMap;
 use crate::{Gfx, Rect, Sprite};
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ impl Atlas {
 
     /// Like `parse`, from a file.
     pub fn load(path: &str, sheet: Arc<Sprite>) -> Result<Atlas, String> {
-        Atlas::parse(&super::read_text(path)?, sheet).map_err(|e| format!("{path}: {e}"))
+        Atlas::parse(&crate::base::read_text(path)?, sheet).map_err(|e| format!("{path}: {e}"))
     }
 
     /// The sheet the regions cut from.

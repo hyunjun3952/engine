@@ -120,7 +120,7 @@ impl Inspector {
             }
             None => vec!["F4: click an entity".to_string()],
         };
-        let width = lines.iter().map(|l| l.len()).max().unwrap_or(0) as f32 * 8.0 + 8.0;
+        let width = lines.iter().map(std::string::String::len).max().unwrap_or(0) as f32 * 8.0 + 8.0;
         let panel = Rect::new(gfx.w as f32 - width, 0.0, width, lines.len() as f32 * 10.0 + 6.0);
         gfx.fill_alpha(panel, 0x000000, 200);
         for (i, line) in lines.iter().enumerate() {
@@ -137,7 +137,7 @@ impl Default for Inspector {
 
 fn pick(world: &World, x: f32, y: f32) -> Option<Entity> {
     let mut best: Option<(i32, Entity)> = None;
-    for (e, body, layer) in world.query::<(Entity, &Body, Option<&Layer>)>().iter() {
+    for (e, body, layer) in &mut world.query::<(Entity, &Body, Option<&Layer>)>() {
         let layer = layer.map_or(0, |l| l.0);
         if body.0.contains((x, y)) && best.is_none_or(|b| layer >= b.0) {
             best = Some((layer, e));

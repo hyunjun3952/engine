@@ -1,4 +1,4 @@
-use crate::ecs::fx::FxSet;
+use crate::base::fx::FxSet;
 use std::io::Read;
 
 /// A gamepad button, named as on an Xbox pad; bind it to an action with `Ctx::bind_pad`.

@@ -1,7 +1,7 @@
 use crate::{Ease, Tween};
 
 #[cfg(feature = "audio")]
-use crate::ecs::fx::FxMap;
+use crate::base::fx::FxMap;
 #[cfg(feature = "audio")]
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, source::ChannelVolume};
 #[cfg(feature = "audio")]
@@ -271,7 +271,7 @@ struct Playing {
 impl Audio {
     pub(crate) fn new() -> Self {
         #[cfg(feature = "audio")]
-        if !crate::app::env_flag("ENGINE_MUTE") {
+        if !crate::base::env_flag("ENGINE_MUTE") {
             match DeviceSinkBuilder::open_default_sink() {
                 Ok(mut out) => {
                     out.log_on_drop(false);

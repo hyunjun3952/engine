@@ -1,4 +1,4 @@
-use crate::app::save::{escape, unescape};
+use crate::base::save::{escape, unescape};
 use crate::{Body, Collider, Entity, Filter, Layer, Rect, Transform, Vel, World};
 use hecs::{EntityBuilder, EntityRef};
 use std::collections::VecDeque;
@@ -235,12 +235,12 @@ impl WorldFile {
     pub fn save(&self, world: &World, path: &str) -> Result<(), String> {
         let text = self.to_text(world);
         self.spawn_from(&mut World::new(), &text).map_err(|e| format!("{path}: not saved, it would not load: {e}"))?;
-        crate::assets::write_atomic(path, &text)
+        crate::base::write_atomic(path, &text)
     }
 
     /// `spawn_from` the text of a file; a missing file is an error here, unlike `Save`.
     pub fn load(&self, world: &mut World, path: &str) -> Result<Vec<Entity>, String> {
-        let text = crate::assets::read_text(path)?;
+        let text = crate::base::read_text(path)?;
         self.spawn_from(world, &text).map_err(|e| format!("{path}: {e}"))
     }
 }
@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(w.get::<&Vel>(made[0]).unwrap().x, 4.0);
         assert_eq!(r.len(), 1);
         r.back(&f, &mut w, 99).unwrap();
-        assert_eq!(w.get::<&Vel>(w.iter().find(|e| e.has::<Vel>()).unwrap().entity()).unwrap().x, 3.0);
+        assert_eq!(w.get::<&Vel>(w.iter().find(hecs::EntityRef::has::<Vel>).unwrap().entity()).unwrap().x, 3.0);
         assert!(r.is_empty());
     }
 }

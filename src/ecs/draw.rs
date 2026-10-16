@@ -13,7 +13,7 @@ pub fn draw_list(world: &World) -> Vec<DrawCmd> {
     let mut cmds = Vec::new();
     let mut query =
         world.query::<(&Body, Option<&Layer>, Option<&Look>, Option<&Anim>, Option<&Transform>, Option<&Style>)>();
-    for (body, layer, look, anim, xform, style) in query.iter() {
+    for (body, layer, look, anim, xform, style) in &mut query {
         let (layer, rect, xform) = (layer.map_or(0, |l| l.0), body.0, xform.copied().unwrap_or_default());
         let style = style.copied().unwrap_or_default();
         if let Some(look) = look {
@@ -30,7 +30,7 @@ pub fn draw_list(world: &World) -> Vec<DrawCmd> {
         }
     }
     cmds.sort_by_key(|c| c.layer);
-    for (body, _) in world.query::<(&Body, &Collider)>().iter() {
+    for (body, _) in &mut world.query::<(&Body, &Collider)>() {
         cmds.push(DrawCmd { layer: i32::MAX, debug_only: true, ..DrawCmd::new(body.0, Paint::Outline(0x00ff00)) });
     }
     cmds

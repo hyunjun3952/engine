@@ -1,4 +1,4 @@
-use crate::ecs::fx::{FxMap, FxSet};
+use crate::base::fx::{FxMap, FxSet};
 use std::{fs, time::SystemTime};
 
 #[derive(Default)]

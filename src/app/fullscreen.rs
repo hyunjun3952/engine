@@ -46,7 +46,7 @@ mod tests {
 
     // Needs a display: `cargo test -- --ignored fullscreen`.
     #[test]
-    #[ignore]
+    #[ignore = "needs a display"]
     fn a_real_window_grows_to_the_screen_and_comes_back() {
         let mut win = Window::new("probe", 320, 180, WindowOptions::default()).unwrap();
         let buf = vec![0x336699u32; 320 * 180];

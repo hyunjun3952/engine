@@ -1,8 +1,12 @@
-use super::pad::{PADS, Pad, PadAxis, PadState};
+mod pad;
+pub(crate) mod replay;
+
 use crate::Vec2;
-use crate::ecs::fx::{FxMap, FxSet};
+use crate::base::fx::{FxMap, FxSet};
 use crate::render::letterbox;
 pub use minifb::{Key, MouseButton};
+use pad::{PADS, PadState};
+pub use pad::{Pad, PadAxis};
 use std::sync::{Arc, Mutex};
 
 /// Keys, mouse and pad as of this fixed step, read by action name.
@@ -115,8 +119,8 @@ impl Input {
         self.mouse = at;
         self.buttons[0] = left;
     }
-    pub(crate) fn snapshot(&self) -> super::replay::Frame {
-        super::replay::Frame {
+    pub(crate) fn snapshot(&self) -> replay::Frame {
+        replay::Frame {
             keys: self.down.iter().copied().collect(),
             pads: self.pad_down.iter().copied().collect(),
             mouse: self.mouse,
@@ -124,7 +128,7 @@ impl Input {
         }
     }
 
-    pub(crate) fn restore(&mut self, f: &super::replay::Frame) {
+    pub(crate) fn restore(&mut self, f: &replay::Frame) {
         self.down = f.keys.iter().copied().collect();
         self.pad_down = f.pads.iter().copied().collect();
         self.mouse = f.mouse;
