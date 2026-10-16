@@ -164,7 +164,7 @@ mod level {
                 for x in [8, 24, 44, 56, 70] {
                     g.put(x, GROUND - 1, "T");
                 }
-                for x in [16, 31, 42, 52, 66] {
+                for x in [22, 31, 42, 52, 66] {
                     g.put(x, GROUND - 1, "C");
                 }
             }
@@ -177,7 +177,7 @@ mod level {
                 g.gap(48, 12);
                 g.put(52, GROUND - 1, "M");
                 g.put(60, 6, "Z");
-                for x in [14, 28, 44, 53, 64, 72] {
+                for x in [18, 28, 44, 53, 64, 72] {
                     g.put(x, GROUND - 1, "C");
                 }
             }
@@ -202,6 +202,20 @@ mod level {
                 let all = rows.concat();
                 assert_eq!(all.matches('P').count(), 1, "stage {n}");
                 assert_eq!(all.matches('G').count(), 1, "stage {n}");
+            }
+        }
+
+        #[test]
+        fn no_coin_is_sealed_inside_the_terrain() {
+            for n in 0..STAGES.len() {
+                let rows = rows(n);
+                for (y, row) in rows.iter().enumerate() {
+                    for (x, _) in row.match_indices('C') {
+                        let around = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)];
+                        let shut = around.iter().all(|&(a, b)| b"#%/\\".contains(&rows[b].as_bytes()[a]));
+                        assert!(!shut, "stage {n}: the coin at ({x}, {y}) cannot be reached");
+                    }
+                }
             }
         }
     }
@@ -285,11 +299,8 @@ mod stage {
                 eprintln!("{e}");
                 engine::Save::new()
             });
-            Tuning {
-                walk: save.get_or("walk", 120.0),
-                run: save.get_or("run", 160.0),
-                jump: save.get_or("jump", 330.0),
-            }
+            let get = |key, default: f32| Some(save.get_or(key, default)).filter(|v| v.is_finite()).unwrap_or(default);
+            Tuning { walk: get("walk", 120.0), run: get("run", 160.0), jump: get("jump", 330.0) }
         }
     }
 
@@ -535,6 +546,9 @@ mod stage {
                             _ => Vec::new(),
                         };
                     }
+                    if chaser.path.len() > 1 && (self.map.cell_center(chaser.path[1]) - me).length() < 2.0 {
+                        chaser.path.remove(0);
+                    }
                     chaser.path.get(1).map_or(target, |&c| self.map.cell_center(c))
                 };
                 let step = (goal - me).clamp_length(GHOST_SPEED * dt);
@@ -548,21 +562,21 @@ mod stage {
             let dt = ctx.dt();
             let walk = if typing { 0.0 } else { ctx.input().axis("left", "right") };
             let grounded = self.physics.grounded(self.player);
-            if !typing {
+            {
                 // Standing on a moving platform, walking is relative to it.
                 let under = self.physics.ground(self.player).and_then(|c| c.other(self.player));
                 let carried = under.and_then(|e| self.world.get::<&Vel>(e).ok().map(|v| v.x)).unwrap_or(0.0);
                 let mut vel = self.world.get::<&mut Vel>(self.player).unwrap();
                 let speed = if ctx.input().down("run") { self.tuning.run } else { self.tuning.walk };
                 vel.x = walk * speed + carried;
-                if ctx.input().pressed("jump") && grounded {
+                if ctx.input().pressed("jump") && grounded && !typing {
                     vel.y = -self.tuning.jump;
                     ctx.audio().play("assets/sounds/jump.wav");
                 } else if grounded {
                     // Walking up a slope turns sideways speed into upward speed that would launch the player at the crest.
                     vel.y = vel.y.max(0.0);
                 }
-                if ctx.input().pressed("down") {
+                if !typing && ctx.input().pressed("down") {
                     self.drop = Some(Timer::once(0.25));
                 }
             }
@@ -619,13 +633,13 @@ mod stage {
             if self.quit.get() {
                 return Trans::Fade(Box::new(Trans::Replace(Box::new(Title::new(ctx)))), 0.6);
             }
+            let typing = self.console.is_open();
             if let Some(cmd) = self.console.update(ctx.input())
                 && let Some(trans) = self.command(ctx, cmd)
             {
                 return trans;
             }
             self.inspector.update(ctx, &self.world);
-            let typing = self.console.is_open();
             if !typing && ctx.input().pressed("back") {
                 return Trans::Push(Box::new(Pause::new(ctx, self.quit.clone())));
             }
@@ -896,6 +910,7 @@ mod ending {
     pub struct Ending {
         font: Arc<Font>,
         coins: u32,
+        total: usize,
         best: u32,
         field: TextField,
         button: Button,
@@ -916,6 +931,7 @@ mod ending {
             Ending {
                 font: ctx.assets().font("assets/fonts/galmuri9.bdf"),
                 coins,
+                total: total_coins(),
                 best: best.max(coins),
                 field,
                 button: Button::new(Rect::new(260.0, 270.0, 120.0, 22.0), "타이틀로"),
@@ -944,7 +960,7 @@ mod ending {
             g.clear(0x101828);
             draw_panel(g, Rect::new(120.0, 40.0, 400.0, 270.0), 0x202030, 0x8080a0);
             g.text_font_scaled(&self.font, "클리어!", 270, 56, 2, 0xffd040);
-            let total = total_coins();
+            let total = self.total;
             let text = format!("동전 {} / {total}  (최고 {})", self.coins, self.best);
             g.text_font(&self.font, &text, 200, 100, 0xffffff);
             draw_bar(g, Rect::new(200.0, 124.0, 240.0, 10.0), self.coins as f32 / total as f32, 0xffd040, 0x404058);
@@ -965,7 +981,13 @@ fn data_file(name: &str) -> Option<String> {
 }
 
 pub fn load_save() -> Save {
-    data_file("save.txt").and_then(|p| Save::load(&p).ok()).unwrap_or_default()
+    let Some(path) = data_file("save.txt") else { return Save::default() };
+    Save::load(&path).unwrap_or_else(|e| {
+        // Saving over a file that would not load would destroy what the player had.
+        eprintln!("{e}; keeping it as {path}.bak");
+        let _ = std::fs::rename(&path, format!("{path}.bak"));
+        Save::default()
+    })
 }
 
 pub fn store_save(save: &Save) {
