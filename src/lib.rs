@@ -74,6 +74,8 @@ mod debug;
 mod ecs;
 
 mod input;
+#[cfg(test)]
+mod layers;
 mod level;
 mod physics;
 mod render;

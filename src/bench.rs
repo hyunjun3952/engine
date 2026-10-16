@@ -1,8 +1,8 @@
 use crate::render::Soft;
 use crate::{
-    Body, Burst, Collider, DrawCmd, Entity, Font, Gfx, Light, LightMap, Look, Paint, Physics, Ray, RayIndex, Rect,
-    RigidBody, Rng, Sprite, Tilemap, Transform, Vec2, Vel, World, burst, collisions, draw_list, particles, raycast,
-    raycasts, wrap,
+    Anim, AnimStates, Body, Burst, Clip, Collider, DrawCmd, Entity, Font, Gfx, Light, LightMap, Look, Overlaps, Paint,
+    Physics, Ray, RayIndex, Rect, RigidBody, Rng, Sprite, Tilemap, Transform, Vec2, Vel, World, WorldFile, animate,
+    burst, collisions, draw_list, particles, query_rect, raycast, raycasts, wrap,
 };
 use std::hint::black_box;
 use std::time::Instant;
@@ -24,7 +24,7 @@ fn time(name: &str, runs: u32, mut f: impl FnMut()) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "benchmark"]
 fn bench() {
     let mut seed = 1;
     let mut boxes = |w: f32, h: f32| {
@@ -183,7 +183,7 @@ fn bench() {
         }
         // Any part of a body inside a wall (floor top 300, side walls 10 and 630) by more than a pixel counts.
         let (mut fast, mut out, mut sum, mut count) = (0, 0, 0.0f32, 0);
-        for (v, b, _) in arena.query::<(&Vel, &Body, &RigidBody)>().iter() {
+        for (v, b, _) in &mut arena.query::<(&Vel, &Body, &RigidBody)>() {
             let r = b.0;
             sum += v.x.hypot(v.y);
             count += 1;
@@ -253,7 +253,7 @@ fn bench() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "benchmark"]
 fn shake() {
     // Visible shaking in a walled arena (bodies start apart): over 8 seeds, how often an awake body's
     // centre moves more than 1.5 px (or 6 px) in one step after the first second, when the pile is asleep for good
@@ -334,7 +334,7 @@ fn shake() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "benchmark"]
 fn joints() {
     for (bodies, joints) in [(1000, 0), (1000, 200), (3000, 1000)] {
         let mut seed = 7;
@@ -354,4 +354,77 @@ fn joints() {
             physics.step(&mut world, None, 1.0 / 60.0)
         });
     }
+}
+
+// Per-frame systems the other benchmarks leave out: tile movement and queries, pathfinding, animation, overlap
+// tracking and saving a world.
+#[test]
+#[ignore = "benchmark"]
+fn systems() {
+    let mut seed = 5;
+    let map = Tilemap::load("assets/levels/level1.txt", 16, Sprite::test_tiles()).unwrap();
+    let Vec2 { x: w, y: h } = map.pixel_size();
+    let mut rects: Vec<Rect> =
+        (0..1000).map(|_| Rect::new(rng(&mut seed) * w, rng(&mut seed) * h, 10.0, 14.0)).collect();
+    time("tilemap slide, 1000 bodies", 100, || {
+        for r in &mut rects {
+            let s = map.slide(*r, 2.0, 3.0);
+            *r = black_box(s.rect);
+        }
+    });
+    time("tilemap raycast, 100 rays", 100, || {
+        for i in 0..100 {
+            let a = i as f32 * 0.0628;
+            black_box(map.raycast((w / 2.0, h / 2.0), (a.cos(), a.sin()), 400.0));
+        }
+    });
+
+    let mut rows = vec![" ".repeat(64); 64];
+    for (y, row) in rows.iter_mut().enumerate() {
+        if y != 60 {
+            row.replace_range(32..33, "#");
+        }
+    }
+    let maze = Tilemap::from_ascii(&rows.iter().map(String::as_str).collect::<Vec<_>>(), 16, Sprite::test_tiles());
+    time("tilemap path, 64 x 64 around a wall", 50, || {
+        black_box(maze.path((1, 1), (62, 1), false));
+    });
+    time("tilemap path, diagonal", 50, || {
+        black_box(maze.path((1, 1), (62, 1), true));
+    });
+
+    let mut world = World::new();
+    for _ in 0..3000 {
+        let rect = Rect::new(rng(&mut seed) * 640.0, rng(&mut seed) * 360.0, 8.0, 8.0);
+        world.spawn((Body(rect), Collider, Vel { x: 1.0, y: 0.0 }));
+    }
+    time("query_rect, 3000 colliders, 100 areas", 100, || {
+        for i in 0..100 {
+            black_box(query_rect(&world, Rect::new(i as f32 * 6.0, 100.0, 40.0, 40.0)));
+        }
+    });
+    let contacts = collisions(&world);
+    let mut overlaps = Overlaps::new();
+    time("overlaps update, same contacts each step", 100, || {
+        black_box(overlaps.update(&contacts));
+    });
+
+    let sheet = Sprite::new(64, 32, vec![0; 64 * 32]).into();
+    let mut actors = World::new();
+    for _ in 0..2000 {
+        let anim = Anim::new(std::sync::Arc::clone(&sheet), 16, 16);
+        let states = AnimStates::new().state("walk", Clip::new(0, 4, 12.0));
+        actors.spawn((Body(Rect::new(0.0, 0.0, 16.0, 16.0)), anim, states));
+    }
+    time("animate 2000 entities", 100, || animate(black_box(&mut actors), 1.0 / 60.0));
+
+    let file = WorldFile::new().component::<Body>("body").component::<Vel>("vel");
+    let path = std::env::temp_dir().join(format!("engine-bench-{}.txt", std::process::id()));
+    let path = path.to_str().unwrap();
+    time("world file save, 3000 entities", 20, || file.save(&world, path).unwrap());
+    time("world file load, 3000 entities", 20, || {
+        let mut loaded = World::new();
+        black_box(file.load(&mut loaded, path).unwrap());
+    });
+    std::fs::remove_file(path).unwrap();
 }
