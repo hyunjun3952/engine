@@ -26,9 +26,8 @@ The window needs an X display (WSLg works). `minifb` is built with the `x11` fea
 
 - **Comments** are rare: only where the code cannot show *why*, in a line or two. Write the current rule, not its history.
 - **Docs.** Every pub item gets a one-line `///` and each pub type and function a doctest. A pub fn that can panic or return `Err` says so in its `///` ("Panics on ..."). A `Result` error names the file; a mistake in the game's own code panics.
-- **Lints.** Prefer `#[expect]` to `#[allow]`. Imports are explicit, except `use super::*` in tests and `use file::*` in a split directory's `mod.rs`. Every `unsafe` carries `// SAFETY:`. A rule a lint can enforce goes in `[lints.clippy]`.
+- **Lints.** Prefer `#[expect]` to `#[allow]`. Imports are explicit, except `use super::*` in tests and `use file::*` in a split directory's `mod.rs`. A rule a lint can enforce goes in `[lints.clippy]`.
 - **Dependencies.** Prefer in-house code or tiny crates; build time matters. Code touching `wgpu` or `rodio` stays behind `#[cfg(feature = "gpu" | "audio")]`; the lean build must keep compiling.
-- **This file** holds invariants and pitfalls, not API listings. Read rustdoc (`cargo doc --open`) or the source instead of guessing a name.
 
 ## Architecture
 

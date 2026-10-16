@@ -4,32 +4,26 @@ A small 2D game engine in Rust: software and wgpu renderers, ECS, physics, tilem
 
 API docs: <https://hyunjun3952.github.io/engine/>
 
-- **Rendering**: a software rasterizer and a wgpu backend that produce the same pixels. Camera with follow, shake and zoom, sprite transforms, blend styles, lighting, parallax. Scaled, letterboxed and fullscreen (F11) windows.
+- **Rendering**: a software rasterizer and a wgpu backend that produce the same pixels. Camera (follow, shake, zoom), sprite transforms, blending, lighting, parallax, letterboxed and fullscreen (F11) windows.
 - **ECS**: [hecs](https://crates.io/crates/hecs) plus animation, particles, collisions, raycasts and world save/load.
 - **Physics**: in-house boxes and circles with rotation, joints, sleeping, one-way platforms and slopes. Deterministic, so input replay works.
 - **Levels**: plain-text grids and Tiled `.tmx` maps, A* pathfinding, tile raycasts.
 - **Audio** (rodio): WAV and OGG, buses, pan, pitch, fades.
-- **Input**: action bindings loaded from a text file, mouse, gamepad, record and replay.
+- **Input**: action bindings from a text file, mouse, gamepad, record and replay.
 - **UI and text**: immediate-mode widgets, BDF fonts with Korean support and Hangul composition.
 - **Tools**: hot reload, F3 overlay, entity inspector and console.
 
 ## Quick start
 
 ```sh
-cargo run --example game        # a platformer; `-- 3` starts at stage 4
-cargo test                       # run from the repo root, tests load assets/ by relative path
+cargo run --example game   # a platformer; `-- 3` starts at stage 4
 ```
 
-A window needs an X display (WSLg works). Press F3 for the debug overlay. CI builds and tests on Linux, Windows and macOS.
+Needs an X display (WSLg works). F3 toggles the debug overlay. CI builds and tests on Linux, Windows and macOS.
 
 ## Features
 
-| Feature | Default | Needs |
-|---------|---------|-------|
-| `gpu`   | yes | wgpu renderer |
-| `audio` | yes | rodio sound |
-
-`cargo test --no-default-features` builds the lean version: software renderer, no audio.
+`gpu` (wgpu renderer) and `audio` (rodio) are on by default. `--no-default-features` builds the lean version: software renderer, no audio.
 
 ## Environment variables
 
@@ -45,31 +39,14 @@ A window needs an X display (WSLg works). Press F3 for the debug overlay. CI bui
 ## Development
 
 ```sh
+cargo test                                      # run from the repo root; tests load assets/ by relative path
 cargo fmt && cargo clippy --all-targets -- -D warnings
 cargo test --release -- --ignored --nocapture   # benchmarks in src/bench.rs
-cargo doc --open                                # API reference; CI builds it with warnings denied
+cargo doc --open
 pre-commit install                              # Conventional Commits, fmt, clippy
 ```
 
 See `CLAUDE.md` for the architecture and conventions.
-
-## Layout
-
-```
-src/base/     Vec2, Rect, Sprite, Rng, timers, save data, file helpers
-src/render/   Gfx, Soft and Gpu backends, camera, light, BDF fonts
-src/audio/    sound decoding, mixing, buses
-src/level/    Tilemap, Tiled, pathfinding
-src/assets/   sprite and font cache, atlas, hot reload
-src/input/    keys, mouse, gamepads, replay
-src/ecs/      components, systems, persistence
-src/physics/  rigid bodies, joints, contacts
-src/app/      loop, scenes, Ctx, fades
-src/ui/       widgets, text fields, Hangul composition
-src/debug.rs  Inspector and Console
-examples/     game.rs, a platformer that brings in one engine feature per stage
-assets/       fonts, images, levels
-```
 
 ## Licence
 
