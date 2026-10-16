@@ -749,8 +749,15 @@ impl Physics {
             walls.insert(*e, (n.rect, n.filter, n.one_way));
         }
         self.walls = walls;
+        // Sorted by x, so a sleeper only meets the movers whose left edge falls in its reach.
+        movers.sort_by(|a, b| a.x.total_cmp(&b.x));
+        let widest = movers.iter().fold(0.0f32, |w, m| w.max(m.w));
         for (e, n) in ents.iter().zip(nodes.iter_mut()) {
-            if self.asleep(*e) && movers.iter().any(|m| m.overlaps(n.bounds())) {
+            if self.asleep(*e) && {
+                let b = n.bounds();
+                let from = movers.partition_point(|m| m.x <= b.x - widest);
+                movers[from..].iter().take_while(|m| m.x < b.x + b.w).any(|m| m.overlaps(b))
+            } {
                 self.rest.remove(e);
             }
             if self.asleep(*e) {
