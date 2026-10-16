@@ -43,13 +43,13 @@ The panic and error policy is stated once, in the `lib.rs` conventions: a `Resul
 - `rustfmt.toml` uses `max_width = 120` and `use_small_heuristics = "Max"`. Run `cargo fmt` rather than formatting by hand.
 - Prefer `#[expect]` to `#[allow]`. A `cfg_attr(..., allow(..))` is the exception: an `expect` there goes unfulfilled in the test build.
 - Imports are explicit. Two exceptions: a test module uses `use super::*`, and the `mod.rs` of a directory split into files gathers their items with `use file::*`, so the files import each other through `super::`.
-- A rule a lint can enforce goes in `[lints.clippy]` in `Cargo.toml` (now `undocumented_unsafe_blocks`, `ignore_without_reason`, `dbg_macro`, `todo`, `unimplemented`), not only in this file.
+- A rule a lint can enforce goes in `[lints.clippy]` in `Cargo.toml`, not only in this file.
 
 **Unsafe.** Every `unsafe` block or impl carries a `// SAFETY:` comment naming why it is sound; `undocumented_unsafe_blocks` (in `Cargo.toml`) enforces it. What remains is FFI and raw window handles: Xlib in `app/fullscreen.rs`, `env::set_var` in `run`, and the wgpu surface and display handle in `render/gpu/`. A safe X11 crate (x11rb) was considered for the first and rejected: one `unsafe` block is not worth a new dependency.
 
 **Dependencies and features.** Prefer in-house code or tiny crates over new dependencies: build time is a stated concern. Code touching `wgpu` or `rodio` stays behind `#[cfg(feature = "gpu" | "audio")]`; the lean build must keep compiling.
 
-**Reuse before writing.** `Rect::center/contains/edges/penetration/overlaps`, `Sprite::bounds`, `DrawCmd::new`, `Paint::region`, `base::read_text(_if_exists)`, `write_atomic` and `in_file`, and the `sub/dot/len/apply/shove` helpers in `physics/node.rs` already exist. The public API is documented in rustdoc (`cargo doc --open`); read it or the source instead of guessing a name.
+**Reuse before writing.** Look in `base/` (`Rect`, `Sprite`, the file helpers) and the vector helpers in `physics/node.rs` before adding one. The public API is documented in rustdoc (`cargo doc --open`); read it or the source instead of guessing a name.
 
 **This file** holds invariants and pitfalls, not API listings. Add a line only for something the code and rustdoc cannot tell a reader.
 
