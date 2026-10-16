@@ -59,6 +59,19 @@ impl Font {
             Ok::<_, String>((out, n))
         };
         for line in text.lines() {
+            // Bitmap rows are most of the file, so they skip the keyword match.
+            if in_bitmap && !line.starts_with("ENDCHAR") {
+                if let Some(g) = &mut cur {
+                    let bytes = line.trim();
+                    if bytes.len() > 8 {
+                        return Err(format!("bitmap row {bytes:?}: wider than 32 pixels"));
+                    }
+                    let row = u32::from_str_radix(bytes, 16).map_err(|e| format!("bitmap row {bytes:?}: {e}"))?;
+                    bits.push(row << (32 - 4 * bytes.len()));
+                    g.rows.end = bits.len();
+                }
+                continue;
+            }
             let (key, val) = line.split_once(' ').unwrap_or((line, ""));
             match key {
                 "FONT_ASCENT" => ascent = val.trim().parse().map_err(|e| format!("FONT_ASCENT: {e}"))?,
@@ -94,6 +107,7 @@ impl Font {
                 }
                 "BITMAP" => in_bitmap = true,
                 "ENDCHAR" => {
+                    in_bitmap = false;
                     if let Some(g) = &cur
                         && g.rows.len() as i32 != g.bbx[1]
                     {
@@ -105,17 +119,6 @@ impl Font {
                         ));
                     }
                     raws.extend(cur.take());
-                }
-                _ if in_bitmap => {
-                    if let Some(g) = &mut cur {
-                        let bytes = line.trim();
-                        if bytes.len() > 8 {
-                            return Err(format!("bitmap row {bytes:?}: wider than 32 pixels"));
-                        }
-                        let row = u32::from_str_radix(bytes, 16).map_err(|e| format!("bitmap row {bytes:?}: {e}"))?;
-                        bits.push(row << (32 - 4 * bytes.len()));
-                        g.rows.end = bits.len();
-                    }
                 }
                 _ => {}
             }
@@ -141,10 +144,9 @@ impl Font {
         for (g, &(gx, gy)) in raws.iter().zip(&placed) {
             let [w, h, xoff, yoff] = g.bbx;
             for (r, row) in bits[g.rows.clone()].iter().enumerate() {
-                for c in 0..w as usize {
-                    if row >> (31 - c) & 1 == 1 {
-                        px[(gy + r) * ATLAS_W + gx + c] = 0xFFFF_FFFF;
-                    }
+                let dst = &mut px[(gy + r) * ATLAS_W + gx..][..w as usize];
+                for (c, p) in dst.iter_mut().enumerate() {
+                    *p = 0u32.wrapping_sub(row >> (31 - c) & 1);
                 }
             }
             let src = Rect::new(gx as f32, gy as f32, w as f32, h as f32);
