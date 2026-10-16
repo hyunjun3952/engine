@@ -50,10 +50,10 @@ impl crate::Persist for RigidBody {
     }
 
     fn read(text: &str) -> Option<Self> {
-        use crate::ecs::numbers;
-        // Files saved before `gravity` existed have seven numbers.
-        let [inv_mass, circle, kinematic, one_way, restitution, friction, spin, gravity] =
-            numbers(text).or_else(|| numbers::<7>(text).map(|[a, b, c, d, e, f, g]| [a, b, c, d, e, f, g, 1.0]))?;
+        use crate::ecs::parse_numbers;
+        // Files saved before `gravity` existed have seven parse_numbers.
+        let [inv_mass, circle, kinematic, one_way, restitution, friction, spin, gravity] = parse_numbers(text)
+            .or_else(|| parse_numbers::<7>(text).map(|[a, b, c, d, e, f, g]| [a, b, c, d, e, f, g, 1.0]))?;
         let valid = inv_mass >= 0.0 && inv_mass.is_finite();
         valid.then_some(RigidBody {
             inv_mass,

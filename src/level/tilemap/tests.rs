@@ -116,10 +116,10 @@ fn falling_box_lands_on_floor_and_wall_stops_it() {
 fn set_replaces_a_tile_and_gives_the_map_a_new_stamp() {
     let sheet = Sprite::test_tiles();
     let mut map = Tilemap::from_ascii(&["...", "###"], 16, sheet);
-    let before = map.stamp();
+    let before = map.revision();
     map.set((1, 0), 2);
     assert_eq!((map.tile((1, 0)), map.tile((1, 1)), map.tile((0, 0))), (2, 1, 0));
-    assert!(map.stamp() != before);
+    assert!(map.revision() != before);
     assert!(!map.solid_in(Rect::new(16.0, 0.0, 16.0, 16.0)).is_empty());
 }
 
@@ -331,7 +331,7 @@ fn a_ray_finds_the_tile_a_fine_march_finds_on_random_maps() {
         let step = 0.01;
         let marched = (0..).map(|i| i as f32 * step).take_while(|t| *t <= max).find(|t| {
             let p = from + dir * *t;
-            map.solid((p.x / 4.0).floor() as i32, (p.y / 4.0).floor() as i32)
+            map.is_solid((p.x / 4.0).floor() as i32, (p.y / 4.0).floor() as i32)
         });
         let hit = map.raycast(from, dir, max);
         match (hit, marched) {

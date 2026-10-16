@@ -33,8 +33,8 @@ fn dump(px: &[u32], path: &str) {
 // Renders on both backends and fails if any pixel differs by more than the blending rounding.
 fn assert_same(gpu: &mut Gpu, g: &Gfx, name: &str) {
     let mut soft = Soft::new(640, 360, 1);
-    soft.render(g.cmds());
-    let gpu_px = gpu.render_to_pixels(g.cmds());
+    soft.render(g.draw_cmds());
+    let gpu_px = gpu.render_to_pixels(g.draw_cmds());
     if let Ok(dir) = std::env::var("ENGINE_DUMP") {
         dump(&soft.buf, &format!("{dir}/soft{name}.png"));
         dump(&gpu_px, &format!("{dir}/gpu{name}.png"));
@@ -101,13 +101,13 @@ fn zoomed_scene(zoom: f32) -> Gfx {
     turned.blit_region(&player, frame, 120, 130, false);
     turned.fill(Rect::new(280.0, 170.0, 30.0, 14.0), 0xffaa00);
     let spin = Transform { angle: 0.7, sx: 1.0, sy: 1.0 };
-    let spun: Vec<DrawCmd> = turned.cmds().iter().map(|c| DrawCmd { xform: spin, ..c.clone() }).collect();
+    let spun: Vec<DrawCmd> = turned.draw_cmds().iter().map(|c| DrawCmd { xform: spin, ..c.clone() }).collect();
     let mut g = Gfx::new(640, 360);
     (g.zoom, g.cam) = (zoom, Vec2::new(60.0, 40.0));
     g.clear(0x6fa8e0);
     let map = Tilemap::load("assets/levels/level1.txt", 16, sprite("assets/images/tiles.png")).unwrap();
     g.draw(map.draw_list(g.view()));
-    g.draw(world.cmds().to_vec());
+    g.draw(world.draw_cmds().to_vec());
     g.draw(spun);
     g.text("HUD", 10, 10, 2, 0xffffff);
     g.line((20.0, 40.0), (90.0, 61.0), 0xff00ff);
@@ -143,9 +143,9 @@ fn a_reloaded_sprite_is_uploaded_again_and_still_matches_the_software_output() {
         let mut g = Gfx::new(64, 64);
         g.blit(&sprite, 4, 4);
         let mut soft = Soft::new(64, 64, 1);
-        soft.render(g.cmds());
+        soft.render(g.draw_cmds());
         let rgb: Vec<u32> = soft.buf.iter().map(|p| p & 0x00ff_ffff).collect();
-        (rgb, gpu.render_to_pixels(g.cmds()))
+        (rgb, gpu.render_to_pixels(g.draw_cmds()))
     };
     let (soft, hard) = draw(&mut gpu);
     assert!(soft == hard, "first upload differs from the software output");
@@ -169,9 +169,9 @@ fn textures_of_dropped_sprites_are_released() {
         let mut g = Gfx::new(64, 64);
         g.blit(&kept, 0, 0);
         g.blit(&temp, 20, 0);
-        gpu.render_to_pixels(g.cmds());
+        gpu.render_to_pixels(g.draw_cmds());
     }
-    gpu.render_to_pixels(Gfx::new(64, 64).cmds());
+    gpu.render_to_pixels(Gfx::new(64, 64).draw_cmds());
     assert!(gpu.textures.len() <= 1, "{} textures cached", gpu.textures.len());
 }
 
@@ -212,9 +212,9 @@ fn rotated_and_scaled_drawing_agrees_between_the_two_backends() {
     };
     let g = transformed_scene();
     let mut soft = Soft::new(160, 120, 1);
-    soft.render(g.cmds());
+    soft.render(g.draw_cmds());
     let soft_px: Vec<u32> = soft.buf.iter().map(|p| p & 0x00ff_ffff).collect();
-    let gpu_px = gpu.render_to_pixels(g.cmds());
+    let gpu_px = gpu.render_to_pixels(g.draw_cmds());
     if let Ok(dir) = std::env::var("ENGINE_DUMP") {
         let save = |px: &[u32], name: &str| {
             let mut img = image::RgbImage::new(160, 120);
@@ -243,7 +243,7 @@ fn a_window_of_another_shape_gets_the_picture_centred_with_black_around_it() {
     let mut g = crate::Gfx::new(64, 32);
     g.clear(0xff0000);
     gpu.fit((128, 128));
-    let px = gpu.render_to_pixels(g.cmds());
+    let px = gpu.render_to_pixels(g.draw_cmds());
     assert_eq!(px.len(), 128 * 128);
     let at = |x: usize, y: usize| px[y * 128 + x];
     // 2:1 picture at 2x in a square window: 32 rows of bar above and below it.
@@ -347,7 +347,7 @@ fn tiles_from_the_second_row_of_a_sheet_match_between_the_backends() {
     g.draw(map.draw_list(g.view()));
     assert_same(&mut gpu, &g, "_rows");
     (g.zoom, g.cam) = (1.5, Vec2::new(4.0, 3.0));
-    g.reset();
+    g.clear_cmds();
     g.draw(map.draw_list(g.view()));
     assert_same(&mut gpu, &g, "_rows_zoom");
 }

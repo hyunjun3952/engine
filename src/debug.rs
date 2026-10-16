@@ -406,6 +406,6 @@ mod tests {
         let mut gfx = Gfx::new(64, 64);
         insp.select(Some(under));
         insp.draw(&mut gfx, &world);
-        assert!(gfx.cmds().len() > 3, "an outline, a panel and text");
+        assert!(gfx.draw_cmds().len() > 3, "an outline, a panel and text");
     }
 }

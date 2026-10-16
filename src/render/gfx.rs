@@ -55,11 +55,11 @@ impl Gfx {
         Gfx { w, h, debug: false, cam: Vec2::ZERO, zoom: 1.0, cmds: Vec::new() }
     }
 
-    pub(crate) fn cmds(&self) -> &[DrawCmd] {
+    pub(crate) fn draw_cmds(&self) -> &[DrawCmd] {
         &self.cmds
     }
 
-    pub(crate) fn reset(&mut self) {
+    pub(crate) fn clear_cmds(&mut self) {
         self.cmds.clear();
     }
 
@@ -317,7 +317,7 @@ impl Gfx {
         let (scale, size) = (scale.max(1) as u32, 8.0 * scale.max(1) as f32);
         for (i, ch) in s.chars().enumerate() {
             let code = u32::from(ch);
-            if code >= font::GLYPHS as u32 || font::bits(code as u8) == [0; 8] {
+            if code >= font::GLYPHS as u32 || font::glyph_rows(code as u8) == [0; 8] {
                 continue;
             }
             let rect = Rect::new(x as f32 + i as f32 * size, y as f32, size, size);
@@ -358,11 +358,11 @@ mod tests {
         let mut g = Gfx::new(8, 8);
         g.cam = Vec2::new(3.0, 1.0);
         g.draw([cmd(false), cmd(true)]);
-        assert_eq!(g.cmds().len(), 1);
-        assert_eq!((g.cmds()[0].rect.x, g.cmds()[0].rect.y), (2.0, 1.0));
+        assert_eq!(g.draw_cmds().len(), 1);
+        assert_eq!((g.draw_cmds()[0].rect.x, g.draw_cmds()[0].rect.y), (2.0, 1.0));
         g.debug = true;
         g.draw([cmd(true)]);
-        assert_eq!(g.cmds().len(), 2);
+        assert_eq!(g.draw_cmds().len(), 2);
     }
 
     #[test]
@@ -372,7 +372,7 @@ mod tests {
         let mut g = Gfx::new(8, 8);
         g.cam = Vec2::new(10.0, 0.0);
         g.draw([quad(2.0), quad(7.0), quad(17.0), quad(25.0), turned]);
-        let xs: Vec<f32> = g.cmds().iter().map(|c| c.rect.x).collect();
+        let xs: Vec<f32> = g.draw_cmds().iter().map(|c| c.rect.x).collect();
         assert_eq!(xs, [-3.0, 7.0, 30.0], "left of the view, inside it, at its edge, and the kept turned one");
     }
 
@@ -383,7 +383,7 @@ mod tests {
     }
 
     fn at(g: &Gfx, i: usize) -> (f32, f32, f32, f32) {
-        let r = g.cmds()[i].rect;
+        let r = g.draw_cmds()[i].rect;
         (r.x, r.y, r.w, r.h)
     }
 
@@ -393,7 +393,7 @@ mod tests {
         assert_eq!((g.view().w, g.view().h), (50.0, 30.0));
         g.draw([DrawCmd::new(Rect::new(10.0, 10.0, 4.0, 4.0), Paint::Color(7))]);
         assert_eq!(at(&g, 0), (4.0, 4.0, 8.0, 8.0));
-        assert!(g.cmds()[0].xform.is_identity(), "a flat rect is just a bigger rect, no per-pixel warp");
+        assert!(g.draw_cmds()[0].xform.is_identity(), "a flat rect is just a bigger rect, no per-pixel warp");
     }
 
     #[test]
@@ -411,7 +411,7 @@ mod tests {
         assert_eq!((at(&g, 0).2, at(&g, 0).3), (1.0, 1.0), "a small thing stays at least a pixel");
         let flat = Transform { sx: 0.0, ..Transform::IDENTITY };
         g.draw([DrawCmd { xform: flat, ..DrawCmd::new(Rect::new(0.0, 0.0, 4.0, 4.0), Paint::Color(1)) }]);
-        assert_eq!(g.cmds().len(), 1, "a zero scale draws nothing");
+        assert_eq!(g.draw_cmds().len(), 1, "a zero scale draws nothing");
     }
 
     #[test]
@@ -420,15 +420,15 @@ mod tests {
         let mut g = zoomed(2.5, (0.0, 0.0));
         g.blit(&sheet, 10, 10);
         let mut z = zoomed(2.5, (0.0, 0.0));
-        z.draw(g.cmds().to_vec());
-        let c = &z.cmds()[0];
+        z.draw(g.draw_cmds().to_vec());
+        let c = &z.draw_cmds()[0];
         // The sprite covers world 10..14, so 25..35 on the screen: ten pixels, a scale of 2.5 on a 4 px quad.
         assert_eq!((c.xform.sx, c.xform.sy, c.xform.angle), (2.5, 2.5, 0.0));
         let (cx, cy) = (c.rect.x + 2.0, c.rect.y + 2.0);
         assert_eq!((cx, cy), (30.0, 30.0));
         let mut whole = zoomed(1.0, (0.0, 0.0));
         whole.draw([DrawCmd::new(Rect::new(3.0, 3.0, 4.0, 4.0), Paint::Sprite(sheet))]);
-        assert!(whole.cmds()[0].xform.is_identity(), "no zoom leaves a sprite on the fast path");
+        assert!(whole.draw_cmds()[0].xform.is_identity(), "no zoom leaves a sprite on the fast path");
     }
 
     #[test]
@@ -436,7 +436,7 @@ mod tests {
         let mut g = zoomed(2.0, (0.0, 0.0));
         let turn = Transform { angle: 0.5, sx: -1.0, sy: 1.0 };
         g.draw([DrawCmd { xform: turn, ..DrawCmd::new(Rect::new(10.0, 10.0, 6.0, 4.0), Paint::Color(1)) }]);
-        let c = &g.cmds()[0];
+        let c = &g.draw_cmds()[0];
         assert_eq!((c.xform.angle, c.xform.sx, c.xform.sy), (0.5, -2.0, 2.0));
         assert_eq!((c.rect.x + c.rect.w / 2.0, c.rect.y + c.rect.h / 2.0), (26.0, 24.0));
     }
@@ -447,14 +447,15 @@ mod tests {
         let tiles = Paint::Tiles { sheet, size: 4, tiles: vec![(0, 0, 1), (1, 0, 2), (0, 1, 2)] };
         let mut g = zoomed(2.0, (0.0, 0.0));
         g.draw([DrawCmd::new(Rect::new(8.0, 8.0, 8.0, 8.0), tiles)]);
-        assert_eq!(g.cmds().len(), 3);
-        let places: Vec<(f32, f32)> = g.cmds().iter().map(|c| (c.rect.x + 2.0 - 4.0, c.rect.y + 2.0 - 4.0)).collect();
+        assert_eq!(g.draw_cmds().len(), 3);
+        let places: Vec<(f32, f32)> =
+            g.draw_cmds().iter().map(|c| (c.rect.x + 2.0 - 4.0, c.rect.y + 2.0 - 4.0)).collect();
         // Each is a 4 px tile scaled to 8: the centres of the first row sit 8 apart.
-        assert_eq!(g.cmds()[1].rect.x - g.cmds()[0].rect.x, 8.0);
-        assert_eq!(g.cmds()[2].rect.y - g.cmds()[0].rect.y, 8.0);
+        assert_eq!(g.draw_cmds()[1].rect.x - g.draw_cmds()[0].rect.x, 8.0);
+        assert_eq!(g.draw_cmds()[2].rect.y - g.draw_cmds()[0].rect.y, 8.0);
         assert!(places.iter().all(|p| p.0 >= 16.0 && p.1 >= 16.0));
         assert!(
-            matches!(&g.cmds()[1].paint, Paint::Region { src, .. } if src.x == 4.0),
+            matches!(&g.draw_cmds()[1].paint, Paint::Region { src, .. } if src.x == 4.0),
             "tile id 2 is the second column"
         );
     }
@@ -467,9 +468,9 @@ mod tests {
         plain.text("A", 20, 20, 2, 0xffffff);
         plain.outline(Rect::new(4.0, 4.0, 10.0, 6.0), 3);
         let mut g = zoomed(1.6, (0.0, 0.0));
-        g.draw(plain.cmds().to_vec());
-        let sizes: Vec<f32> = g.cmds().iter().map(|c| c.rect.w).collect();
-        assert_eq!(sizes[0], plain.cmds()[0].rect.w * 2.0, "1.6 rounds to 2 for font pixels");
+        g.draw(plain.draw_cmds().to_vec());
+        let sizes: Vec<f32> = g.draw_cmds().iter().map(|c| c.rect.w).collect();
+        assert_eq!(sizes[0], plain.draw_cmds()[0].rect.w * 2.0, "1.6 rounds to 2 for font pixels");
         assert_eq!(sizes[1], 8.0 * 3.0, "scale 2 times 1.6 is 3.2, so 3");
         assert_eq!(
             at(&g, 2),
@@ -486,13 +487,13 @@ mod tests {
             let mut g = Gfx::new(64, 64);
             let dest = Rect { x: 5.0, y: 7.0, w, h };
             g.blit_nine(&sheet, src, 4, dest);
-            let area: f32 = g.cmds().iter().map(|c| c.rect.w * c.rect.h).sum();
+            let area: f32 = g.draw_cmds().iter().map(|c| c.rect.w * c.rect.h).sum();
             assert_eq!(area, w * h, "{w}x{h}: every pixel once");
-            for c in g.cmds() {
+            for c in g.draw_cmds() {
                 let r = c.rect;
                 assert!(r.x >= dest.x && r.y >= dest.y && r.x + r.w <= dest.x + w && r.y + r.h <= dest.y + h, "{r:?}");
             }
-            let corners = g.cmds().iter().filter(|c| c.rect.w == 4.0 && c.rect.h == 4.0).count();
+            let corners = g.draw_cmds().iter().filter(|c| c.rect.w == 4.0 && c.rect.h == 4.0).count();
             assert!(corners >= 4, "{w}x{h}");
         }
     }
@@ -508,9 +509,9 @@ mod tests {
         // Positions an f32 can still tell a pixel apart at: the part of the panel in view is covered exactly once.
         for (x, w) in [(-5e6, 1e7), (-1e6, 1e6 + 20.0), (10.0, 1e7), (-30.0, 1e6), (-3e6, f32::INFINITY)] {
             let g = record(x, w);
-            assert!(g.cmds().len() < 400, "{} commands for a panel at {x} of width {w}", g.cmds().len());
+            assert!(g.draw_cmds().len() < 400, "{} commands for a panel at {x} of width {w}", g.draw_cmds().len());
             let seen: f32 = g
-                .cmds()
+                .draw_cmds()
                 .iter()
                 .map(|c| {
                     let r = c.rect;
@@ -522,7 +523,7 @@ mod tests {
         }
         // Absurd sizes no f32 can place pixels in: nothing hangs or fills memory.
         for (x, w) in [(-30.0, 1e30), (-1e30, f32::INFINITY), (0.0, f32::INFINITY)] {
-            assert!(record(x, w).cmds().len() < 400, "{x} {w}");
+            assert!(record(x, w).draw_cmds().len() < 400, "{x} {w}");
         }
     }
 
@@ -537,10 +538,10 @@ mod tests {
     fn text_records_one_command_per_visible_ascii_char_at_the_right_offset() {
         let mut g = Gfx::new(64, 16);
         g.text("A B\u{ac00}", 4, 2, 2, 5);
-        let at: Vec<f32> = g.cmds().iter().map(|c| c.rect.x).collect();
+        let at: Vec<f32> = g.draw_cmds().iter().map(|c| c.rect.x).collect();
         assert_eq!(at, [4.0, 4.0 + 2.0 * 16.0]);
-        assert!(matches!(g.cmds()[0].paint, Paint::Glyph { ch: b'A', color: 5, scale: 2 }));
-        assert_eq!(g.cmds()[0].rect.w, 16.0);
+        assert!(matches!(g.draw_cmds()[0].paint, Paint::Glyph { ch: b'A', color: 5, scale: 2 }));
+        assert_eq!(g.draw_cmds()[0].rect.w, 16.0);
     }
 
     #[test]
@@ -557,7 +558,7 @@ mod tests {
         let mut g = Gfx::new(8, 8);
         g.draw([cmd(5, 1), cmd(-3, 2), cmd(5, 3), cmd(0, 4)]);
         let colors: Vec<u32> =
-            g.cmds().iter().filter_map(|c| if let Paint::Color(x) = c.paint { Some(x) } else { None }).collect();
+            g.draw_cmds().iter().filter_map(|c| if let Paint::Color(x) = c.paint { Some(x) } else { None }).collect();
         assert_eq!(colors, [2, 4, 1, 3]);
     }
 
@@ -569,7 +570,7 @@ mod tests {
         g.draw_parallax([mark.clone()], (0.5, 1.0));
         g.draw_parallax([mark.clone()], (0.0, 0.0));
         g.draw([mark]);
-        let at: Vec<_> = g.cmds().iter().map(|c| (c.rect.x, c.rect.y)).collect();
+        let at: Vec<_> = g.draw_cmds().iter().map(|c| (c.rect.x, c.rect.y)).collect();
         assert_eq!(at, [(100.0, 10.0), (150.0, 50.0), (50.0, 10.0)]);
         assert_eq!(g.cam, Vec2::new(100.0, 40.0));
     }
@@ -581,7 +582,7 @@ mod tests {
             let mut g = Gfx::new(20, 4);
             g.cam = Vec2::new(cam, 0.0);
             g.background(&sky, (factor, 0.0), (repeat, false));
-            g.cmds().iter().map(|c| c.rect.x as i32).collect::<Vec<_>>()
+            g.draw_cmds().iter().map(|c| c.rect.x as i32).collect::<Vec<_>>()
         };
         assert_eq!(xs(0.0, 1.0, true), [0, 8, 16]);
         assert_eq!(xs(10.0, 0.5, true), [-5, 3, 11, 19]);

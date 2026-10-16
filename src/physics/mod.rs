@@ -130,7 +130,7 @@ impl Physics {
         let (ents, mut nodes) = gather(world);
         let bodies = nodes.len();
         let index: FxMap<Entity, usize> = ents.iter().enumerate().map(|(i, &e)| (e, i)).collect();
-        self.freeze(&ents, &index, &mut nodes, tiles.map(Tilemap::stamp), dt);
+        self.freeze(&ents, &index, &mut nodes, tiles.map(Tilemap::revision), dt);
         let substeps = self.substeps(&nodes, tiles, dt);
         self.last_substeps = substeps;
         self.joints.retain(|j| index.contains_key(&j.a) && index.contains_key(&j.b));
@@ -266,7 +266,7 @@ impl Physics {
             nodes.iter().map(|n| if n.mobile() { grow(n.bounds(), reach(n)) } else { n.bounds() }).collect();
         let fast = |i: usize| need[i] > 1.0;
         let mut worst = 0.0f32;
-        for &(a, b, ..) in self.scout.pairs(&swept, |i| !fast(i)) {
+        for &(a, b, ..) in self.scout.overlaps(&swept, |i| !fast(i)) {
             if nodes[a].filter.meets(&nodes[b].filter) {
                 worst = worst.max(if fast(a) { need[a] } else { 0.0 }).max(if fast(b) { need[b] } else { 0.0 });
             }

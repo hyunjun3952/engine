@@ -235,7 +235,7 @@ impl Gpu {
         let atlas: Vec<u32> = (0..8)
             .flat_map(|row| {
                 (0..font::GLYPHS).flat_map(move |ch| {
-                    let bits = font::bits(ch as u8)[row];
+                    let bits = font::glyph_rows(ch as u8)[row];
                     (0..8).map(move |col| if bits >> col & 1 == 1 { 0xffff_ffff } else { 0x00ff_ffff })
                 })
             })

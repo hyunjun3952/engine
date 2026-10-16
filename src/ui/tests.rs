@@ -72,7 +72,8 @@ fn a_button_reports_a_click_once_and_centres_its_label() {
     assert_eq!(b.shade.color(&Theme::DEFAULT), Theme::DEFAULT.down);
     let mut g = Gfx::new(100, 50);
     b.draw(&mut g, &font, &Theme::DEFAULT);
-    let glyph = g.cmds().iter().find_map(|c| matches!(c.paint, crate::Paint::Mask { .. }).then_some(c.rect)).unwrap();
+    let glyph =
+        g.draw_cmds().iter().find_map(|c| matches!(c.paint, crate::Paint::Mask { .. }).then_some(c.rect)).unwrap();
     assert_eq!(glyph.x as i32, 10 + (60 - font.width("확인")) / 2 + font.layout("확인").next().unwrap().1);
 }
 
@@ -83,7 +84,7 @@ fn a_checkbox_flips_on_a_click_on_the_box_or_its_label_and_shows_its_state() {
     let count = |c: &Checkbox| {
         let mut g = Gfx::new(100, 50);
         c.draw(&mut g, &font, &Theme::DEFAULT);
-        g.cmds().len()
+        g.draw_cmds().len()
     };
     let off = count(&c);
     at(&mut input, 200.0, 12.0, false);
@@ -164,11 +165,11 @@ fn a_text_field_composes_hangul_from_jamo_or_from_letter_keys_and_keeps_its_limi
 fn bar_clamps_and_menu_draws_one_command_per_glyph() {
     let mut g = Gfx::new(100, 50);
     draw_bar(&mut g, Rect::new(0.0, 0.0, 50.0, 4.0), 7.0, 1, 2);
-    assert_eq!(g.cmds().len(), 2);
+    assert_eq!(g.draw_cmds().len(), 2);
     let font = Font::load("assets/fonts/galmuri9.bdf").unwrap();
     let mut g = Gfx::new(100, 50);
     ScrollList::menu(0, 0, &["시작", "끝"]).draw(&mut g, &font, &Theme::DEFAULT);
-    assert_eq!(g.cmds().len(), 1 + 2 + 1);
+    assert_eq!(g.draw_cmds().len(), 1 + 2 + 1);
 }
 
 #[test]
@@ -249,7 +250,7 @@ fn drawing_wrapped_text_stops_at_the_height_and_reports_the_full_length() {
     let r = Rect::new(0.0, 0.0, font.width("aaaa") as f32, font.line_height() as f32 * 2.0);
     let total = draw_wrapped(&mut g, &font, "aaaa bbbb cccc dddd", r, 0xffffff);
     assert_eq!(total, 4);
-    let ys: std::collections::BTreeSet<_> = g.cmds().iter().map(|c| c.rect.y as i32).collect();
+    let ys: std::collections::BTreeSet<_> = g.draw_cmds().iter().map(|c| c.rect.y as i32).collect();
     assert_eq!(ys.len(), 2, "only two lines fit: {ys:?}");
 }
 

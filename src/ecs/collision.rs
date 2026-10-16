@@ -93,7 +93,7 @@ impl Sweep {
 
     /// Every pair of rects that overlap, as `(a, b, overlap in x, overlap in y)` with `a` the one that starts first,
     /// except pairs where both are `inert` (two walls, or a wall and a sleeper, never move each other).
-    pub(crate) fn pairs(&mut self, rects: &[Rect], inert: impl Fn(usize) -> bool) -> &[(usize, usize, f32, f32)] {
+    pub(crate) fn overlaps(&mut self, rects: &[Rect], inert: impl Fn(usize) -> bool) -> &[(usize, usize, f32, f32)] {
         self.sort(rects);
         self.found.clear();
         for (k, &a) in self.order.iter().enumerate() {
@@ -123,10 +123,10 @@ pub(crate) fn overlapping_pairs(rects: &[Rect]) -> Vec<(usize, usize, f32, f32)>
     };
     // Sweeping along x alone degrades towards every pair when the bodies are stacked in a tall column.
     if span(|r| r.y) <= span(|r| r.x) {
-        return Sweep::default().pairs(rects, |_| false).to_vec();
+        return Sweep::default().overlaps(rects, |_| false).to_vec();
     }
     let flipped: Vec<Rect> = rects.iter().map(|r| Rect::new(r.y, r.x, r.h, r.w)).collect();
-    Sweep::default().pairs(&flipped, |_| false).iter().map(|&(a, b, ox, oy)| (a, b, oy, ox)).collect()
+    Sweep::default().overlaps(&flipped, |_| false).iter().map(|&(a, b, ox, oy)| (a, b, oy, ox)).collect()
 }
 
 /// ```
@@ -303,7 +303,7 @@ mod tests {
         let inert = |i: usize| i.is_multiple_of(3);
         let mut sweep = Sweep::default();
         for round in 0..40 {
-            let got = normalized(sweep.pairs(&rects, inert));
+            let got = normalized(sweep.overlaps(&rects, inert));
             assert_eq!(got, normalized(&brute(&rects, &inert)), "round {round}");
             for r in &mut rects {
                 if rng.f32() < 0.5 {
@@ -322,7 +322,7 @@ mod tests {
                 _ => {}
             }
         }
-        assert!(!sweep.pairs(&rects, |_| false).is_empty(), "the test world has overlaps to find");
+        assert!(!sweep.overlaps(&rects, |_| false).is_empty(), "the test world has overlaps to find");
         assert_eq!(normalized(&overlapping_pairs(&rects)), normalized(&brute(&rects, &|_| false)));
         let tall: Vec<Rect> = rects.iter().map(|r| Rect::new(r.y * 0.1, r.x * 10.0, r.h, r.w * 10.0)).collect();
         assert_eq!(normalized(&overlapping_pairs(&tall)), normalized(&brute(&tall, &|_| false)));

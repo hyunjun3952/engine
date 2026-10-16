@@ -101,10 +101,10 @@ fn bench() {
     for i in 0..100 {
         g.text("ABCDEFGHIJKLMNOPQRST", 0, i * 3, 2, 0xffffff);
     }
-    println!("  text cmds: {}", g.cmds().len());
-    time("soft: text 100 x 20 chars", 20, || soft.render(black_box(g.cmds())));
+    println!("  text cmds: {}", g.draw_cmds().len());
+    time("soft: text 100 x 20 chars", 20, || soft.render(black_box(g.draw_cmds())));
     time("gfx: record text 100 x 20 chars", 20, || {
-        g.reset();
+        g.clear_cmds();
         for i in 0..100 {
             g.text("ABCDEFGHIJKLMNOPQRST", 0, i * 3, 2, 0xffffff);
         }
@@ -125,11 +125,11 @@ fn bench() {
     let full: Vec<String> = (0..23).map(|_| "#".repeat(60)).collect();
     let wide = Tilemap::from_ascii(&full.iter().map(String::as_str).collect::<Vec<_>>(), 16, Sprite::test_tiles());
     time("gfx: draw a screen of tiles at zoom 1.5", 100, || {
-        zoomed.reset();
+        zoomed.clear_cmds();
         zoomed.draw(wide.draw_list(zoomed.view()));
     });
-    println!("  zoomed cmds: {}", zoomed.cmds().len());
-    time("soft: render them", 100, || soft.render(black_box(zoomed.cmds())));
+    println!("  zoomed cmds: {}", zoomed.draw_cmds().len());
+    time("soft: render them", 100, || soft.render(black_box(zoomed.draw_cmds())));
 
     let mut ents = World::new();
     for _ in 0..2000 {
@@ -229,13 +229,13 @@ fn bench() {
         for i in 0..8 {
             lights.add(Light::new((40.0 + i as f32 * 80.0, 180.0), 80.0));
         }
-        gfx.reset();
+        gfx.clear_cmds();
         lights.draw(&mut gfx);
     });
 
     time("light map: clear and draw only", 60, || {
         lights.clear(0x202040);
-        gfx.reset();
+        gfx.clear_cmds();
         lights.draw(&mut gfx);
     });
 
@@ -247,7 +247,7 @@ fn bench() {
 
     let mut gfx = Gfx::new(640, 360);
     time("gfx: draw 5000 sprite commands", 50, || {
-        gfx.reset();
+        gfx.clear_cmds();
         gfx.draw(black_box(sprites.iter().cloned()));
     });
 }

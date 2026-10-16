@@ -24,7 +24,7 @@ pub(super) fn add_tiles(nodes: &mut Vec<Node>, bodies: usize, map: &Tilemap) {
 pub(super) fn find_hits(nodes: &[Node], bodies: usize, tiles: Option<&Tilemap>, sweep: &mut Sweep) -> Vec<Hit> {
     let bounds: Vec<Rect> = nodes.iter().map(Node::bounds).collect();
     sweep
-        .pairs(&bounds, |i| nodes[i].inv_mass == 0.0)
+        .overlaps(&bounds, |i| nodes[i].inv_mass == 0.0)
         .iter()
         .copied()
         .filter(|&(a, b, ..)| nodes[a].inv_mass + nodes[b].inv_mass > 0.0 && nodes[a].filter.meets(&nodes[b].filter))
@@ -76,7 +76,7 @@ pub(super) fn passes_one_way(a: &Node, b: &Node, normal: V2) -> bool {
 pub(super) fn hides(map: &Tilemap, x: f32, y: f32, above: bool) -> bool {
     let s = map.size as f32;
     let (tx, ty) = ((x / s).floor() as i32, (y / s).floor() as i32);
-    map.solid(tx, ty) && !(above && map.one_way_at(tx, ty))
+    map.is_solid(tx, ty) && !(above && map.one_way_at(tx, ty))
 }
 
 // A tile face or corner hidden by a solid neighbour is dropped, or a body walking the floor catches on seams.

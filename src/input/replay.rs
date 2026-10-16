@@ -124,7 +124,7 @@ impl Tape {
 
     /// Called before each fixed step: records what is held, or replaces it with the recorded step. False when a
     /// replay has run out.
-    pub(crate) fn step(&mut self, input: &mut Input) -> bool {
+    pub(crate) fn feed_input(&mut self, input: &mut Input) -> bool {
         match self {
             Tape::Off => true,
             Tape::Record(_, r) => {
@@ -209,9 +209,9 @@ mod tests {
             Tape::Record(sink.to_string_lossy().into_owned(), Recording { seed: 9, hz: None, frames: vec![] });
         live.hold(&[Key::Space]);
         live.point(Some((3.0, 4.0)), true);
-        assert!(tape.step(&mut live));
+        assert!(tape.feed_input(&mut live));
         live.hold(&[]);
-        assert!(tape.step(&mut live));
+        assert!(tape.feed_input(&mut live));
         let Tape::Record(_, recorded) = &mut tape else { panic!() };
         let rec = std::mem::replace(recorded, Recording { seed: 0, hz: None, frames: vec![] });
         drop(tape);
@@ -219,16 +219,16 @@ mod tests {
         let mut play = Tape::Play(rec, 0);
         assert_eq!(play.seed(), Some(9));
         let mut fresh = Input::default();
-        assert!(play.step(&mut fresh));
+        assert!(play.feed_input(&mut fresh));
         assert!(
             fresh.key_down(Key::Space)
                 && fresh.mouse() == Some(Vec2::new(3.0, 4.0))
                 && fresh.mouse_down(crate::MouseButton::Left)
         );
-        assert!(play.step(&mut fresh));
+        assert!(play.feed_input(&mut fresh));
         assert!(!fresh.key_down(Key::Space));
-        assert!(!play.step(&mut fresh), "no steps left");
-        assert!(Tape::Off.step(&mut fresh) && Tape::Off.seed().is_none());
+        assert!(!play.feed_input(&mut fresh), "no steps left");
+        assert!(Tape::Off.feed_input(&mut fresh) && Tape::Off.seed().is_none());
     }
 
     #[test]

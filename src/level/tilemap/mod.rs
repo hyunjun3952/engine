@@ -191,7 +191,7 @@ impl Tilemap {
             .map(|&(_, x, y)| Vec2::new((x * self.size) as f32, (y * self.size) as f32))
     }
 
-    pub(crate) fn stamp(&self) -> u64 {
+    pub(crate) fn revision(&self) -> u64 {
         self.stamp
     }
 
@@ -215,7 +215,7 @@ impl Tilemap {
         Vec2::new((self.w * self.size) as f32, (self.h * self.size) as f32)
     }
 
-    pub(crate) fn solid(&self, tx: i32, ty: i32) -> bool {
+    pub(crate) fn is_solid(&self, tx: i32, ty: i32) -> bool {
         if tx < 0 || tx >= self.w as i32 {
             return true;
         }
@@ -285,6 +285,6 @@ impl Tilemap {
         diagonal: bool,
         mut open: impl FnMut(usize, usize) -> bool,
     ) -> Option<Vec<(usize, usize)>> {
-        astar((self.w, self.h), from, to, diagonal, |x, y| !self.solid(x as i32, y as i32) && open(x, y))
+        astar((self.w, self.h), from, to, diagonal, |x, y| !self.is_solid(x as i32, y as i32) && open(x, y))
     }
 }

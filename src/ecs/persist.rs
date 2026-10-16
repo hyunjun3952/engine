@@ -29,8 +29,8 @@ pub trait Persist: Sized + Send + Sync + 'static {
     fn read(text: &str) -> Option<Self>;
 }
 
-/// The numbers of a line like `1 2.5 3`, exactly `N` of them.
-pub(crate) fn numbers<const N: usize>(text: &str) -> Option<[f32; N]> {
+/// The parse_numbers of a line like `1 2.5 3`, exactly `N` of them.
+pub(crate) fn parse_numbers<const N: usize>(text: &str) -> Option<[f32; N]> {
     let mut it = text.split_whitespace().map(|v| v.parse::<f32>().ok().filter(|v| v.is_finite()));
     let mut out = [0.0; N];
     for slot in &mut out {
@@ -68,7 +68,7 @@ impl Persist for Body {
         format!("{} {} {} {}", r.x, r.y, r.w, r.h)
     }
     fn read(text: &str) -> Option<Self> {
-        numbers(text).map(|[x, y, w, h]| Body(Rect { x, y, w, h }))
+        parse_numbers(text).map(|[x, y, w, h]| Body(Rect { x, y, w, h }))
     }
 }
 
@@ -77,7 +77,7 @@ impl Persist for Vel {
         format!("{} {}", self.x, self.y)
     }
     fn read(text: &str) -> Option<Self> {
-        numbers(text).map(|[x, y]| Vel { x, y })
+        parse_numbers(text).map(|[x, y]| Vel { x, y })
     }
 }
 
@@ -115,7 +115,7 @@ impl Persist for Transform {
         format!("{} {} {}", self.angle, self.sx, self.sy)
     }
     fn read(text: &str) -> Option<Self> {
-        numbers(text).map(|[angle, sx, sy]| Transform { angle, sx, sy })
+        parse_numbers(text).map(|[angle, sx, sy]| Transform { angle, sx, sy })
     }
 }
 

@@ -91,7 +91,7 @@ pub(super) fn apply(stack: &mut Stack, trans: Trans, ctx: &mut Ctx) {
 
 /// One fixed step: replay input, fade, top scene update (not while darkening), bookkeeping; false when a replay ends.
 pub(super) fn step(stack: &mut Stack, ctx: &mut Ctx, tape: &mut Tape, dt: f32) -> bool {
-    if !tape.step(&mut ctx.input) {
+    if !tape.feed_input(&mut ctx.input) {
         apply(stack, Trans::Quit, ctx);
         return false;
     }

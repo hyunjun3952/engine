@@ -38,7 +38,7 @@ impl Atlas {
                 .collect::<Result<Vec<_>, _>>()?;
             let [x, y, w, h] = nums[..] else { return Err(bad("expected `name x y w h`")) };
             let r = Rect::new(x as f32, y as f32, w as f32, h as f32);
-            if !sheet.image().holds(&r) {
+            if !sheet.image().contains_rect(&r) {
                 return Err(bad(&format!("{name} is empty or outside the {}x{} sheet", limit.0, limit.1)));
             }
             if regions.insert(name.to_string(), r).is_some() {
@@ -83,7 +83,7 @@ mod tests {
         assert_eq!(atlas.get("jump"), Rect::new(16.0, 0.0, 16.0, 8.0));
         let mut g = Gfx::new(64, 64);
         atlas.draw(&mut g, "idle", 5, 6);
-        let c = &g.cmds()[0];
+        let c = &g.draw_cmds()[0];
         assert_eq!((c.rect.x, c.rect.y, c.rect.w, c.rect.h), (5.0, 6.0, 16.0, 16.0));
     }
 

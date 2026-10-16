@@ -4,7 +4,7 @@ use crate::{DrawCmd, Gfx};
 fn run(w: usize, h: usize, f: impl FnOnce(&mut Gfx)) -> Soft {
     let (mut g, mut s) = (Gfx::new(w, h), Soft::new(w, h, 1));
     f(&mut g);
-    s.render(g.cmds());
+    s.render(g.draw_cmds());
     s
 }
 
@@ -61,7 +61,7 @@ fn lines_and_circles_light_the_pixels_they_pass_through() {
 
 #[test]
 fn text_lights_exactly_the_glyph_bits_scaled() {
-    let lit: u32 = font::bits(b'A').iter().map(|b| b.count_ones()).sum();
+    let lit: u32 = font::glyph_rows(b'A').iter().map(|b| b.count_ones()).sum();
     let s = run(40, 40, |g| g.text("A", 3, 5, 2, 7));
     assert_eq!(s.buf.iter().filter(|&&p| p == 7).count() as u32, lit * 4);
     let s = run(8, 8, |g| g.text("A", -4, -4, 1, 7));
@@ -179,7 +179,7 @@ fn a_zoom_and_a_camera_of_any_kind_never_panic_the_path_from_draw_to_pixels() {
         let shown = format!("zoom {} cam {:?} {rect:?} {xform:?}", g.zoom, g.cam);
         let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             g.draw([DrawCmd { xform, ..DrawCmd::new(rect, paint) }]);
-            Soft::new(32, 24, 1).render(g.cmds());
+            Soft::new(32, 24, 1).render(g.draw_cmds());
         }));
         assert!(ok.is_ok(), "case {case} panicked: {shown}");
     }

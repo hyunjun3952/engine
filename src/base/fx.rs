@@ -5,15 +5,15 @@ const MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
 
 /// A multiplicative hasher for the engine's own keys: SipHash's protection is wasted on them and cost 8% of a step.
 #[derive(Default)]
-pub(crate) struct Fx(u64);
+pub(crate) struct FxHasher(u64);
 
-impl Fx {
+impl FxHasher {
     fn add(&mut self, word: u64) {
         self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(MULTIPLIER);
     }
 }
 
-impl Hasher for Fx {
+impl Hasher for FxHasher {
     fn write(&mut self, bytes: &[u8]) {
         for chunk in bytes.chunks(8) {
             let mut word = [0; 8];
@@ -46,8 +46,8 @@ impl Hasher for Fx {
     }
 }
 
-pub(crate) type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
-pub(crate) type FxSet<K> = HashSet<K, BuildHasherDefault<Fx>>;
+pub(crate) type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
+pub(crate) type FxSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 
 #[cfg(test)]
 mod tests {
@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn byte_strings_that_differ_only_in_trailing_zeros_hash_differently() {
         let hash = |bytes: &[u8]| {
-            let mut h = Fx::default();
+            let mut h = FxHasher::default();
             h.write(bytes);
             h.finish()
         };
@@ -77,7 +77,7 @@ mod tests {
         // Sequential ids must not all land in the same few buckets: the low bits of the hashes should vary.
         let low: FxSet<u64> = (0..256u64)
             .map(|i| {
-                let mut h = Fx::default();
+                let mut h = FxHasher::default();
                 h.write_u64(i);
                 h.finish() & 63
             })

@@ -8,7 +8,7 @@ impl Tilemap {
         let (y0, y1) = ((r.y / s).floor() as i32, ((r.y + r.h - 0.001) / s).floor() as i32);
         (y0..=y1).any(|ty| {
             (x0..=x1).any(|tx| {
-                self.solid(tx, ty)
+                self.is_solid(tx, ty)
                     && self.slope_at(tx, ty).is_none()
                     && (!self.one_way_at(tx, ty) || landing.is_some_and(|b| b <= ty as f32 * s + 0.001))
             })
@@ -145,7 +145,7 @@ impl Tilemap {
         }
         let (size, o) = (self.size as f32, from / self.size as f32);
         let (mut tx, mut ty) = (o.x.floor() as i32, o.y.floor() as i32);
-        if self.solid(tx, ty) {
+        if self.is_solid(tx, ty) {
             return Some(TileHit { t: 0.0, tile: (tx, ty), normal: Vec2::ZERO });
         }
         // Per axis: the step to the next cell, the t of the next cell border and the t between two borders.
@@ -168,7 +168,7 @@ impl Tilemap {
                 (ty, next_y) = (ty + sy, next_y + step_y);
                 Vec2::new(0.0, -sy as f32)
             };
-            if self.solid(tx, ty) {
+            if self.is_solid(tx, ty) {
                 return Some(TileHit { t, tile: (tx, ty), normal });
             }
             // Past the top or bottom and still going that way, with no side wall left to run into.
@@ -186,7 +186,7 @@ impl Tilemap {
         let mut out = Vec::new();
         for ty in y0..y1 {
             for tx in x0..x1 {
-                if self.solid(tx, ty) {
+                if self.is_solid(tx, ty) {
                     out.push(Rect::new(tx as f32 * s, ty as f32 * s, s, s));
                 }
             }

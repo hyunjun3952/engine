@@ -280,8 +280,8 @@ mod tests {
         let mut g = Gfx::new(40, 30);
         map.clear(0x404040);
         map.draw(&mut g);
-        assert_eq!(g.cmds().len(), 1);
-        let c = &g.cmds()[0];
+        assert_eq!(g.draw_cmds().len(), 1);
+        let c = &g.draw_cmds()[0];
         assert_eq!((c.style.blend, c.rect), (Blend::Multiply, Rect::new(0.0, 0.0, 40.0, 30.0)));
         let version = map.sprite.version();
         map.clear(0x808080);
@@ -299,7 +299,7 @@ mod tests {
         map.add(Light::new((50.0, 50.0), 30.0));
         map.draw(&mut g);
         let mut soft = Soft::new(100, 100, 1);
-        soft.render(g.cmds());
+        soft.render(g.draw_cmds());
         let at = |x: usize, y: usize| soft.buf[y * 100 + x] & 0xFF_FFFF;
         assert_eq!(at(5, 5), 0x404040, "the white floor is dark");
         assert!(at(49, 49) >= 0xfdfdfd, "and bright under the light: {:06x}", at(49, 49));

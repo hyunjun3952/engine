@@ -45,7 +45,7 @@ impl Soft {
         let (r, t) = (&c.rect, &c.xform);
         let Some((sheet, src, flip)) = c.paint.region() else { return false };
         let img = sheet.image();
-        if !img.holds(&src) {
+        if !img.contains_rect(&src) {
             return true;
         }
         let (sx0, sy0, w, h) = (src.x as usize, src.y as usize, src.w as usize, src.h as usize);
@@ -152,7 +152,7 @@ impl Soft {
 
     pub(super) fn blit_region(&mut self, s: &Sprite, src: Rect, at: &Rect, flip: bool, px: impl Fn(&mut u32, u32)) {
         let img = s.image();
-        if !img.holds(&src) {
+        if !img.contains_rect(&src) {
             return;
         }
         let (x, y) = (at.x.floor() as i32, at.y.floor() as i32);

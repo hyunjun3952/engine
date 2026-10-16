@@ -30,7 +30,7 @@ impl Soft {
 
     pub(super) fn glyph(&mut self, r: &Rect, ch: u8, color: u32, scale: u32) {
         let s = scale as f32;
-        for (row, bits) in font::bits(ch).into_iter().enumerate() {
+        for (row, bits) in font::glyph_rows(ch).into_iter().enumerate() {
             let mut col = 0;
             while col < 8 {
                 if bits >> col & 1 == 0 {
@@ -56,7 +56,7 @@ impl Soft {
     // The destination rect is the source scaled by a whole number, so each source pixel covers k by k.
     pub(super) fn mask(&mut self, s: &Sprite, src: Rect, at: &Rect, color: u32) {
         let img = s.image();
-        if !img.holds(&src) {
+        if !img.contains_rect(&src) {
             return;
         }
         let (x, y) = (at.x.floor() as i32, at.y.floor() as i32);

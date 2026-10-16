@@ -186,7 +186,7 @@ pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             continue;
         }
         drawn = true;
-        gfx.cam = ctx.cam.offset().into();
+        gfx.cam = ctx.cam.view_offset().into();
         gfx.zoom = ctx.cam.zoom();
         for s in &stack {
             s.draw(&mut gfx);
@@ -195,7 +195,7 @@ pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
             gfx.fill_alpha(Rect::new(0.0, 0.0, cfg.w as f32, cfg.h as f32), 0x000000, ctx.fade.alpha());
         }
         if gfx.debug {
-            let line = format!("FPS {} TPS {} {:.2}ms cmds {}", stats.fps, stats.tps, stats.ms, gfx.cmds().len());
+            let line = format!("FPS {} TPS {} {:.2}ms cmds {}", stats.fps, stats.tps, stats.ms, gfx.draw_cmds().len());
             #[cfg(feature = "gpu")]
             let line = match &backend {
                 Backend::Gpu(gpu) => format!("{line} batches {}", gpu.batches()),
@@ -225,18 +225,18 @@ pub fn run(mut cfg: Config, first: impl FnOnce(&mut Ctx) -> Box<dyn Scene>) {
         let presenting = Instant::now();
         match &mut backend {
             Backend::Soft(soft) => {
-                soft.render(gfx.cmds());
+                soft.render(gfx.draw_cmds());
                 win.update_with_buffer(soft.present(), cfg.w * scale, cfg.h * scale).expect("present");
             }
             #[cfg(feature = "gpu")]
             Backend::Gpu(gpu) => {
-                gpu.render(gfx.cmds());
+                gpu.render(gfx.draw_cmds());
                 win.update();
             }
         }
         stats.present += presenting.elapsed().as_secs_f32();
         presented += 1;
-        gfx.reset();
+        gfx.clear_cmds();
     }
     apply(&mut stack, Trans::Quit, &mut ctx);
 }
