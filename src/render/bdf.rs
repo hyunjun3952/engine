@@ -1,3 +1,4 @@
+use crate::base::in_file;
 use crate::{Rect, Sprite};
 use std::{ops::Range, sync::Arc};
 
@@ -31,7 +32,7 @@ impl Font {
     /// Reads a BDF file.
     pub fn load(path: &str) -> Result<Font, String> {
         let text = crate::base::read_text(path)?;
-        Font::parse(&text).map_err(|e| format!("{path}: {e}"))
+        Font::parse(&text).map_err(in_file(path))
     }
 
     /// Reads BDF text.

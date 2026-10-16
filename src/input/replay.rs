@@ -1,5 +1,6 @@
 use super::pad::{PADS, Pad};
 use super::{Input, KEYS, Key};
+use crate::base::in_file;
 
 /// What the player was holding for one fixed step. Analog axes, the wheel and typed characters are not recorded.
 #[derive(Clone, Debug, PartialEq)]
@@ -99,7 +100,7 @@ impl Tape {
         if let Some(path) = std::env::var_os("ENGINE_REPLAY") {
             let path = path.to_string_lossy().into_owned();
             let text = crate::base::read_text(&path)?;
-            let rec = Recording::parse(&text).map_err(|e| format!("{path}: {e}"))?;
+            let rec = Recording::parse(&text).map_err(in_file(&path))?;
             return match rec.hz {
                 Some(at) if at != hz => Err(format!("{path}: recorded at {at} steps a second, the game runs at {hz}")),
                 _ => Ok(Tape::Play(rec, 0)),

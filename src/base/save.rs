@@ -1,3 +1,4 @@
+use crate::base::in_file;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -61,7 +62,7 @@ impl Save {
     /// A missing file is an empty save; a malformed one is an error so a hand-edited file is never silently dropped.
     pub fn load(path: &str) -> Result<Save, String> {
         match crate::base::read_text_if_exists(path)? {
-            Some(text) => Save::parse(&text).map_err(|e| format!("{path}: {e}")),
+            Some(text) => Save::parse(&text).map_err(in_file(path)),
             None => Ok(Save::new()),
         }
     }

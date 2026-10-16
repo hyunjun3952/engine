@@ -1,3 +1,4 @@
+use crate::base::in_file;
 use crate::level::path::astar;
 use crate::{DrawCmd, Paint, Rect, Sprite, Vec2};
 use std::sync::{
@@ -179,7 +180,7 @@ impl Tilemap {
         let text = crate::base::read_text(path)?;
         // Only newlines are trimmed: a space is an empty tile, so a last row may end in them.
         let rows: Vec<&str> = text.trim_end_matches(['\n', '\r']).lines().collect();
-        Tilemap::try_from_ascii_with(&rows, size, sheet, legend).map_err(|e| format!("{path}: {e}"))
+        Tilemap::try_from_ascii_with(&rows, size, sheet, legend).map_err(in_file(path))
     }
 
     /// The pixel position of every cell marked with `c`.

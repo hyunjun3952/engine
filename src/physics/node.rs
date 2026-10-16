@@ -113,6 +113,10 @@ pub(super) fn sub(a: V2, b: V2) -> V2 {
     (a.0 - b.0, a.1 - b.1)
 }
 
+pub(super) fn len(v: V2) -> f32 {
+    dot(v, v).sqrt()
+}
+
 pub(super) fn dot(a: V2, b: V2) -> f32 {
     a.0 * b.0 + a.1 * b.1
 }

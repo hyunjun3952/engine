@@ -1,3 +1,4 @@
+use crate::base::in_file;
 use crate::base::save::{escape, unescape};
 use crate::{Body, Collider, Entity, Filter, Layer, Rect, Transform, Vel, World};
 use hecs::{EntityBuilder, EntityRef};
@@ -241,7 +242,7 @@ impl WorldFile {
     /// `spawn_from` the text of a file; a missing file is an error here, unlike `Save`.
     pub fn load(&self, world: &mut World, path: &str) -> Result<Vec<Entity>, String> {
         let text = crate::base::read_text(path)?;
-        self.spawn_from(world, &text).map_err(|e| format!("{path}: {e}"))
+        self.spawn_from(world, &text).map_err(in_file(path))
     }
 }
 

@@ -7,7 +7,7 @@ mod sprite;
 mod time;
 mod vec2;
 
-pub(crate) use io::{env_flag, read_text, read_text_if_exists, write_atomic};
+pub(crate) use io::{env_flag, in_file, read_text, read_text_if_exists, write_atomic};
 pub use rect::Rect;
 pub use rng::Rng;
 pub use save::{Save, data_dir};

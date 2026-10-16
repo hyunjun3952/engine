@@ -1,6 +1,11 @@
+/// For `map_err`: names `path` in an error.
+pub(crate) fn in_file<E: std::fmt::Display>(path: &str) -> impl Fn(E) -> String + '_ {
+    move |e| format!("{path}: {e}")
+}
+
 /// The text of a file, with the path in the error.
 pub(crate) fn read_text(path: &str) -> Result<String, String> {
-    std::fs::read_to_string(path).map(strip_bom).map_err(|e| format!("{path}: {e}"))
+    std::fs::read_to_string(path).map(strip_bom).map_err(in_file(path))
 }
 
 fn strip_bom(text: String) -> String {

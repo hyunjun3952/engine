@@ -1,4 +1,5 @@
 use super::tilemap::{Slope, Tilemap, tile_count};
+use crate::base::in_file;
 use crate::{Rect, Sprite};
 use std::sync::Arc;
 
@@ -246,7 +247,7 @@ impl Tiled {
         let text = crate::base::read_text(path)?;
         let dir = std::path::Path::new(path).parent().map(std::path::Path::to_path_buf).unwrap_or_default();
         let read = |source: &str| crate::base::read_text(&dir.join(source).to_string_lossy());
-        Tiled::parse(&text, read, sheet).map_err(|e| format!("{path}: {e}"))
+        Tiled::parse(&text, read, sheet).map_err(in_file(path))
     }
 
     /// Like `load` from text, with `read` giving the text of an external tileset file (`.tsx`) by its `source`.

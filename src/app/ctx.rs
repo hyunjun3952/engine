@@ -1,4 +1,5 @@
 use super::fade::Fade;
+use crate::base::in_file;
 use crate::{Assets, Audio, Camera, Input, Key, Pad, Rng, Vec2};
 
 /// What a scene reaches during `update`: input, assets, audio, the camera, the random generator and the step length.
@@ -92,7 +93,7 @@ impl Ctx {
         self.watch(path);
         let base = self.base.get_or_insert_with(|| self.input.bindings());
         let text = crate::base::read_text_if_exists(path)?.unwrap_or_default();
-        self.input.load_over(&text, base).map_err(|e| format!("{path}: {e}"))
+        self.input.load_over(&text, base).map_err(in_file(path))
     }
 
     /// Writes the bindings, only those that differ from what the game had bound when it first called

@@ -126,10 +126,15 @@ impl ScrollList {
         ((self.rect.h as i32) / row_metrics(font).0).max(1) as usize
     }
 
-    // Keeps the window on the list and the highlighted row inside it.
-    fn settle(&mut self, rows: usize) {
+    // Keeps the highlight and the window on the list.
+    fn clamp(&mut self, rows: usize) {
         self.sel = self.sel.min(self.items.len().saturating_sub(1));
         self.top = self.top.min(self.items.len().saturating_sub(rows));
+    }
+
+    // Also brings the highlighted row into the window.
+    fn settle(&mut self, rows: usize) {
+        self.clamp(rows);
         if self.sel < self.top {
             self.top = self.sel;
         } else if self.sel >= self.top + rows {
@@ -158,8 +163,7 @@ impl ScrollList {
             let max = self.items.len().saturating_sub(rows) as isize;
             self.top = (self.top as isize - 3 * input.wheel().signum() as isize).clamp(0, max) as usize;
         }
-        self.sel = self.sel.min(self.items.len().saturating_sub(1));
-        self.top = self.top.min(self.items.len().saturating_sub(rows));
+        self.clamp(rows);
         if let Some(Vec2 { y, .. }) = input.mouse().filter(|_| clicked(input, r)) {
             let row = self.top + ((y - r.y) as i32 / step) as usize;
             if row < self.items.len() {

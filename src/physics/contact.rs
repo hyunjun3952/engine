@@ -1,6 +1,6 @@
 // Making contacts: where two shapes touch, the normal between them and how deep, for every pair of shapes.
 
-use super::{Node, Pt, Pts, V2, dot, sub};
+use super::{Node, Pt, Pts, V2, dot, len, sub};
 use crate::{Rect, Vec2};
 
 pub(super) struct Touch {
@@ -23,7 +23,7 @@ pub(super) fn touch(a: &Node, b: &Node, tile_axes_only: bool) -> Option<Touch> {
             let (ca, cb) = (a.center(), b.center());
             let (dx, dy) = sub(cb, ca);
             let reach = a.radius() + b.radius();
-            let dist = (dx * dx + dy * dy).sqrt();
+            let dist = len((dx, dy));
             if dist >= reach {
                 return None;
             }
@@ -200,8 +200,8 @@ impl Poly {
     fn normal(&self, i: usize) -> V2 {
         let (p, q) = (self.v[i], self.v[(i + 1) % self.n]);
         let (ex, ey) = sub(q, p);
-        let len = (ex * ex + ey * ey).sqrt().max(1e-9);
-        let n = (ey / len, -ex / len);
+        let length = len((ex, ey)).max(1e-9);
+        let n = (ey / length, -ex / length);
         let centre = self.corners().iter().fold((0.0, 0.0), |s, c| (s.0 + c.0, s.1 + c.1));
         let inside = sub((centre.0 / self.n as f32, centre.1 / self.n as f32), p);
         if dot(n, inside) > 0.0 { (-n.0, -n.1) } else { n }
@@ -239,9 +239,9 @@ fn slope_touch(a: &Node, triangle: [V2; 3]) -> Option<Touch> {
     let (r0, r1) = (r.v[edge], r.v[(edge + 1) % r.n]);
     let incident = (0..i.n).min_by(|&x, &y| dot(i.normal(x), nr).total_cmp(&dot(i.normal(y), nr))).unwrap();
     let mut seg = [i.v[incident], i.v[(incident + 1) % i.n]];
-    let (tx, ty) = (r1.0 - r0.0, r1.1 - r0.1);
-    let len = (tx * tx + ty * ty).sqrt().max(1e-9);
-    let t = (tx / len, ty / len);
+    let (tx, ty) = sub(r1, r0);
+    let length = len((tx, ty)).max(1e-9);
+    let t = (tx / length, ty / length);
     for (from, sign) in [(r0, 1.0), (r1, -1.0)] {
         let inside = |p: V2| sign * dot(sub(p, from), t);
         let (d0, d1) = (inside(seg[0]), inside(seg[1]));

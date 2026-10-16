@@ -1,4 +1,5 @@
 use super::Rect;
+use crate::base::in_file;
 use std::sync::{
     RwLock, RwLockReadGuard,
     atomic::{AtomicU64, Ordering},
@@ -94,7 +95,7 @@ impl Sprite {
 }
 
 fn decode(path: &str) -> Result<Image, String> {
-    let img = image::open(path).map_err(|e| format!("{path}: {e}"))?.to_rgba8();
+    let img = image::open(path).map_err(in_file(path))?.to_rgba8();
     let px = img.pixels().map(|p| u32::from_be_bytes([p[3], p[0], p[1], p[2]])).collect();
     Ok(Image { w: img.width() as usize, h: img.height() as usize, px })
 }

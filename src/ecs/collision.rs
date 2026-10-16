@@ -197,6 +197,11 @@ pub struct OverlapChanges {
     pub ended: Vec<(Entity, Entity)>,
 }
 
+// Two entities as an unordered pair: the smaller first.
+fn pair(a: Entity, b: Entity) -> (Entity, Entity) {
+    (a.min(b), a.max(b))
+}
+
 impl Overlaps {
     /// Nothing is touching yet.
     pub fn new() -> Self {
@@ -205,7 +210,7 @@ impl Overlaps {
 
     /// Takes this step's contacts and returns what began and ended since the last call.
     pub fn update(&mut self, contacts: &[Contact]) -> OverlapChanges {
-        let now: FxSet<(Entity, Entity)> = contacts.iter().map(|c| (c.a.min(c.b), c.a.max(c.b))).collect();
+        let now: FxSet<(Entity, Entity)> = contacts.iter().map(|c| pair(c.a, c.b)).collect();
         let mut began: Vec<_> = now.difference(&self.pairs).copied().collect();
         let mut ended: Vec<_> = self.pairs.difference(&now).copied().collect();
         began.sort();
@@ -216,7 +221,7 @@ impl Overlaps {
 
     /// True if the two overlapped at the last `update`.
     pub fn touching(&self, a: Entity, b: Entity) -> bool {
-        self.pairs.contains(&(a.min(b), a.max(b)))
+        self.pairs.contains(&pair(a, b))
     }
 }
 
@@ -256,12 +261,11 @@ mod tests {
         let mut o = Overlaps::new();
         assert_eq!(o.update(&collisions(&w)), OverlapChanges::default());
         w.get::<&mut Body>(b).unwrap().0.x = 5.0;
-        let pair = (a.min(b), a.max(b));
-        assert_eq!(o.update(&collisions(&w)), OverlapChanges { began: vec![pair], ended: vec![] });
+        assert_eq!(o.update(&collisions(&w)), OverlapChanges { began: vec![pair(a, b)], ended: vec![] });
         assert!(o.touching(b, a));
         assert_eq!(o.update(&collisions(&w)), OverlapChanges::default(), "still touching is no news");
         w.despawn(b).unwrap();
-        assert_eq!(o.update(&collisions(&w)), OverlapChanges { began: vec![], ended: vec![pair] });
+        assert_eq!(o.update(&collisions(&w)), OverlapChanges { began: vec![], ended: vec![pair(a, b)] });
         assert!(!o.touching(a, b));
     }
 
