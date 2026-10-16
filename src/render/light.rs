@@ -174,7 +174,7 @@ mod tests {
     use crate::render::Soft;
     use crate::{Blend, Rect};
 
-    // The plain per-pixel loop `add` once was; the fast one must give the same bits.
+    // The plain per-pixel loop; the fast `add` must give the same bits.
     fn reference(px: &mut [u32], w: usize, h: usize, l: Light) {
         let (cr, cg, cb) = ((l.color >> 16 & 255) as f32, (l.color >> 8 & 255) as f32, (l.color & 255) as f32);
         for (i, at) in px.iter_mut().enumerate().take(w * h) {

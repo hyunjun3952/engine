@@ -150,7 +150,7 @@ impl Font {
             let src = Rect::new(gx as f32, gy as f32, w as f32, h as f32);
             glyphs.push((g.ch, Glyph { src, xoff, yoff: ascent - yoff - h, advance: g.advance }));
         }
-        // A character listed twice keeps its later entry, as it did when these went into a map.
+        // A character listed twice keeps its later entry.
         glyphs.reverse();
         glyphs.sort_by_key(|g| g.0);
         glyphs.dedup_by_key(|g| g.0);

@@ -127,7 +127,7 @@ impl Tile {
 }
 
 // How many `size` pixel squares the sheet holds: ids run along each row in turn (a sheet shorter than one tile counts
-// as a single row, as it always did).
+// as a single row).
 pub(super) fn tile_count(sheet: &Sprite, size: usize) -> usize {
     let (w, h) = sheet.size();
     (w / size) * (h / size).max(1)

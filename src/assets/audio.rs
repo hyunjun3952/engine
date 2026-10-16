@@ -242,7 +242,7 @@ impl Mix {
 ///
 /// fn jump(ctx: &mut Ctx) {
 ///     ctx.audio().play_with("assets/sounds/jump.wav", Sound::new().pitch(1.1));
-///     ctx.audio().music("assets/sounds/theme.wav");
+///     ctx.audio().music("assets/sounds/coin.wav");
 /// }
 /// ```
 pub struct Audio {

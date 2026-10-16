@@ -255,7 +255,7 @@ fn bench() {
 #[test]
 #[ignore]
 fn shake() {
-    // Visible shaking in the physics example's scene (bodies start apart): over 8 seeds, how often an awake body's
+    // Visible shaking in a walled arena (bodies start apart): over 8 seeds, how often an awake body's
     // centre moves more than 1.5 px (or 6 px) in one step after the first second, when the pile is asleep for good
     // (a body under the floor does not count as awake; `under the floor` reports those), how many bodies end under
     // the floor, and what a step costs.
