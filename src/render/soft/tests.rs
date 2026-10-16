@@ -87,19 +87,14 @@ fn blend_stays_within_one_of_the_exact_division_and_is_exact_at_the_ends() {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
 #[test]
-fn the_avx2_path_gives_exactly_the_same_pixels_as_the_plain_one() {
-    if !std::is_x86_feature_detected!("avx2") {
-        eprintln!("no AVX2, skipping");
-        return;
-    }
+fn a_row_blends_exactly_as_one_pixel_at_a_time_does() {
     let base: Vec<u32> = (0..4099u32).map(|i| i.wrapping_mul(2654435761) & 0x00ff_ffff).collect();
     for (src, a) in [(0x336699, 150), (0xffffff, 1), (0x000000, 254), (0xdeadbe, 128), (0x123456, 0), (0x123456, 255)] {
-        let (mut plain, mut fast) = (base.clone(), base.clone());
-        blend_row_plain(&mut plain, src, a);
-        unsafe { blend_row_avx2(&mut fast, src, a) };
-        assert!(plain == fast, "src {src:x} a {a}");
+        let mut row = base.clone();
+        blend_row(&mut row, src, a);
+        let each: Vec<u32> = base.iter().map(|&d| blend(src, d, a)).collect();
+        assert!(row == each, "src {src:x} a {a}");
     }
 }
 

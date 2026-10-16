@@ -44,26 +44,16 @@ pub(super) fn put(d: &mut u32, p: u32) {
     }
 }
 
-#[inline(always)]
-pub(super) fn blend_row_plain(row: &mut [u32], src: u32, a: u32) {
-    for px in row {
-        *px = blend(src, *px, a);
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-pub(super) fn blend_row_avx2(row: &mut [u32], src: u32, a: u32) {
-    blend_row_plain(row, src, a);
-}
-
+// Each channel stays in 16 bits (255 * 256 fits), which the base x86-64 vector unit can multiply, unlike 32 bits.
 pub(super) fn blend_row(row: &mut [u32], src: u32, a: u32) {
-    #[cfg(target_arch = "x86_64")]
-    if std::is_x86_feature_detected!("avx2") {
-        // SAFETY: the CPU just reported AVX2 support.
-        return unsafe { blend_row_avx2(row, src, a) };
+    let a = (a + (a >> 7)) as u16;
+    let inv = 256 - a;
+    let [b, g, r, _] = src.to_le_bytes().map(|c| c as u16 * a);
+    for px in row {
+        let [db, dg, dr, _] = px.to_le_bytes();
+        let ch = |s: u16, d: u8| ((s + d as u16 * inv) >> 8) as u8;
+        *px = u32::from_le_bytes([ch(b, db), ch(g, dg), ch(r, dr), 0]);
     }
-    blend_row_plain(row, src, a);
 }
 
 pub(super) fn upscale(src: &[u32], w: usize, scale: usize, dst: &mut [u32]) {
