@@ -60,6 +60,9 @@ impl Recording {
         let mut frames = Vec::new();
         for (i, line) in lines.enumerate() {
             let bad = |why: String| format!("line {}: {why}", i + 2);
+            if line.trim().is_empty() {
+                continue;
+            }
             let words: Vec<&str> = line.split_whitespace().collect();
             let [keys, pads, mouse, buttons] = words[..] else { return Err(bad("expected four words".into())) };
             let mouse = match mouse {
@@ -199,6 +202,12 @@ mod tests {
             let e = Recording::parse(text).unwrap_err();
             assert!(e.contains(want), "{text:?}: {e}");
         }
+    }
+
+    #[test]
+    fn blank_lines_are_skipped_but_still_counted_in_errors() {
+        assert_eq!(Recording::parse("seed 1\n\n- - - 00000\n\n").unwrap().frames.len(), 1);
+        assert!(Recording::parse("seed 1\n\nSpace\n").unwrap_err().starts_with("line 3:"));
     }
 
     #[test]

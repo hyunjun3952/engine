@@ -29,7 +29,7 @@ pub trait Persist: Sized + Send + Sync + 'static {
     fn read(text: &str) -> Option<Self>;
 }
 
-/// The parse_numbers of a line like `1 2.5 3`, exactly `N` of them.
+/// The numbers of a line like `1 2.5 3`, exactly `N` of them.
 pub(crate) fn parse_numbers<const N: usize>(text: &str) -> Option<[f32; N]> {
     let mut it = text.split_whitespace().map(|v| v.parse::<f32>().ok().filter(|v| v.is_finite()));
     let mut out = [0.0; N];
@@ -51,7 +51,16 @@ macro_rules! persist_by_parse {
         }
     )*};
 }
-persist_by_parse!(f32, i32, u32, bool);
+persist_by_parse!(i32, u32, bool);
+
+impl Persist for f32 {
+    fn write(&self) -> String {
+        self.to_string()
+    }
+    fn read(text: &str) -> Option<Self> {
+        text.trim().parse().ok().filter(|v: &f32| v.is_finite())
+    }
+}
 
 impl Persist for String {
     fn write(&self) -> String {
@@ -313,6 +322,12 @@ impl Rewind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_float_that_is_not_finite_does_not_read() {
+        assert_eq!(f32::read(" 2.5 "), Some(2.5));
+        assert_eq!((f32::read("NaN"), f32::read("inf")), (None, None));
+    }
     use crate::RigidBody;
 
     #[derive(Debug, PartialEq)]
