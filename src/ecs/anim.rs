@@ -314,6 +314,15 @@ impl AnimStates {
         self.states[self.current].0
     }
 
+    /// Puts the thing back in state `name` with `anim` where `state` was, after a load: it starts the clip and restores
+    /// the position in one go. Panics on a name that was not added, like `set`.
+    pub fn restore(&mut self, anim: &mut Anim, name: &str, state: &AnimState) {
+        self.current = self.index(name);
+        (self.wanted, self.started) = (None, true);
+        anim.start(&self.states[self.current].1);
+        anim.restore(state);
+    }
+
     fn sync(&mut self, anim: &mut Anim) {
         assert!(!self.states.is_empty(), "AnimStates has no states");
         let next = self.wanted.take().or_else(|| {
@@ -360,6 +369,22 @@ mod tests {
 
     fn anim() -> Anim {
         Anim::new(Arc::new(Sprite::new(40, 20, vec![0; 800])), 10, 10)
+    }
+
+    #[test]
+    fn restore_puts_back_the_state_and_the_position() {
+        let states =
+            || AnimStates::new().state("idle", Clip::new(0, 4, 10.0)).state("hit", Clip::new(1, 4, 10.0).once());
+        let (mut s, mut a) = (states(), anim());
+        s.set("hit");
+        s.sync(&mut a);
+        a.advance(0.25);
+        let (name, saved) = (s.current(), a.state());
+
+        let (mut s2, mut b) = (states(), anim());
+        s2.restore(&mut b, name, &saved);
+        s2.sync(&mut b);
+        assert_eq!((s2.current(), b.state(), b.frame()), ("hit", saved, a.frame()));
     }
 
     fn frames(a: &mut Anim, steps: usize, dt: f32) -> Vec<usize> {
