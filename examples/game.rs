@@ -848,25 +848,27 @@ mod pause {
     impl Pause {
         pub fn new(ctx: &mut Ctx, quit: Rc<Cell<bool>>) -> Self {
             let font = ctx.assets().font("assets/fonts/galmuri9.bdf");
-            Pause {
-                font,
-                menu: ScrollList::menu(260, 130, &["계속", "키 바꾸기", "전체 화면", "타이틀로"]),
-                rebind: None,
-                quit,
-            }
+            let mut menu = ScrollList::menu(260, 130, &["계속", "", "키 바꾸기", "전체 화면", "타이틀로"]);
+            menu.set_item(1, volume_label(ctx.audio().volume()));
+            Pause { font, menu, rebind: None, quit }
         }
+    }
+
+    fn volume_label(v: f32) -> String {
+        format!("소리: < {}/10 >", (v * 10.0).round())
     }
 
     impl Scene for Pause {
         fn update(&mut self, ctx: &mut Ctx) -> Trans {
             if let Some(rebind) = &mut self.rebind {
+                let was_waiting = rebind.waiting();
                 if rebind.update(ctx)
                     && let Some(path) = super::bindings_file()
                     && let Err(e) = ctx.save_bindings(&path)
                 {
                     eprintln!("{e}");
                 }
-                if !rebind.waiting() && ctx.input().key_pressed(Key::Escape) {
+                if !was_waiting && ctx.input().key_pressed(Key::Escape) {
                     self.rebind = None;
                 }
                 return Trans::None;
@@ -874,10 +876,21 @@ mod pause {
             if ctx.input().pressed("back") {
                 return Trans::Pop;
             }
+            let step = ctx.input().repeated("right") as i32 - ctx.input().repeated("left") as i32;
+            if self.menu.selected() == 1 && step != 0 {
+                let v = ((ctx.audio().volume() * 10.0).round() + step as f32).clamp(0.0, 10.0) / 10.0;
+                ctx.audio().set_volume(v);
+                self.menu.set_item(1, volume_label(v));
+                ctx.audio().play("assets/sounds/coin.wav");
+                let mut save = super::load_save();
+                save.set("volume", v);
+                super::store_save(&save);
+            }
             match self.menu.update(ctx.input(), &self.font, "up", "down", "accept") {
                 Some(0) => return Trans::Pop,
-                Some(1) => self.rebind = Some(Rebind::new(ctx.input(), 200, 80)),
-                Some(2) => ctx.toggle_fullscreen(),
+                Some(2) => self.rebind = Some(Rebind::new(ctx.input(), 200, 80)),
+                Some(3) => ctx.toggle_fullscreen(),
+                Some(1) => {}
                 Some(_) => {
                     self.quit.set(true);
                     return Trans::Pop;
@@ -1018,6 +1031,8 @@ fn main() {
         {
             eprintln!("{e}");
         }
+        let volume: f32 = load_save().get_or("volume", 1.0);
+        ctx.audio().set_volume(if volume.is_finite() { volume } else { 1.0 });
         match start {
             Some(n) if n < level::STAGES.len() => Box::new(stage::Stage::new(ctx, n, 0)) as Box<dyn Scene>,
             _ => Box::new(title::Title::new(ctx)),
