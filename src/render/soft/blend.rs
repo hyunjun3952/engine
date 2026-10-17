@@ -57,14 +57,35 @@ pub(super) fn blend_row(row: &mut [u32], src: u32, a: u32) {
 }
 
 pub(super) fn upscale(src: &[u32], w: usize, scale: usize, dst: &mut [u32]) {
-    let out_w = w * scale;
-    for (y, row) in src.chunks_exact(w).enumerate() {
-        let first = y * scale * out_w;
-        for (px, run) in row.iter().zip(dst[first..first + out_w].chunks_exact_mut(scale)) {
+    match scale {
+        2 => upscale_by::<2>(src, w, dst),
+        3 => upscale_by::<3>(src, w, dst),
+        4 => upscale_by::<4>(src, w, dst),
+        _ => {
+            let out_w = w * scale;
+            for (y, row) in src.chunks_exact(w).enumerate() {
+                let first = y * scale * out_w;
+                for (px, run) in row.iter().zip(dst[first..first + out_w].chunks_exact_mut(scale)) {
+                    run.fill(*px);
+                }
+                for k in 1..scale {
+                    dst.copy_within(first..first + out_w, first + k * out_w);
+                }
+            }
+        }
+    }
+}
+
+// A constant factor lets the compiler unroll the run fill.
+fn upscale_by<const K: usize>(src: &[u32], w: usize, dst: &mut [u32]) {
+    let out_w = w * K;
+    for (row, block) in src.chunks_exact(w).zip(dst.chunks_exact_mut(out_w * K)) {
+        let (first, rest) = block.split_at_mut(out_w);
+        for (px, run) in row.iter().zip(first.as_chunks_mut::<K>().0) {
             run.fill(*px);
         }
-        for k in 1..scale {
-            dst.copy_within(first..first + out_w, first + k * out_w);
+        for copy in rest.chunks_exact_mut(out_w) {
+            copy.copy_from_slice(first);
         }
     }
 }
