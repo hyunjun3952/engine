@@ -18,7 +18,7 @@ The window needs an X display (WSLg works). `minifb` is built with the `x11` fea
 
 ## Workflow
 
-- pre-commit and CI check Conventional Commits, fmt, clippy (default and `--no-default-features`), rustdoc and tests; the MSRV is Rust 1.90.
+- pre-commit checks Conventional Commits; pre-commit and CI both check fmt, clippy (default and `--no-default-features`), rustdoc and tests; the MSRV is Rust 1.90.
 - When asked to commit and push, commit on `main` and push `main` directly (no feature branch, no PR).
 - Keep changes minimal; measure before optimizing (see `src/bench.rs`). Put measurements in commit messages, not here.
 
