@@ -174,10 +174,11 @@ impl Physics {
             })
         });
         // Whatever a sleeper rested on may be gone (a despawned body or wall, a dug tile) or pulling another way.
-        let changed = (self.known != ents && self.known.iter().any(|e| !index.contains_key(e)))
+        let moved = self.known != ents;
+        let changed = (moved && self.known.iter().any(|e| !index.contains_key(e)))
             || self.gravity != self.last_gravity
             || tiles != self.last_tiles;
-        if self.known != ents {
+        if moved {
             self.known = ents.to_vec();
         }
         self.last_gravity = self.gravity;
@@ -187,13 +188,12 @@ impl Physics {
         if changed {
             self.rest.values_mut().for_each(|r| r.asleep = None);
         }
-        let movers: Vec<Rect> = ents
+        let mut movers: Vec<Rect> = ents
             .iter()
             .zip(nodes.iter())
             .filter(|(e, n)| n.inv_mass > 0.0 && !self.asleep(**e) && speed(n) > WAKE_SPEED)
             .map(|(_, n)| grow(n.bounds(), speed(n) * dt + 1.0))
             .collect();
-        let mut movers = movers;
         let mut walls = FxMap::default();
         for (e, n) in ents.iter().zip(nodes.iter()).filter(|(_, n)| n.inv_mass == 0.0) {
             // A wall that moved, or one that stopped holding things (a trapdoor clearing its filter), wakes them.

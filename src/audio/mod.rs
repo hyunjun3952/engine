@@ -352,16 +352,19 @@ impl Audio {
     }
 
     #[cfg(feature = "audio")]
-    fn read(path: &str) -> Option<Cursor<Arc<[u8]>>> {
-        let bytes: Arc<[u8]> = std::fs::read(path).inspect_err(|e| eprintln!("{path}: {e}")).ok()?.into();
-        Some(Cursor::new(bytes))
+    fn read(path: &str) -> Option<Arc<[u8]>> {
+        Some(std::fs::read(path).inspect_err(|e| eprintln!("{path}: {e}")).ok()?.into())
     }
 
     #[cfg(feature = "audio")]
     // Effects are kept, a missing one too so it is reported once; music is read when it starts and not kept.
     fn open(&mut self, path: &str) -> Option<Cursor<Arc<[u8]>>> {
-        let entry = self.dev.files.entry(path.to_string()).or_insert_with(|| Audio::read(path).map(Cursor::into_inner));
-        entry.clone().map(Cursor::new)
+        if let Some(known) = self.dev.files.get(path) {
+            return known.clone().map(Cursor::new);
+        }
+        let bytes = Audio::read(path);
+        self.dev.files.insert(path.to_string(), bytes.clone());
+        bytes.map(Cursor::new)
     }
 
     /// Plays a sound file once.
@@ -432,7 +435,7 @@ impl Audio {
         if self.dev.out.is_none() {
             return false;
         }
-        let Some(data) = Audio::read(path) else { return false };
+        let Some(data) = Audio::read(path).map(Cursor::new) else { return false };
         let Some(out) = &self.dev.out else { return false };
         match Decoder::new_looped(data) {
             Ok(src) => {

@@ -44,8 +44,7 @@ impl Physics {
 
     // Every call hands out a fresh id, also one that adds nothing (`has_joint` then says so).
     pub(super) fn join(&mut self, a: Entity, b: Entity, kind: Kind) -> JointId {
-        self.joint_ids += 1;
-        let id = JointId(self.joint_ids);
+        let id = self.no_joint();
         self.joints.push(Joint { id, a, b, kind });
         id
     }

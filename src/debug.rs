@@ -262,7 +262,7 @@ impl Console {
                 (Some(i), _) => (i + 1).min(self.history.len() - 1),
             };
             self.recall = Some(at);
-            self.field.set(&self.history[at].clone());
+            self.field.set(&self.history[at]);
         }
         if !self.field.update(input) {
             return None;
@@ -274,8 +274,9 @@ impl Console {
             return None;
         }
         self.print(format!("> {line}"));
-        self.history.push(line.clone());
-        Command::parse(&line)
+        let cmd = Command::parse(&line);
+        self.history.push(line);
+        cmd
     }
 
     /// The lower half of the screen, with the newest lines and the line being typed.

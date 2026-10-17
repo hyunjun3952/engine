@@ -128,7 +128,7 @@ impl Gfx {
 
     /// Draws a sprite with its top-left corner at `x`, `y`.
     pub fn blit(&mut self, s: &Arc<Sprite>, x: i32, y: i32) {
-        self.push(Rect { x: x as f32, y: y as f32, ..s.bounds() }, Paint::Sprite(s.clone()));
+        self.blit_styled(s, x, y, Style::PLAIN);
     }
 
     /// `blit` with a `Style`, for a flash or fade on something drawn straight to the screen.

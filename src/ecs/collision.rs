@@ -72,7 +72,7 @@ impl Sweep {
             return self.order.sort_unstable_by(by_x);
         }
         self.order.retain(|&i| (i as usize) < n);
-        self.order.extend((have as u32..n as u32).filter(|_| have < n));
+        self.order.extend(have as u32..n as u32);
         let (mut moved, order) = (0, &mut self.order);
         for i in 1..n {
             let (cur, key) = (order[i], rects[order[i] as usize].x);

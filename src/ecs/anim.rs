@@ -193,7 +193,7 @@ impl Anim {
         }
         let total = self.clip.total();
         let (from, to) = (self.t, self.t + dt);
-        if let Some(events) = self.clip.events.clone() {
+        if let Some(events) = &self.clip.events {
             for &(frame, name) in events.iter().filter(|e| e.0 < self.clip.frames()) {
                 let at = self.clip.start(frame);
                 // Every time the event's moment comes round inside this step (a looping clip may wrap once).

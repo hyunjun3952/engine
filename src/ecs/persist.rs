@@ -298,8 +298,10 @@ impl Rewind {
     /// saved then and returned, and the snapshots after it are dropped. An `Err` leaves the world and the snapshots as
     /// they were.
     pub fn back(&mut self, file: &WorldFile, world: &mut World, steps: usize) -> Result<Vec<Entity>, String> {
-        let at = self.frames.len().checked_sub(steps.clamp(1, self.frames.len().max(1))).filter(|_| !self.is_empty());
-        let at = at.ok_or("no snapshot to go back to")?;
+        if self.is_empty() {
+            return Err("no snapshot to go back to".into());
+        }
+        let at = self.frames.len() - steps.clamp(1, self.frames.len());
         let old: Vec<Entity> = world.iter().map(|e| e.entity()).collect();
         let made = file.spawn_from(world, &self.frames[at])?;
         old.into_iter().for_each(|e| drop(world.despawn(e)));
