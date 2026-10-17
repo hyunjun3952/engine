@@ -1017,7 +1017,7 @@ pub fn bindings_file() -> Option<String> {
 
 fn main() {
     let start = std::env::args().nth(1).and_then(|s| s.parse::<usize>().ok());
-    engine::run(Config { title: "tower", scale: 2, ..Config::default() }, move |ctx| {
+    engine::run(Config { title: "tower", scale: 2, fullscreen: true, ..Config::default() }, move |ctx| {
         ctx.bind("left", &[Key::Left, Key::A]);
         ctx.bind("right", &[Key::Right, Key::D]);
         ctx.bind("jump", &[Key::Space, Key::Up, Key::W]);
