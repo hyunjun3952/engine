@@ -194,7 +194,7 @@ fn transformed_scene() -> Gfx {
             1.0,
             1.0,
         ),
-        cmd(at(50.0, 50.0, 12.0, 24.0), Paint::Region { sheet: player.clone(), src: frame, flip: true }, 0.7, 2.0, 2.0),
+        cmd(at(50.0, 50.0, 12.0, 24.0), Paint::Region { sheet: player, src: frame, flip: true }, 0.7, 2.0, 2.0),
         cmd(at(100.0, 50.0, 30.0, 12.0), Paint::Color(0xff4040), 0.4, 1.0, 1.0),
         cmd(at(110.0, 60.0, 30.0, 30.0), Paint::Alpha(0x40ff80, 128), -0.8, 1.0, 0.6),
     ]);

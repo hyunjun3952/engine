@@ -93,7 +93,7 @@ impl Hangul {
                 _ => Step::Plain,
             },
             (_, true) => match (cho, jung, jong) {
-                (None, None, _) | (Some(_), None, _) => Step::Edit(Hangul { jung: Some(c), ..*self }),
+                (_, None, _) => Step::Edit(Hangul { jung: Some(c), ..*self }),
                 (_, Some(v), None) => match join(&VOWELS, v, c) {
                     Some(both) => Step::Edit(Hangul { jung: Some(both), ..*self }),
                     None => start(Hangul { jung: Some(c), ..Default::default() }),
