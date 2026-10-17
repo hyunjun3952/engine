@@ -1,6 +1,6 @@
 use crate::base::in_file;
 use crate::base::save::{escape, unescape};
-use crate::{Body, Collider, Entity, Filter, Layer, Rect, Transform, Vel, World};
+use crate::{AnimState, Body, Collider, Entity, Filter, Layer, Rect, Transform, Vel, World};
 use hecs::{EntityBuilder, EntityRef};
 use std::collections::VecDeque;
 
@@ -119,6 +119,18 @@ impl Persist for Filter {
     }
 }
 
+impl Persist for AnimState {
+    fn write(&self) -> String {
+        format!("{} {} {}", self.t, self.flip, self.done)
+    }
+    fn read(text: &str) -> Option<Self> {
+        let mut it = text.split_whitespace();
+        let t = f32::read(it.next()?)?;
+        let (flip, done) = (it.next()?.parse().ok()?, it.next()?.parse().ok()?);
+        it.next().is_none().then_some(AnimState { t, flip, done })
+    }
+}
+
 impl Persist for Transform {
     fn write(&self) -> String {
         format!("{} {} {}", self.angle, self.sx, self.sy)
@@ -140,7 +152,7 @@ struct Entry {
 /// the registered components the entity has.
 ///
 /// Only registered components are written, and an entity with none of them is left out. Not saved: what is not a
-/// registered component (the physics state such as sleep and joints, `Look::Sprite`, animation), and links between
+/// registered component (the physics state such as sleep and joints, `Look::Sprite`; an `Anim` itself, but `Anim::state` is an `AnimState` to register), and links between
 /// entities (an `Entity` id is not stable across a load).
 ///
 /// ```
@@ -329,6 +341,14 @@ mod tests {
         assert_eq!((f32::read("NaN"), f32::read("inf")), (None, None));
     }
     use crate::RigidBody;
+
+    #[test]
+    fn an_anim_state_round_trips_and_rejects_junk() {
+        let s = AnimState { t: 0.25, flip: true, done: false };
+        assert_eq!(AnimState::read(&s.write()), Some(s));
+        assert_eq!((AnimState::read("0.1 true"), AnimState::read("NaN true false")), (None, None));
+        assert_eq!(AnimState::read("0.1 true false 1"), None);
+    }
 
     #[derive(Debug, PartialEq)]
     struct Hp(u32, String);

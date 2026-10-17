@@ -38,7 +38,7 @@
 //! | Text | [`Gfx::text`], [`Font`], [`Gfx::text_font`], [`wrap`], [`draw_wrapped`] |
 //! | Levels | [`Tilemap`], [`Tile`], [`Slope`], [`Slide`], [`TileHit`], [`Tiled`], [`TiledObject`], [`Spawner`] |
 //! | ECS | [`World`], [`Entity`], [`Body`], [`Vel`], [`Look`], [`Layer`], [`movement`], [`draw_list`] |
-//! | Animation and particles | [`Anim`], [`Clip`], [`AnimStates`], [`animate`], [`Burst`], [`burst`], [`particles`], [`Particle`] |
+//! | Animation and particles | [`Anim`], [`AnimState`], [`Clip`], [`AnimStates`], [`animate`], [`Burst`], [`burst`], [`particles`], [`Particle`] |
 //! | Collisions and rays | [`Collider`], [`Filter`], [`collisions`], [`Contact`], [`Overlaps`], [`query_rect`], [`raycast`], [`raycasts`], [`Ray`], [`RayHit`], [`RayIndex`] |
 //! | Physics | [`Physics`], [`RigidBody`], [`ContactEvent`] |
 //! | Saving | [`Save`], [`data_dir`], [`WorldFile`], [`Persist`], [`Rewind`] |
@@ -87,9 +87,9 @@ pub use audio::{Audio, Bus, Sound, Voice};
 pub use base::{Ease, Rect, Rng, Save, Sprite, Timer, Tween, Vec2, data_dir};
 pub use debug::{Command, Console, Inspector};
 pub use ecs::{
-    Anim, AnimStates, Body, Burst, Clip, Collider, Contact, Entity, Filter, Layer, Look, OverlapChanges, Overlaps,
-    Particle, Persist, Ray, RayHit, RayIndex, Rewind, Spawner, Vel, World, WorldFile, animate, burst, collisions,
-    draw_list, movement, particles, query_rect, raycast, raycasts,
+    Anim, AnimState, AnimStates, Body, Burst, Clip, Collider, Contact, Entity, Filter, Layer, Look, OverlapChanges,
+    Overlaps, Particle, Persist, Ray, RayHit, RayIndex, Rewind, Spawner, Vel, World, WorldFile, animate, burst,
+    collisions, draw_list, movement, particles, query_rect, raycast, raycasts,
 };
 pub use input::{Input, Key, MouseButton, Pad, PadAxis};
 pub use level::{Slide, Slope, Tile, TileHit, Tiled, TiledObject, Tilemap};

@@ -176,6 +176,18 @@ impl Anim {
         self.fired.contains(&name)
     }
 
+    /// Where the clip is now, for `restore`.
+    pub fn state(&self) -> AnimState {
+        AnimState { t: self.t, flip: self.flip, done: self.done }
+    }
+
+    /// Puts the clip back where `state` was, after the game started the same clip again. No event fires for it.
+    pub fn restore(&mut self, state: &AnimState) {
+        let total = self.clip.total();
+        (self.t, self.flip, self.done, self.fresh) = (state.t.clamp(0.0, total), state.flip, state.done, false);
+        self.fired.clear();
+    }
+
     pub(super) fn src(&self) -> Rect {
         let (w, h) = self.size;
         Rect::new((self.frame() * w) as f32, (self.clip.row * h) as f32, w as f32, h as f32)
@@ -219,6 +231,33 @@ impl Anim {
             self.t = to;
         }
     }
+}
+
+/// Where an [`Anim`] is in its clip, to save beside the entity: the sheet and clip come from the game's own code.
+///
+/// ```
+/// use engine::{Anim, Clip, Sprite};
+/// use std::sync::Arc;
+///
+/// let sheet = Arc::new(Sprite::new(32, 16, vec![0; 512]));
+/// let mut anim = Anim::new(sheet.clone(), 16, 16);
+/// anim.start(&Clip::new(0, 2, 10.0));
+/// anim.flip = true;
+/// let saved = anim.state();
+///
+/// let mut copy = Anim::new(sheet, 16, 16);
+/// copy.start(&Clip::new(0, 2, 10.0));
+/// copy.restore(&saved);
+/// assert!(copy.flip);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimState {
+    /// Seconds into the clip.
+    pub t: f32,
+    /// Whether the frames are drawn mirrored.
+    pub flip: bool,
+    /// Whether a clip that plays once has ended.
+    pub done: bool,
 }
 
 /// The states of an animated thing and the clip of each, with the moves between them. Put it on an entity next to

@@ -7,7 +7,7 @@ mod persist;
 mod ray;
 mod spawn;
 
-pub use anim::{Anim, AnimStates, Clip, animate};
+pub use anim::{Anim, AnimState, AnimStates, Clip, animate};
 pub use collision::{Contact, OverlapChanges, Overlaps, collisions, query_rect};
 pub(crate) use collision::{Sweep, turned_box};
 pub use components::{Body, Collider, Filter, Layer, Look, Vel, movement};
